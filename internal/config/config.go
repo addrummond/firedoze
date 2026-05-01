@@ -17,6 +17,7 @@ type Config struct {
 	BaseDomain      string          `toml:"base_domain"`
 	DefaultHTTPPort int             `toml:"default_http_port"`
 	StateDir        string          `toml:"state_dir"`
+	API             APIConfig       `toml:"api"`
 	Metadata        MetadataConfig  `toml:"metadata"`
 	WireGuard       WireGuardConfig `toml:"wireguard"`
 	VMNetwork       VMNetworkConfig `toml:"vm_network"`
@@ -25,6 +26,10 @@ type Config struct {
 
 type MetadataConfig struct {
 	Path string `toml:"path"`
+}
+
+type APIConfig struct {
+	Port int `toml:"port"`
 }
 
 type WireGuardConfig struct {
@@ -82,6 +87,9 @@ func Default() Config {
 		BaseDomain:      "dev.example.com",
 		DefaultHTTPPort: 8080,
 		StateDir:        "/var/lib/firedoze",
+		API: APIConfig{
+			Port: 8081,
+		},
 		Metadata: MetadataConfig{
 			Path: "/var/lib/firedoze/firedoze.db",
 		},
@@ -155,6 +163,9 @@ func (c Config) Validate() error {
 	}
 	if c.StateDir == "" {
 		return fmt.Errorf("state_dir is required")
+	}
+	if c.API.Port <= 0 || c.API.Port > 65535 {
+		return fmt.Errorf("api.port must be between 1 and 65535")
 	}
 	if c.Metadata.Path == "" {
 		return fmt.Errorf("metadata.path is required")

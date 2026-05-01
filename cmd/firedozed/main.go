@@ -5,8 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 
+	"firedoze/internal/api"
 	"firedoze/internal/config"
 	"firedoze/internal/host"
 	"firedoze/internal/store"
@@ -20,10 +26,12 @@ func run() int {
 	var configPath string
 	var printConfig bool
 	var setupWireGuard bool
+	var serve bool
 
 	flag.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
 	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
 	flag.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
+	flag.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -65,5 +73,58 @@ func run() int {
 	}
 
 	logger.Info("firedoze metadata initialized", "database", cfg.Metadata.Path)
+
+	if serve {
+		if !setupWireGuard {
+			logger.Error("refusing to serve API without -setup-wireguard")
+			return 1
+		}
+		if err := serveAPI(ctx, logger, cfg); err != nil {
+			logger.Error("serve api", "error", err)
+			return 1
+		}
+	}
+
 	return 0
+}
+
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
+	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	server := &http.Server{
+		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),
+		Handler: api.NewServer(cfg),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("management API listening", "addr", server.Addr)
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), api.ShutdownTimeout)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		if err == http.ErrServerClosed {
+			return nil
+		}
+		return err
+	}
+}
+
+func wireGuardBindIP(address string) (net.IP, error) {
+	ip, _, err := net.ParseCIDR(address)
+	if err != nil {
+		return nil, err
+	}
+	return ip, nil
 }
