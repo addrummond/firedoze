@@ -87,6 +87,11 @@ sudo /usr/local/bin/firedozed -print-config | sudo tee /etc/firedoze/firedoze.to
 
 Edit `/etc/firedoze/firedoze.toml`.
 
+The addresses below use one example WireGuard subnet:
+
+- `10.77.0.1` is the firedoze host's WireGuard address.
+- `10.77.0.2` is Alice's laptop WireGuard address. Give each peer a unique `/32` address in the WireGuard subnet.
+
 Minimal fields to change:
 
 ```toml
@@ -104,6 +109,7 @@ private_key_file = "/etc/firedoze/wg.key"
 [[wireguard.peers]]
 name = "alice-laptop"
 public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
+# This is Alice's WireGuard client address. Use a different /32 for each peer.
 allowed_ips = ["10.77.0.2/32"]
 
 [vm_network]
@@ -175,7 +181,7 @@ firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
 
 Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client.
 
-You can also fetch the same template over the WireGuard-only API after your tunnel is already working:
+You can also fetch the same template over the WireGuard-only API after your tunnel is already working. In these examples, `10.77.0.1` is the firedoze host's WireGuard address from `[wireguard].address`.
 
 ```sh
 curl http://10.77.0.1:8081/wireguard/peers/alice-laptop/config
@@ -186,6 +192,7 @@ If you need to create the client config manually, use these values:
 ```ini
 [Interface]
 PrivateKey = PASTE_CLIENT_PRIVATE_KEY_HERE
+# This must match the peer's allowed_ips entry in firedoze.toml.
 Address = 10.77.0.2/32
 DNS = 10.77.0.1
 
@@ -209,31 +216,33 @@ Bring the tunnel up on your laptop with `wg-quick` or your WireGuard client.
 All API commands go over WireGuard:
 
 ```sh
-curl http://10.77.0.1:8081/
-curl http://10.77.0.1:8081/health
-curl http://10.77.0.1:8081/config
+API=http://10.77.0.1:8081
+
+curl "$API/"
+curl "$API/health"
+curl "$API/config"
 ```
 
 Create and start a VM:
 
 ```sh
-curl -X POST http://10.77.0.1:8081/vms \
+curl -X POST "$API/vms" \
   -H 'Content-Type: application/json' \
   -d '{"name":"demo"}'
 
-curl -X POST http://10.77.0.1:8081/vms/demo/start
+curl -X POST "$API/vms/demo/start"
 ```
 
 List VMs:
 
 ```sh
-curl http://10.77.0.1:8081/vms
+curl "$API/vms"
 ```
 
 Update a VM's firedoze settings, such as default HTTP port or idle timeout:
 
 ```sh
-curl -X PATCH http://10.77.0.1:8081/vms/demo/settings \
+curl -X PATCH "$API/vms/demo/settings" \
   -H 'Content-Type: application/json' \
   -d '{"default_http_port":3000,"idle_sleep_after_seconds":900}'
 ```
@@ -249,20 +258,20 @@ ssh root@demo.dev.example.com
 Sleep or stop a VM:
 
 ```sh
-curl -X POST http://10.77.0.1:8081/vms/demo/sleep
-curl -X POST http://10.77.0.1:8081/vms/demo/stop
+curl -X POST "$API/vms/demo/sleep"
+curl -X POST "$API/vms/demo/stop"
 ```
 
 Delete a VM and its state directory:
 
 ```sh
-curl -X DELETE http://10.77.0.1:8081/vms/demo
+curl -X DELETE "$API/vms/demo"
 ```
 
 Save a named snapshot:
 
 ```sh
-curl -X POST http://10.77.0.1:8081/snapshots \
+curl -X POST "$API/snapshots" \
   -H 'Content-Type: application/json' \
   -d '{"name":"demo-base","vm":"demo"}'
 ```
@@ -270,7 +279,7 @@ curl -X POST http://10.77.0.1:8081/snapshots \
 Restore a snapshot as a new VM:
 
 ```sh
-curl -X POST http://10.77.0.1:8081/snapshots/demo-base/restore \
+curl -X POST "$API/snapshots/demo-base/restore" \
   -H 'Content-Type: application/json' \
   -d '{"vm":"demo-copy"}'
 ```
@@ -278,13 +287,13 @@ curl -X POST http://10.77.0.1:8081/snapshots/demo-base/restore \
 Delete a snapshot and its files:
 
 ```sh
-curl -X DELETE http://10.77.0.1:8081/snapshots/demo-base
+curl -X DELETE "$API/snapshots/demo-base"
 ```
 
 Create a public web route alias:
 
 ```sh
-curl -X POST http://10.77.0.1:8081/routes \
+curl -X POST "$API/routes" \
   -H 'Content-Type: application/json' \
   -d '{"name":"app","vm":"demo","port":8080}'
 ```
@@ -300,5 +309,5 @@ If `demo` is sleeping when a request reaches `app.dev.example.com`, firedoze wak
 Delete the route alias:
 
 ```sh
-curl -X DELETE http://10.77.0.1:8081/routes/app
+curl -X DELETE "$API/routes/app"
 ```
