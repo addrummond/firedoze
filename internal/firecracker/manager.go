@@ -23,6 +23,7 @@ import (
 )
 
 var ErrAlreadyRunning = errors.New("vm already running")
+var ErrNotRunning = errors.New("vm is not running")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
@@ -86,6 +87,10 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 
 func (m *Manager) ListVMs(ctx context.Context) ([]store.VM, error) {
 	return m.store.ListVMs(ctx)
+}
+
+func (m *Manager) ListSnapshots(ctx context.Context) ([]store.Snapshot, error) {
+	return m.store.ListSnapshots(ctx)
 }
 
 func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
@@ -245,6 +250,79 @@ func (m *Manager) StopVM(ctx context.Context, name string) error {
 	_ = os.Remove(proc.SocketPath)
 	_ = m.cleanupNetwork(proc)
 	return m.store.SetVMState(ctx, name, "stopped")
+}
+
+func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotParams) (store.Snapshot, error) {
+	if params.Name == "" {
+		return store.Snapshot{}, errors.New("snapshot name is required")
+	}
+	if params.SourceVM == "" {
+		return store.Snapshot{}, errors.New("source VM is required")
+	}
+	exists, err := m.store.SnapshotExists(ctx, params.Name)
+	if err != nil {
+		return store.Snapshot{}, err
+	}
+	if exists {
+		return store.Snapshot{}, fmt.Errorf("snapshot %q already exists", params.Name)
+	}
+	vm, err := m.store.GetVM(ctx, params.SourceVM)
+	if err != nil {
+		return store.Snapshot{}, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	proc, ok := m.running[vm.Name]
+	if !ok {
+		return store.Snapshot{}, fmt.Errorf("%w: %s", ErrNotRunning, vm.Name)
+	}
+
+	vmLayout := m.layout(vm.Name)
+	snapshotLayout := m.snapshotLayout(params.Name)
+	if err := os.MkdirAll(snapshotLayout.dir, 0o755); err != nil {
+		return store.Snapshot{}, err
+	}
+
+	if err := firecrackerSetVMState(ctx, proc.SocketPath, "Paused"); err != nil {
+		return store.Snapshot{}, err
+	}
+	resume := true
+	defer func() {
+		if resume {
+			if err := firecrackerSetVMState(context.Background(), proc.SocketPath, "Resumed"); err != nil {
+				m.logger.Warn("resume vm after snapshot", "vm", vm.Name, "error", err)
+			}
+		}
+	}()
+
+	if err := firecrackerCreateSnapshot(ctx, proc.SocketPath, snapshotLayout.statePath, snapshotLayout.memPath); err != nil {
+		return store.Snapshot{}, err
+	}
+	if err := copyFile(snapshotLayout.diskPath, vmLayout.diskPath); err != nil {
+		return store.Snapshot{}, err
+	}
+
+	if err := firecrackerSetVMState(ctx, proc.SocketPath, "Resumed"); err != nil {
+		return store.Snapshot{}, err
+	}
+	resume = false
+
+	snapshot, err := m.store.CreateSnapshot(ctx, store.CreateSnapshotParams{
+		Name:        params.Name,
+		SourceVM:    vm.Name,
+		StatePath:   snapshotLayout.statePath,
+		MemPath:     snapshotLayout.memPath,
+		DiskPath:    snapshotLayout.diskPath,
+		BaseImageID: filepath.Base(m.cfg.Firecracker.BaseRootfsPath),
+		KernelID:    filepath.Base(m.cfg.Firecracker.BaseKernelPath),
+	})
+	if err != nil {
+		return store.Snapshot{}, err
+	}
+	m.logger.Info("saved snapshot", "snapshot", snapshot.Name, "vm", vm.Name)
+	return snapshot, nil
 }
 
 type preparedNetwork struct {
@@ -409,6 +487,13 @@ type layout struct {
 	stderrPath string
 }
 
+type snapshotLayout struct {
+	dir       string
+	statePath string
+	memPath   string
+	diskPath  string
+}
+
 func (m *Manager) layout(name string) layout {
 	vmDir := filepath.Join(m.cfg.StateDir, "vms", name)
 	runtimeDir := filepath.Join(vmDir, "run")
@@ -420,6 +505,16 @@ func (m *Manager) layout(name string) layout {
 		socketPath: filepath.Join(runtimeDir, "firecracker.sock"),
 		stdoutPath: filepath.Join(runtimeDir, "stdout.log"),
 		stderrPath: filepath.Join(runtimeDir, "stderr.log"),
+	}
+}
+
+func (m *Manager) snapshotLayout(name string) snapshotLayout {
+	dir := filepath.Join(m.cfg.StateDir, "snapshots", name)
+	return snapshotLayout{
+		dir:       dir,
+		statePath: filepath.Join(dir, "vmstate"),
+		memPath:   filepath.Join(dir, "memory"),
+		diskPath:  filepath.Join(dir, "rootfs.ext4"),
 	}
 }
 
@@ -443,6 +538,23 @@ func ensureDisk(path string, source string, size int64) error {
 		return err
 	}
 	if err := out.Truncate(size); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func copyFile(dst string, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
 		return err
 	}
@@ -518,11 +630,27 @@ func waitForSocket(ctx context.Context, path string, timeout time.Duration) erro
 }
 
 func firecrackerAction(ctx context.Context, socketPath string, action string) error {
-	body, err := json.Marshal(map[string]string{"action_type": action})
+	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/actions", map[string]string{"action_type": action})
+}
+
+func firecrackerSetVMState(ctx context.Context, socketPath string, state string) error {
+	return firecrackerRequest(ctx, socketPath, http.MethodPatch, "/vm", map[string]string{"state": state})
+}
+
+func firecrackerCreateSnapshot(ctx context.Context, socketPath string, statePath string, memPath string) error {
+	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/snapshot/create", map[string]string{
+		"snapshot_type": "Full",
+		"snapshot_path": statePath,
+		"mem_file_path": memPath,
+	})
+}
+
+func firecrackerRequest(ctx context.Context, socketPath string, method string, path string, bodyValue any) error {
+	body, err := json.Marshal(bodyValue)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://firecracker/actions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, "http://firecracker"+path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -544,7 +672,7 @@ func firecrackerAction(ctx context.Context, socketPath string, action string) er
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("firecracker action %s returned %s: %s", action, resp.Status, string(data))
+		return fmt.Errorf("firecracker %s %s returned %s: %s", method, path, resp.Status, string(data))
 	}
 	return nil
 }

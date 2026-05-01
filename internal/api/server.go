@@ -54,6 +54,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
 	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
+	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
+	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +121,18 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"path":        "/routes/{name}",
 				"description": "delete a public HTTP route alias",
 				"curl":        "curl -X DELETE http://" + r.Host + "/routes/app",
+			},
+			{
+				"method":      "GET",
+				"path":        "/snapshots",
+				"description": "list named VM snapshots",
+				"curl":        "curl http://" + r.Host + "/snapshots",
+			},
+			{
+				"method":      "POST",
+				"path":        "/snapshots",
+				"description": "save a running VM as a named snapshot",
+				"curl":        "curl -X POST http://" + r.Host + `/snapshots -d '{"name":"base-node-app","vm":"demo"}'`,
 			},
 		},
 	})
@@ -320,6 +334,53 @@ func (s *Server) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
+	snapshots, err := s.manager.ListSnapshots(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshots": snapshots})
+}
+
+func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name   string `json:"name"`
+		VMName string `json:"vm_name"`
+		VM     string `json:"vm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.VMName == "" {
+		req.VMName = req.VM
+	}
+	if !validSnapshotName(req.Name) {
+		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
+		return
+	}
+	if !validVMName(req.VMName) {
+		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+		return
+	}
+	snapshot, err := s.manager.SaveSnapshot(r.Context(), store.CreateSnapshotParams{
+		Name:     req.Name,
+		SourceVM: req.VMName,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrNotRunning) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snapshot})
+}
+
 func (s *Server) reconcileProxy(r *http.Request) error {
 	if s.proxy == nil {
 		return nil
@@ -340,7 +401,12 @@ func writeError(w http.ResponseWriter, status int, err error) {
 }
 
 var vmNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+var snapshotNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 func validVMName(name string) bool {
 	return vmNamePattern.MatchString(name)
+}
+
+func validSnapshotName(name string) bool {
+	return snapshotNamePattern.MatchString(name)
 }

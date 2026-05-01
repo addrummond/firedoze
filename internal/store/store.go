@@ -40,8 +40,10 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
+	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	return s.ensureColumn(ctx, "snapshots", "mem_path", "text not null default ''")
 }
 
 func (s *Store) Now(ctx context.Context) (time.Time, error) {
@@ -75,6 +77,7 @@ create table if not exists snapshots (
 	name text primary key,
 	source_vm text,
 	state_path text not null,
+	mem_path text not null,
 	disk_path text not null,
 	base_image_id text not null,
 	kernel_id text not null,
@@ -95,3 +98,31 @@ create unique index if not exists routes_one_default_per_vm
 	on routes(vm_name)
 	where is_default = 1;
 `
+
+func (s *Store) ensureColumn(ctx context.Context, table string, column string, definition string) error {
+	rows, err := s.db.QueryContext(ctx, `pragma table_info(`+table+`)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf("alter table %s add column %s %s", table, column, definition))
+	return err
+}
