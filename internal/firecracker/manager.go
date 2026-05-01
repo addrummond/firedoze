@@ -1,7 +1,6 @@
 package firecracker
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -20,6 +19,11 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/store"
 
+	fcclient "github.com/firecracker-microvm/firecracker-go-sdk/client"
+	fcmodels "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
+	fcops "github.com/firecracker-microvm/firecracker-go-sdk/client/operations"
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/vishvananda/netlink"
 )
 
@@ -905,63 +909,66 @@ func waitForSocket(ctx context.Context, path string, timeout time.Duration) erro
 }
 
 func firecrackerAction(ctx context.Context, socketPath string, action string) error {
-	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/actions", map[string]string{"action_type": action})
+	params := fcops.NewCreateSyncActionParamsWithContext(ctx)
+	params.SetInfo(&fcmodels.InstanceActionInfo{
+		ActionType: stringPtr(action),
+	})
+	if _, err := firecrackerOperations(socketPath).CreateSyncAction(params); err != nil {
+		return fmt.Errorf("firecracker action %s: %w", action, err)
+	}
+	return nil
 }
 
 func firecrackerSetVMState(ctx context.Context, socketPath string, state string) error {
-	return firecrackerRequest(ctx, socketPath, http.MethodPatch, "/vm", map[string]string{"state": state})
+	params := fcops.NewPatchVMParamsWithContext(ctx)
+	params.SetBody(&fcmodels.VM{
+		State: stringPtr(state),
+	})
+	if _, err := firecrackerOperations(socketPath).PatchVM(params); err != nil {
+		return fmt.Errorf("firecracker set vm state %s: %w", state, err)
+	}
+	return nil
 }
 
 func firecrackerCreateSnapshot(ctx context.Context, socketPath string, statePath string, memPath string) error {
-	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/snapshot/create", map[string]string{
-		"snapshot_type": "Full",
-		"snapshot_path": statePath,
-		"mem_file_path": memPath,
+	params := fcops.NewCreateSnapshotParamsWithContext(ctx)
+	params.SetBody(&fcmodels.SnapshotCreateParams{
+		SnapshotType: fcmodels.SnapshotCreateParamsSnapshotTypeFull,
+		SnapshotPath: stringPtr(statePath),
+		MemFilePath:  stringPtr(memPath),
 	})
+	if _, err := firecrackerOperations(socketPath).CreateSnapshot(params); err != nil {
+		return fmt.Errorf("firecracker create snapshot: %w", err)
+	}
+	return nil
 }
 
 func firecrackerLoadSnapshot(ctx context.Context, socketPath string, statePath string, memPath string) error {
-	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/snapshot/load", map[string]any{
-		"snapshot_path": statePath,
-		"mem_backend": map[string]string{
-			"backend_path": memPath,
-			"backend_type": "File",
-		},
-		"track_dirty_pages": true,
-		"resume_vm":         true,
+	params := fcops.NewLoadSnapshotParamsWithContext(ctx)
+	params.SetBody(&fcmodels.SnapshotLoadParams{
+		SnapshotPath:        stringPtr(statePath),
+		MemFilePath:         stringPtr(memPath),
+		EnableDiffSnapshots: true,
+		ResumeVM:            true,
 	})
-}
-
-func firecrackerRequest(ctx context.Context, socketPath string, method string, path string, bodyValue any) error {
-	body, err := json.Marshal(bodyValue)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://firecracker"+path, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				var dialer net.Dialer
-				return dialer.DialContext(ctx, "unix", socketPath)
-			},
-		},
-		Timeout: 5 * time.Second,
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("firecracker %s %s returned %s: %s", method, path, resp.Status, string(data))
+	if _, err := firecrackerOperations(socketPath).LoadSnapshot(params); err != nil {
+		return fmt.Errorf("firecracker load snapshot: %w", err)
 	}
 	return nil
+}
+
+func firecrackerOperations(socketPath string) fcops.ClientIface {
+	transport := httptransport.New(fcclient.DefaultHost, fcclient.DefaultBasePath, fcclient.DefaultSchemes)
+	transport.Transport = &http.Transport{
+		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}
+	return fcclient.New(transport, strfmt.Default).Operations
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 type firecrackerConfig struct {
