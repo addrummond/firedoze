@@ -361,7 +361,7 @@ func (a app) ssh(args []string) error {
 		if vm.Name != args[0] {
 			continue
 		}
-		sshArgs := append([]string{}, strings.Fields(vm.SSH)...)
+		sshArgs := sshCommand(vm)
 		sshArgs = append(sshArgs, args[1:]...)
 		cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
 		cmd.Stdin = os.Stdin
@@ -370,6 +370,18 @@ func (a app) ssh(args []string) error {
 		return cmd.Run()
 	}
 	return fmt.Errorf("VM not found: %s", args[0])
+}
+
+func sshCommand(vm vmInfo) []string {
+	fields := strings.Fields(vm.SSH)
+	if len(fields) >= 2 && vm.PrivateIP != "" {
+		userHost := fields[1]
+		if at := strings.LastIndex(userHost, "@"); at >= 0 {
+			fields[1] = userHost[:at+1] + vm.PrivateIP
+			return fields
+		}
+	}
+	return append([]string{}, fields...)
 }
 
 func (c *client) do(ctx context.Context, method string, path string, body any, out any) error {
