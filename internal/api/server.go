@@ -4,13 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/store"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const ShutdownTimeout = 5 * time.Second
@@ -58,6 +65,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
 	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
 	s.mux.HandleFunc("POST /snapshots/{name}/restore", s.handleRestoreSnapshot)
+	s.mux.HandleFunc("GET /wireguard/peers", s.handleListWireGuardPeers)
+	s.mux.HandleFunc("GET /wireguard/peers/{name}/config", s.handleWireGuardPeerConfig)
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +157,18 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"description": "restore a snapshot as a new stopped VM",
 				"curl":        "curl -X POST http://" + r.Host + `/snapshots/base-node-app/restore -d '{"vm":"demo-clone"}'`,
 			},
+			{
+				"method":      "GET",
+				"path":        "/wireguard/peers",
+				"description": "list configured WireGuard peers",
+				"curl":        "curl http://" + r.Host + "/wireguard/peers",
+			},
+			{
+				"method":      "GET",
+				"path":        "/wireguard/peers/{name}/config",
+				"description": "generate a wg-quick config for a configured peer",
+				"curl":        "curl http://" + r.Host + "/wireguard/peers/alice-laptop/config",
+			},
 		},
 	})
 }
@@ -168,10 +189,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"caddy": map[string]any{
 			"http_port": s.cfg.Caddy.HTTPPort,
 		},
+		"dns": map[string]any{
+			"port": s.cfg.DNS.Port,
+		},
 		"wireguard": map[string]any{
 			"interface":   s.cfg.WireGuard.Interface,
 			"listen_port": s.cfg.WireGuard.ListenPort,
 			"address":     s.cfg.WireGuard.Address,
+			"endpoint":    s.wireGuardEndpoint(),
 			"peers":       len(s.cfg.WireGuard.Peers),
 		},
 		"vm_network": map[string]any{
@@ -201,7 +226,7 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vms": vms})
+	writeJSON(w, http.StatusOK, map[string]any{"vms": s.vmInfos(vms, r.Host)})
 }
 
 func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +262,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"vm": vm})
+	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm, r.Host)})
 }
 
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +282,7 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vm": vm})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
 }
 
 func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +319,7 @@ func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vm": vm})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
 }
 
 func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +328,7 @@ func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"routes": routes})
+	writeJSON(w, http.StatusOK, map[string]any{"routes": s.routeInfos(routes)})
 }
 
 func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +379,7 @@ func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"route": route})
+	writeJSON(w, http.StatusCreated, map[string]any{"route": s.routeInfo(route)})
 }
 
 func (s *Server) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
@@ -418,7 +443,12 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snapshot})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"snapshot": snapshot,
+		"commands": map[string]string{
+			"restore": "curl -X POST http://" + r.Host + "/snapshots/" + snapshot.Name + `/restore -d '{"vm":"demo-clone"}'`,
+		},
+	})
 }
 
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +499,38 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"vm": vm})
+	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+}
+
+func (s *Server) handleListWireGuardPeers(w http.ResponseWriter, r *http.Request) {
+	peers := make([]map[string]any, 0, len(s.cfg.WireGuard.Peers))
+	for _, peer := range s.cfg.WireGuard.Peers {
+		peers = append(peers, map[string]any{
+			"name":        peer.Name,
+			"allowed_ips": peer.AllowedIPs,
+			"commands": map[string]string{
+				"config": "curl http://" + r.Host + "/wireguard/peers/" + peer.Name + "/config",
+			},
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"peers": peers})
+}
+
+func (s *Server) handleWireGuardPeerConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	for _, peer := range s.cfg.WireGuard.Peers {
+		if peer.Name != name {
+			continue
+		}
+		cfg, err := s.wireGuardPeerConfig(peer)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeText(w, http.StatusOK, cfg)
+		return
+	}
+	writeError(w, http.StatusNotFound, fmt.Errorf("%w: wireguard peer %q", store.ErrNotFound, name))
 }
 
 func (s *Server) reconcileProxy(r *http.Request) error {
@@ -479,12 +540,163 @@ func (s *Server) reconcileProxy(r *http.Request) error {
 	return s.proxy.Reconcile(r.Context())
 }
 
+type vmInfo struct {
+	store.VM
+	Hostname string            `json:"hostname"`
+	SSH      string            `json:"ssh"`
+	URLs     map[string]string `json:"urls"`
+	Commands map[string]string `json:"commands"`
+}
+
+type routeInfo struct {
+	store.Route
+	Hostname string `json:"hostname"`
+	URL      string `json:"url"`
+}
+
+func (s *Server) vmInfos(vms []store.VM, apiHost string) []vmInfo {
+	infos := make([]vmInfo, 0, len(vms))
+	for _, vm := range vms {
+		infos = append(infos, s.vmInfo(vm, apiHost))
+	}
+	return infos
+}
+
+func (s *Server) vmInfo(vm store.VM, apiHost string) vmInfo {
+	hostname := s.defaultHostname(vm.Name)
+	return vmInfo{
+		VM:       vm,
+		Hostname: hostname,
+		SSH:      "ssh " + s.cfg.SSH.User + "@" + hostname,
+		URLs: map[string]string{
+			"default": "https://" + hostname,
+		},
+		Commands: map[string]string{
+			"start": "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/start",
+			"stop":  "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/stop",
+			"sleep": "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/sleep",
+			"ssh":   "ssh " + s.cfg.SSH.User + "@" + hostname,
+		},
+	}
+}
+
+func (s *Server) routeInfos(routes []store.Route) []routeInfo {
+	infos := make([]routeInfo, 0, len(routes))
+	for _, route := range routes {
+		infos = append(infos, s.routeInfo(route))
+	}
+	return infos
+}
+
+func (s *Server) routeInfo(route store.Route) routeInfo {
+	hostname := s.defaultHostname(route.Name)
+	return routeInfo{
+		Route:    route,
+		Hostname: hostname,
+		URL:      "https://" + hostname,
+	}
+}
+
+func (s *Server) defaultHostname(name string) string {
+	return name + "." + strings.TrimSuffix(s.cfg.BaseDomain, ".")
+}
+
+func (s *Server) wireGuardPeerConfig(peer config.WGPeer) (string, error) {
+	serverPublicKey, err := s.serverWireGuardPublicKey()
+	if err != nil {
+		return "", err
+	}
+	clientAddresses := peerClientAddresses(peer.AllowedIPs)
+	if len(clientAddresses) == 0 {
+		clientAddresses = []string{"<client-wireguard-address>"}
+	}
+	allowedIPs := []string{wireGuardHostCIDR(s.cfg.WireGuard.Address), s.cfg.VMNetwork.Subnet}
+	allowedIPs = compactStrings(allowedIPs)
+	dnsIP, _, err := net.ParseCIDR(s.cfg.WireGuard.Address)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Interface]\n")
+	fmt.Fprintf(&b, "PrivateKey = <client-private-key>\n")
+	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))
+	fmt.Fprintf(&b, "DNS = %s\n\n", dnsIP.String())
+	fmt.Fprintf(&b, "[Peer]\n")
+	fmt.Fprintf(&b, "PublicKey = %s\n", serverPublicKey)
+	fmt.Fprintf(&b, "Endpoint = %s\n", s.wireGuardEndpoint())
+	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(allowedIPs, ", "))
+	fmt.Fprintf(&b, "PersistentKeepalive = 25\n")
+	return b.String(), nil
+}
+
+func (s *Server) serverWireGuardPublicKey() (string, error) {
+	data, err := os.ReadFile(s.cfg.WireGuard.PrivateKeyFile)
+	if err != nil {
+		return "", err
+	}
+	privateKey, err := wgtypes.ParseKey(strings.TrimSpace(string(data)))
+	if err != nil {
+		return "", err
+	}
+	return privateKey.PublicKey().String(), nil
+}
+
+func (s *Server) wireGuardEndpoint() string {
+	if s.cfg.WireGuard.Endpoint != "" {
+		return s.cfg.WireGuard.Endpoint
+	}
+	return "<firedoze-public-host>:" + fmt.Sprint(s.cfg.WireGuard.ListenPort)
+}
+
+func peerClientAddresses(allowedIPs []string) []string {
+	var addresses []string
+	for _, cidr := range allowedIPs {
+		ip, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		ones, bits := ipNet.Mask.Size()
+		if ones != bits {
+			continue
+		}
+		addresses = append(addresses, ip.String()+fmt.Sprintf("/%d", bits))
+	}
+	return addresses
+}
+
+func wireGuardHostCIDR(address string) string {
+	ip, ipNet, err := net.ParseCIDR(address)
+	if err != nil {
+		return address
+	}
+	_, bits := ipNet.Mask.Size()
+	return ip.String() + fmt.Sprintf("/%d", bits)
+}
+
+func compactStrings(values []string) []string {
+	var out []string
+	for _, value := range values {
+		if value == "" || slices.Contains(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	_ = encoder.Encode(value)
+}
+
+func writeText(w http.ResponseWriter, status int, value string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(value))
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {

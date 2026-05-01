@@ -100,7 +100,7 @@ public_key = "..."
 allowed_ips = ["10.77.0.2/32"]
 ```
 
-firedoze should make WireGuard easy by generating sample peer configs.
+firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, DNS, management and VM subnet routes, and a `<client-private-key>` placeholder. firedoze does not manage developer client private keys.
 
 ## Host Firewall
 
@@ -123,6 +123,8 @@ API responses should optimize usability and include ready-to-run commands where 
 ```text
 ssh ubuntu@myvm.dev.example.com
 ```
+
+The VM and route API responses include default hostnames, URLs, SSH commands, and common follow-up `curl` commands.
 
 ## Metadata
 
@@ -179,6 +181,8 @@ github.com/miekg/dns
 ```
 
 WireGuard peer configs should set the firedoze WireGuard IP as DNS where practical.
+
+The v1 daemon starts UDP and TCP DNS listeners on the WireGuard address. It answers A queries for `{vm}.{base_domain}` with the VM private IP and does not recurse or forward.
 
 WireGuard peer configuration must include routes for both the WireGuard management address and the VM private subnet. The config format should support multiple peer allowed IP CIDRs.
 
