@@ -1,4 +1,4 @@
-package vmm
+package firecracker
 
 import (
 	"bytes"

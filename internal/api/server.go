@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"firedoze/internal/config"
+	"firedoze/internal/firecracker"
 	"firedoze/internal/store"
-	"firedoze/internal/vmm"
 )
 
 const ShutdownTimeout = 5 * time.Second
 
 type Server struct {
 	cfg     config.Config
-	manager *vmm.Manager
+	manager *firecracker.Manager
 	proxy   Proxy
 	mux     *http.ServeMux
 }
@@ -26,7 +26,7 @@ type Proxy interface {
 	Reconcile(context.Context) error
 }
 
-func NewServer(cfg config.Config, manager *vmm.Manager, proxy Proxy) http.Handler {
+func NewServer(cfg config.Config, manager *firecracker.Manager, proxy Proxy) http.Handler {
 	server := &Server{
 		cfg:     cfg,
 		manager: manager,
@@ -190,7 +190,7 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
-		} else if errors.Is(err, vmm.ErrAlreadyRunning) {
+		} else if errors.Is(err, firecracker.ErrAlreadyRunning) {
 			status = http.StatusConflict
 		}
 		writeError(w, status, err)

@@ -14,10 +14,10 @@ import (
 
 	"firedoze/internal/api"
 	"firedoze/internal/config"
+	"firedoze/internal/firecracker"
 	"firedoze/internal/host"
 	"firedoze/internal/proxy"
 	"firedoze/internal/store"
-	"firedoze/internal/vmm"
 )
 
 func main() {
@@ -81,7 +81,7 @@ func run() int {
 			logger.Error("refusing to serve API without -setup-wireguard")
 			return 1
 		}
-		manager := vmm.NewManager(cfg, db, logger)
+		manager := firecracker.NewManager(cfg, db, logger)
 		proxyManager := proxy.NewManager(cfg, db, logger)
 		if err := proxyManager.Reconcile(ctx); err != nil {
 			logger.Error("start caddy", "error", err)
@@ -97,7 +97,7 @@ func run() int {
 	return 0
 }
 
-func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *vmm.Manager, proxyManager api.Proxy) error {
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *firecracker.Manager, proxyManager api.Proxy) error {
 	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
 	if err != nil {
 		return err
