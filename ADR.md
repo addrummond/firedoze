@@ -174,10 +174,10 @@ myvm.dev.example.com -> VM private IP
 
 It should not recurse, forward, or manage public DNS. It should answer only the configured base domain and only for VM default hostnames. Public HTTPS aliases do not need split-horizon answers in v1.
 
-Likely DNS library:
+DNS library:
 
 ```text
-github.com/miekg/dns
+codeberg.org/miekg/dns
 ```
 
 WireGuard peer configs should set the firedoze WireGuard IP as DNS where practical.

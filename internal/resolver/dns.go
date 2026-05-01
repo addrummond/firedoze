@@ -2,8 +2,10 @@ package resolver
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,7 +14,9 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/store"
 
-	mdns "github.com/miekg/dns"
+	mdns "codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
+	"codeberg.org/miekg/dns/rdata"
 )
 
 type Server struct {
@@ -61,7 +65,7 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		for _, server := range servers {
-			_ = server.ShutdownContext(shutdownCtx)
+			server.Shutdown(shutdownCtx)
 		}
 		wg.Wait()
 		return nil
@@ -70,22 +74,22 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Server) handleDNS(w mdns.ResponseWriter, r *mdns.Msg) {
+func (s *Server) handleDNS(ctx context.Context, w mdns.ResponseWriter, r *mdns.Msg) {
 	msg := new(mdns.Msg)
-	msg.SetReply(r)
+	dnsutil.SetReply(msg, r)
 	msg.Authoritative = true
 	msg.RecursionAvailable = false
 
 	for _, q := range r.Question {
-		if q.Qclass != mdns.ClassINET || q.Qtype != mdns.TypeA {
+		if q.Header().Class != mdns.ClassINET || mdns.RRToType(q) != mdns.TypeA {
 			continue
 		}
-		name := strings.TrimSuffix(strings.ToLower(q.Name), ".")
+		name := strings.TrimSuffix(strings.ToLower(q.Header().Name), ".")
 		vmName, ok := s.vmNameForHost(name)
 		if !ok {
 			continue
 		}
-		vm, err := s.store.GetVM(context.Background(), vmName)
+		vm, err := s.store.GetVM(ctx, vmName)
 		if err != nil || vm.PrivateIP == "" {
 			continue
 		}
@@ -93,21 +97,25 @@ func (s *Server) handleDNS(w mdns.ResponseWriter, r *mdns.Msg) {
 		if ip == nil {
 			continue
 		}
+		addr, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			continue
+		}
 		msg.Answer = append(msg.Answer, &mdns.A{
-			Hdr: mdns.RR_Header{
-				Name:   q.Name,
-				Rrtype: mdns.TypeA,
-				Class:  mdns.ClassINET,
-				Ttl:    5,
+			Hdr: mdns.Header{
+				Name:  q.Header().Name,
+				Class: mdns.ClassINET,
+				TTL:   5,
 			},
-			A: ip,
+			A: rdata.A{Addr: addr},
 		})
 	}
 
 	if len(msg.Answer) == 0 {
 		msg.Rcode = mdns.RcodeNameError
 	}
-	_ = w.WriteMsg(msg)
+	_ = msg.Pack()
+	_, _ = io.Copy(w, msg)
 }
 
 func (s *Server) vmNameForHost(host string) (string, bool) {
