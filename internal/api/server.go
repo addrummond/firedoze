@@ -51,6 +51,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
 	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
+	s.mux.HandleFunc("POST /vms/{name}/sleep", s.handleSleepVM)
 	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
 	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
@@ -104,6 +105,12 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"path":        "/vms/{name}/stop",
 				"description": "stop a VM",
 				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/stop",
+			},
+			{
+				"method":      "POST",
+				"path":        "/vms/{name}/sleep",
+				"description": "sleep a VM by saving exact Firecracker state",
+				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/sleep",
 			},
 			{
 				"method":      "GET",
@@ -262,6 +269,26 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	vm, err := s.manager.SleepVM(r.Context(), name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrNotRunning) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": vm})
 }
 
 func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {

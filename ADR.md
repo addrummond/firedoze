@@ -284,6 +284,8 @@ Sleeping must preserve exact runtime state. On wake, the VM should resume exactl
 
 This requires Firecracker memory snapshot state, disk state, and VM metadata to remain consistent.
 
+The first implementation exposes a manual exact sleep/resume primitive: `POST /vms/{name}/sleep` saves Firecracker memory and VM state into the VM's state directory, stops the Firecracker process, and marks the VM `sleeping`; `POST /vms/{name}/start` loads that state back into Firecracker. Automatic idle detection remains layered on top of this primitive.
+
 ## Snapshot Model
 
 Snapshots are named frozen computers.

@@ -50,6 +50,7 @@ type Process struct {
 	SocketPath string
 	TapName    string
 	GuestCIDR  string
+	FinalState string
 	Command    *exec.Cmd
 }
 
@@ -173,6 +174,9 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		return store.VM{}, ErrAlreadyRunning
 	}
 	m.mu.Unlock()
+	if vm.State == "sleeping" {
+		return m.resumeVM(ctx, vm)
+	}
 
 	layout := m.layout(name)
 	if err := os.MkdirAll(layout.vmDir, 0o755); err != nil {
@@ -218,54 +222,10 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 
 	_ = os.Remove(layout.socketPath)
 
-	stdout, err := os.OpenFile(layout.stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	proc, err := m.launchProcess(name, layout, netdev, "--config-file", layout.configPath)
 	if err != nil {
 		return store.VM{}, err
 	}
-	stderr, err := os.OpenFile(layout.stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		_ = stdout.Close()
-		return store.VM{}, err
-	}
-
-	cmd := exec.Command(m.cfg.Firecracker.BinaryPath, "--api-sock", layout.socketPath, "--config-file", layout.configPath)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		_ = stdout.Close()
-		_ = stderr.Close()
-		return store.VM{}, err
-	}
-
-	proc := &Process{
-		Name:       name,
-		RuntimeDir: layout.runtimeDir,
-		SocketPath: layout.socketPath,
-		TapName:    netdev.tapName,
-		GuestCIDR:  netdev.guestCIDR,
-		Command:    cmd,
-	}
-
-	m.mu.Lock()
-	m.running[name] = proc
-	m.mu.Unlock()
-
-	go func() {
-		err := cmd.Wait()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		m.mu.Lock()
-		delete(m.running, name)
-		m.mu.Unlock()
-		if err := m.store.SetVMState(context.Background(), name, "stopped"); err != nil {
-			m.logger.Warn("set vm stopped after firecracker exit", "vm", name, "error", err)
-		}
-		if err != nil {
-			m.logger.Info("firecracker exited", "vm", name, "error", err)
-		} else {
-			m.logger.Info("firecracker exited", "vm", name)
-		}
-	}()
 
 	if err := waitForSocket(ctx, layout.socketPath, 5*time.Second); err != nil {
 		_ = m.StopVM(context.Background(), name)
@@ -275,8 +235,44 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		return store.VM{}, err
 	}
 
-	m.logger.Info("started vm", "vm", name, "pid", cmd.Process.Pid)
+	m.logger.Info("started vm", "vm", name, "pid", proc.Command.Process.Pid)
 	return m.store.GetVM(ctx, name)
+}
+
+func (m *Manager) resumeVM(ctx context.Context, vm store.VM) (store.VM, error) {
+	layout := m.layout(vm.Name)
+	if _, err := os.Stat(layout.sleepStatePath); err != nil {
+		return store.VM{}, fmt.Errorf("sleep state: %w", err)
+	}
+	if _, err := os.Stat(layout.sleepMemPath); err != nil {
+		return store.VM{}, fmt.Errorf("sleep memory: %w", err)
+	}
+	if err := os.MkdirAll(layout.runtimeDir, 0o755); err != nil {
+		return store.VM{}, err
+	}
+	netdev, err := m.prepareNetwork(ctx, vm)
+	if err != nil {
+		return store.VM{}, fmt.Errorf("prepare network: %w", err)
+	}
+	_ = os.Remove(layout.socketPath)
+	proc, err := m.launchProcess(vm.Name, layout, netdev)
+	if err != nil {
+		_ = m.cleanupNetwork(&Process{TapName: netdev.tapName, GuestCIDR: netdev.guestCIDR})
+		return store.VM{}, err
+	}
+	if err := waitForSocket(ctx, layout.socketPath, 5*time.Second); err != nil {
+		_ = m.stopProcess(context.Background(), proc, "stopped")
+		return store.VM{}, err
+	}
+	if err := firecrackerLoadSnapshot(ctx, layout.socketPath, layout.sleepStatePath, layout.sleepMemPath); err != nil {
+		_ = m.stopProcess(context.Background(), proc, "stopped")
+		return store.VM{}, err
+	}
+	if err := m.store.SetVMState(ctx, vm.Name, "running"); err != nil {
+		return store.VM{}, err
+	}
+	m.logger.Info("resumed vm", "vm", vm.Name, "pid", proc.Command.Process.Pid)
+	return m.store.GetVM(ctx, vm.Name)
 }
 
 func (m *Manager) StopVM(ctx context.Context, name string) error {
@@ -294,30 +290,46 @@ func (m *Manager) StopVM(ctx context.Context, name string) error {
 		}
 	}
 
-	deadline := time.After(5 * time.Second)
-	tick := time.NewTicker(100 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		m.mu.Lock()
-		_, stillRunning := m.running[name]
-		m.mu.Unlock()
-		if !stillRunning {
-			break
-		}
-		select {
-		case <-deadline:
-			if proc.Command.Process != nil {
-				_ = proc.Command.Process.Kill()
-			}
-		case <-tick.C:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if err := m.waitForProcessExit(ctx, proc, 5*time.Second); err != nil {
+		return err
 	}
-
-	_ = os.Remove(proc.SocketPath)
-	_ = m.cleanupNetwork(proc)
+	_ = m.cleanupAfterExit(proc)
 	return m.store.SetVMState(ctx, name, "stopped")
+}
+
+func (m *Manager) SleepVM(ctx context.Context, name string) (store.VM, error) {
+	vm, err := m.store.GetVM(ctx, name)
+	if err != nil {
+		return store.VM{}, err
+	}
+	m.mu.Lock()
+	proc, ok := m.running[name]
+	m.mu.Unlock()
+	if !ok {
+		if vm.State == "sleeping" {
+			return vm, nil
+		}
+		return store.VM{}, fmt.Errorf("%w: %s", ErrNotRunning, name)
+	}
+	layout := m.layout(name)
+	if err := os.MkdirAll(layout.sleepDir, 0o755); err != nil {
+		return store.VM{}, err
+	}
+	if err := firecrackerSetVMState(ctx, proc.SocketPath, "Paused"); err != nil {
+		return store.VM{}, err
+	}
+	if err := firecrackerCreateSnapshot(ctx, proc.SocketPath, layout.sleepStatePath, layout.sleepMemPath); err != nil {
+		_ = firecrackerSetVMState(context.Background(), proc.SocketPath, "Resumed")
+		return store.VM{}, err
+	}
+	if err := m.stopProcess(ctx, proc, "sleeping"); err != nil {
+		return store.VM{}, err
+	}
+	if err := m.store.SetVMState(ctx, name, "sleeping"); err != nil {
+		return store.VM{}, err
+	}
+	m.logger.Info("slept vm", "vm", name)
+	return m.store.GetVM(ctx, name)
 }
 
 func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotParams) (store.Snapshot, error) {
@@ -545,14 +557,119 @@ func run(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
+func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwork, args ...string) (*Process, error) {
+	stdout, err := os.OpenFile(layout.stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := os.OpenFile(layout.stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		_ = stdout.Close()
+		return nil, err
+	}
+
+	cmdArgs := append([]string{"--api-sock", layout.socketPath}, args...)
+	cmd := exec.Command(m.cfg.Firecracker.BinaryPath, cmdArgs...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return nil, err
+	}
+
+	proc := &Process{
+		Name:       name,
+		RuntimeDir: layout.runtimeDir,
+		SocketPath: layout.socketPath,
+		TapName:    netdev.tapName,
+		GuestCIDR:  netdev.guestCIDR,
+		FinalState: "stopped",
+		Command:    cmd,
+	}
+
+	m.mu.Lock()
+	m.running[name] = proc
+	m.mu.Unlock()
+
+	go func() {
+		err := cmd.Wait()
+		_ = stdout.Close()
+		_ = stderr.Close()
+
+		m.mu.Lock()
+		finalState := proc.FinalState
+		if finalState == "" {
+			finalState = "stopped"
+		}
+		delete(m.running, name)
+		m.mu.Unlock()
+
+		if err := m.store.SetVMState(context.Background(), name, finalState); err != nil {
+			m.logger.Warn("set vm state after firecracker exit", "vm", name, "state", finalState, "error", err)
+		}
+		if err != nil {
+			m.logger.Info("firecracker exited", "vm", name, "state", finalState, "error", err)
+		} else {
+			m.logger.Info("firecracker exited", "vm", name, "state", finalState)
+		}
+	}()
+
+	return proc, nil
+}
+
+func (m *Manager) stopProcess(ctx context.Context, proc *Process, finalState string) error {
+	m.mu.Lock()
+	proc.FinalState = finalState
+	m.mu.Unlock()
+	if proc.Command.Process != nil {
+		_ = proc.Command.Process.Kill()
+	}
+	if err := m.waitForProcessExit(ctx, proc, 5*time.Second); err != nil {
+		return err
+	}
+	return m.cleanupAfterExit(proc)
+}
+
+func (m *Manager) waitForProcessExit(ctx context.Context, proc *Process, timeout time.Duration) error {
+	deadline := time.After(timeout)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		m.mu.Lock()
+		_, stillRunning := m.running[proc.Name]
+		m.mu.Unlock()
+		if !stillRunning {
+			return nil
+		}
+		select {
+		case <-deadline:
+			if proc.Command.Process != nil {
+				_ = proc.Command.Process.Kill()
+			}
+		case <-tick.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (m *Manager) cleanupAfterExit(proc *Process) error {
+	_ = os.Remove(proc.SocketPath)
+	return m.cleanupNetwork(proc)
+}
+
 type layout struct {
-	vmDir      string
-	runtimeDir string
-	diskPath   string
-	configPath string
-	socketPath string
-	stdoutPath string
-	stderrPath string
+	vmDir          string
+	runtimeDir     string
+	sleepDir       string
+	diskPath       string
+	configPath     string
+	socketPath     string
+	stdoutPath     string
+	stderrPath     string
+	sleepStatePath string
+	sleepMemPath   string
 }
 
 type snapshotLayout struct {
@@ -565,14 +682,18 @@ type snapshotLayout struct {
 func (m *Manager) layout(name string) layout {
 	vmDir := filepath.Join(m.cfg.StateDir, "vms", name)
 	runtimeDir := filepath.Join(vmDir, "run")
+	sleepDir := filepath.Join(vmDir, "sleep")
 	return layout{
-		vmDir:      vmDir,
-		runtimeDir: runtimeDir,
-		diskPath:   filepath.Join(vmDir, "rootfs.ext4"),
-		configPath: filepath.Join(runtimeDir, "firecracker.json"),
-		socketPath: filepath.Join(runtimeDir, "firecracker.sock"),
-		stdoutPath: filepath.Join(runtimeDir, "stdout.log"),
-		stderrPath: filepath.Join(runtimeDir, "stderr.log"),
+		vmDir:          vmDir,
+		runtimeDir:     runtimeDir,
+		sleepDir:       sleepDir,
+		diskPath:       filepath.Join(vmDir, "rootfs.ext4"),
+		configPath:     filepath.Join(runtimeDir, "firecracker.json"),
+		socketPath:     filepath.Join(runtimeDir, "firecracker.sock"),
+		stdoutPath:     filepath.Join(runtimeDir, "stdout.log"),
+		stderrPath:     filepath.Join(runtimeDir, "stderr.log"),
+		sleepStatePath: filepath.Join(sleepDir, "vmstate"),
+		sleepMemPath:   filepath.Join(sleepDir, "memory"),
 	}
 }
 
@@ -796,6 +917,18 @@ func firecrackerCreateSnapshot(ctx context.Context, socketPath string, statePath
 		"snapshot_type": "Full",
 		"snapshot_path": statePath,
 		"mem_file_path": memPath,
+	})
+}
+
+func firecrackerLoadSnapshot(ctx context.Context, socketPath string, statePath string, memPath string) error {
+	return firecrackerRequest(ctx, socketPath, http.MethodPut, "/snapshot/load", map[string]any{
+		"snapshot_path": statePath,
+		"mem_backend": map[string]string{
+			"backend_path": memPath,
+			"backend_type": "File",
+		},
+		"track_dirty_pages": true,
+		"resume_vm":         true,
 	})
 }
 
