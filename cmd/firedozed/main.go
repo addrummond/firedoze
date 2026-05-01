@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"firedoze/internal/config"
+	"firedoze/internal/host"
 	"firedoze/internal/store"
 )
 
@@ -18,9 +19,11 @@ func main() {
 func run() int {
 	var configPath string
 	var printConfig bool
+	var setupWireGuard bool
 
 	flag.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
 	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
+	flag.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -39,6 +42,15 @@ func run() int {
 	}
 
 	ctx := context.Background()
+
+	if setupWireGuard {
+		ops := host.NewLinuxOps(logger)
+		if err := ops.EnsureWireGuard(ctx, cfg.WireGuard); err != nil {
+			logger.Error("setup wireguard", "interface", cfg.WireGuard.Interface, "error", err)
+			return 1
+		}
+		logger.Info("wireguard interface ready", "interface", cfg.WireGuard.Interface, "address", cfg.WireGuard.Address)
+	}
 
 	db, err := store.Open(ctx, cfg.Metadata.Path)
 	if err != nil {

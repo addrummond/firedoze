@@ -35,6 +35,33 @@ type WireGuardConfig struct {
 	Peers          []WGPeer `toml:"peers"`
 }
 
+func (c WireGuardConfig) Validate() error {
+	if c.Interface == "" {
+		return fmt.Errorf("wireguard.interface is required")
+	}
+	if c.ListenPort <= 0 || c.ListenPort > 65535 {
+		return fmt.Errorf("wireguard.listen_port must be between 1 and 65535")
+	}
+	if c.PrivateKeyFile == "" {
+		return fmt.Errorf("wireguard.private_key_file is required")
+	}
+	if _, _, err := net.ParseCIDR(c.Address); err != nil {
+		return fmt.Errorf("wireguard.address must be CIDR: %w", err)
+	}
+	for i, peer := range c.Peers {
+		if peer.Name == "" {
+			return fmt.Errorf("wireguard.peers[%d].name is required", i)
+		}
+		if peer.PublicKey == "" {
+			return fmt.Errorf("wireguard.peers[%d].public_key is required", i)
+		}
+		if _, _, err := net.ParseCIDR(peer.AllowedIP); err != nil {
+			return fmt.Errorf("wireguard.peers[%d].allowed_ip must be CIDR: %w", i, err)
+		}
+	}
+	return nil
+}
+
 type WGPeer struct {
 	Name      string `toml:"name"`
 	PublicKey string `toml:"public_key"`
@@ -132,31 +159,14 @@ func (c Config) Validate() error {
 	if c.Metadata.Path == "" {
 		return fmt.Errorf("metadata.path is required")
 	}
-	if c.WireGuard.Interface == "" {
-		return fmt.Errorf("wireguard.interface is required")
-	}
-	if c.WireGuard.ListenPort <= 0 || c.WireGuard.ListenPort > 65535 {
-		return fmt.Errorf("wireguard.listen_port must be between 1 and 65535")
-	}
-	if _, _, err := net.ParseCIDR(c.WireGuard.Address); err != nil {
-		return fmt.Errorf("wireguard.address must be CIDR: %w", err)
+	if err := c.WireGuard.Validate(); err != nil {
+		return err
 	}
 	if _, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
 	}
 	if c.SSH.User == "" {
 		return fmt.Errorf("ssh.user is required")
-	}
-	for i, peer := range c.WireGuard.Peers {
-		if peer.Name == "" {
-			return fmt.Errorf("wireguard.peers[%d].name is required", i)
-		}
-		if peer.PublicKey == "" {
-			return fmt.Errorf("wireguard.peers[%d].public_key is required", i)
-		}
-		if _, _, err := net.ParseCIDR(peer.AllowedIP); err != nil {
-			return fmt.Errorf("wireguard.peers[%d].allowed_ip must be CIDR: %w", i, err)
-		}
 	}
 	return nil
 }
