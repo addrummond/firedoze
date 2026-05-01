@@ -3,6 +3,7 @@ package firecracker
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,13 +24,15 @@ import (
 )
 
 var ErrAlreadyRunning = errors.New("vm already running")
+var ErrAlreadyExists = errors.New("already exists")
 var ErrNotRunning = errors.New("vm is not running")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
 const (
-	debugfsPath  = "/usr/sbin/debugfs"
-	iptablesPath = "/usr/sbin/iptables"
+	debugfsPath   = "/usr/sbin/debugfs"
+	iptablesPath  = "/usr/sbin/iptables"
+	sshKeygenPath = "/usr/bin/ssh-keygen"
 )
 
 type Manager struct {
@@ -83,6 +86,71 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 		params.PrivateIP = ip.String()
 	}
 	return m.store.CreateVM(ctx, params)
+}
+
+func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, params store.CreateVMParams) (store.VM, error) {
+	if snapshotName == "" {
+		return store.VM{}, errors.New("snapshot name is required")
+	}
+	if params.Name == "" {
+		return store.VM{}, errors.New("vm name is required")
+	}
+	exists, err := m.store.VMExists(ctx, params.Name)
+	if err != nil {
+		return store.VM{}, err
+	}
+	if exists {
+		return store.VM{}, fmt.Errorf("%w: vm %q", ErrAlreadyExists, params.Name)
+	}
+	snapshot, err := m.store.GetSnapshot(ctx, snapshotName)
+	if err != nil {
+		return store.VM{}, err
+	}
+	diskInfo, err := os.Stat(snapshot.DiskPath)
+	if err != nil {
+		return store.VM{}, fmt.Errorf("snapshot disk: %w", err)
+	}
+	if params.DiskBytes == 0 {
+		params.DiskBytes = diskInfo.Size()
+	}
+	if params.VCPUs == 0 {
+		params.VCPUs = m.cfg.Firecracker.DefaultVCPUs
+	}
+	if params.MemoryMiB == 0 {
+		params.MemoryMiB = m.cfg.Firecracker.DefaultMemoryMiB
+	}
+	if params.DefaultHTTPPort == 0 {
+		params.DefaultHTTPPort = m.cfg.DefaultHTTPPort
+	}
+	if params.PrivateIP == "" {
+		ip, err := m.nextPrivateIP(ctx)
+		if err != nil {
+			return store.VM{}, err
+		}
+		params.PrivateIP = ip.String()
+	}
+
+	layout := m.layout(params.Name)
+	if err := os.MkdirAll(layout.vmDir, 0o755); err != nil {
+		return store.VM{}, err
+	}
+	if err := copyFile(layout.diskPath, snapshot.DiskPath); err != nil {
+		return store.VM{}, fmt.Errorf("copy snapshot disk: %w", err)
+	}
+	if params.DiskBytes > diskInfo.Size() {
+		if err := os.Truncate(layout.diskPath, params.DiskBytes); err != nil {
+			return store.VM{}, err
+		}
+	}
+	if err := m.rewriteGuestIdentity(ctx, layout.diskPath, params.Name); err != nil {
+		return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
+	}
+	vm, err := m.store.CreateVM(ctx, params)
+	if err != nil {
+		return store.VM{}, err
+	}
+	m.logger.Info("restored snapshot to vm", "snapshot", snapshotName, "vm", vm.Name)
+	return vm, nil
 }
 
 func (m *Manager) ListVMs(ctx context.Context) ([]store.VM, error) {
@@ -601,6 +669,92 @@ func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) err
 		return err
 	}
 	return nil
+}
+
+func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmName string) error {
+	if err := writeGuestFile(ctx, diskPath, "/etc/hostname", []byte(vmName+"\n")); err != nil {
+		return err
+	}
+	machineID, err := randomMachineID()
+	if err != nil {
+		return err
+	}
+	if err := writeGuestFile(ctx, diskPath, "/etc/machine-id", []byte(machineID+"\n")); err != nil {
+		return err
+	}
+	if err := writeGuestFile(ctx, diskPath, "/var/lib/dbus/machine-id", []byte(machineID+"\n")); err != nil {
+		m.logger.Debug("rewrite dbus machine-id in guest disk", "error", err)
+	}
+
+	return rewriteSSHHostKeys(ctx, diskPath)
+}
+
+func writeGuestFile(ctx context.Context, diskPath string, guestPath string, data []byte) error {
+	tmp, err := os.CreateTemp("", "firedoze-guest-file-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := run(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
+		// Missing files are fine; the following write creates the replacement.
+	}
+	return run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" "+guestPath, diskPath)
+}
+
+func rewriteSSHHostKeys(ctx context.Context, diskPath string) error {
+	tmpDir, err := os.MkdirTemp("", "firedoze-ssh-host-keys-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	keys := []struct {
+		keyType string
+		path    string
+	}{
+		{keyType: "rsa", path: "/etc/ssh/ssh_host_rsa_key"},
+		{keyType: "ecdsa", path: "/etc/ssh/ssh_host_ecdsa_key"},
+		{keyType: "ed25519", path: "/etc/ssh/ssh_host_ed25519_key"},
+	}
+	for _, key := range keys {
+		localPath := filepath.Join(tmpDir, filepath.Base(key.path))
+		if err := run(ctx, sshKeygenPath, "-q", "-N", "", "-t", key.keyType, "-f", localPath); err != nil {
+			return err
+		}
+		if err := replaceGuestFile(ctx, diskPath, key.path, localPath, "0100600"); err != nil {
+			return err
+		}
+		if err := replaceGuestFile(ctx, diskPath, key.path+".pub", localPath+".pub", "0100644"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceGuestFile(ctx context.Context, diskPath string, guestPath string, localPath string, mode string) error {
+	if err := run(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
+		// Missing files are fine; write creates the replacement.
+	}
+	if err := run(ctx, debugfsPath, "-w", "-R", "write "+localPath+" "+guestPath, diskPath); err != nil {
+		return err
+	}
+	return run(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
+}
+
+func randomMachineID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", id[:]), nil
 }
 
 func writeFirecrackerConfig(path string, cfg firecrackerConfig) error {

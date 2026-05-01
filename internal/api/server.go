@@ -56,6 +56,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
 	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
 	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
+	s.mux.HandleFunc("POST /snapshots/{name}/restore", s.handleRestoreSnapshot)
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +134,12 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"path":        "/snapshots",
 				"description": "save a running VM as a named snapshot",
 				"curl":        "curl -X POST http://" + r.Host + `/snapshots -d '{"name":"base-node-app","vm":"demo"}'`,
+			},
+			{
+				"method":      "POST",
+				"path":        "/snapshots/{name}/restore",
+				"description": "restore a snapshot as a new stopped VM",
+				"curl":        "curl -X POST http://" + r.Host + `/snapshots/base-node-app/restore -d '{"vm":"demo-clone"}'`,
 			},
 		},
 	})
@@ -379,6 +386,55 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snapshot})
+}
+
+func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapshotName := r.PathValue("name")
+	var req struct {
+		VMName          string `json:"vm_name"`
+		VM              string `json:"vm"`
+		VCPUs           int    `json:"vcpus"`
+		MemoryMiB       int    `json:"memory_mib"`
+		DiskBytes       int64  `json:"disk_bytes"`
+		DefaultHTTPPort int    `json:"default_http_port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.VMName == "" {
+		req.VMName = req.VM
+	}
+	if !validSnapshotName(snapshotName) {
+		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
+		return
+	}
+	if !validVMName(req.VMName) {
+		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+		return
+	}
+	vm, err := s.manager.RestoreSnapshot(r.Context(), snapshotName, store.CreateVMParams{
+		Name:            req.VMName,
+		VCPUs:           req.VCPUs,
+		MemoryMiB:       req.MemoryMiB,
+		DiskBytes:       req.DiskBytes,
+		DefaultHTTPPort: req.DefaultHTTPPort,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrAlreadyExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"vm": vm})
 }
 
 func (s *Server) reconcileProxy(r *http.Request) error {

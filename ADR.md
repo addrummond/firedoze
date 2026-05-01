@@ -309,6 +309,8 @@ A destructive in-place restore may be added later, but is not the v1 default.
 
 When cloning/restoring, firedoze must rewrite guest identity so multiple VMs do not share properties such as hostname, machine-id, SSH host keys, or network identity.
 
+The first restore implementation creates a stopped VM from the snapshot disk copy, rewrites guest identity, and boots it normally when started. The Firecracker memory and VM state files are saved and tracked, but are not yet loaded for clone restore because exact memory restore conflicts with changing guest identity. Exact memory resume remains part of the later sleep/resume path.
+
 ## Base Image and Kernel
 
 The base image is non-configurable in v1.
