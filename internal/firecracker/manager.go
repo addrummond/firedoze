@@ -33,6 +33,8 @@ var ErrNotRunning = errors.New("vm is not running")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
+const ShutdownSleepTimeout = 2 * time.Minute
+
 const (
 	debugfsPath   = "/usr/sbin/debugfs"
 	iptablesPath  = "/usr/sbin/iptables"
@@ -340,6 +342,23 @@ func (m *Manager) SleepVM(ctx context.Context, name string) (store.VM, error) {
 	}
 	m.logger.Info("slept vm", "vm", name)
 	return m.store.GetVM(ctx, name)
+}
+
+func (m *Manager) SleepRunningVMs(ctx context.Context) error {
+	m.mu.Lock()
+	names := make([]string, 0, len(m.running))
+	for name := range m.running {
+		names = append(names, name)
+	}
+	m.mu.Unlock()
+
+	var errs []error
+	for _, name := range names {
+		if _, err := m.SleepVM(ctx, name); err != nil {
+			errs = append(errs, fmt.Errorf("sleep %s: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotParams) (store.Snapshot, error) {

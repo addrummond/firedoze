@@ -1,0 +1,26 @@
+[Unit]
+Description=firedoze Firecracker dev environment daemon
+Documentation=file:/usr/local/share/doc/firedoze/Quickstart.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/firedozed -config /etc/firedoze/firedoze.toml -setup-wireguard -serve
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=180s
+KillSignal=SIGTERM
+KillMode=control-group
+
+# firedozed manages WireGuard, TAP interfaces, iptables, debugfs image edits,
+# Firecracker processes, and /dev/kvm. Run it as root for v1.
+User=root
+Group=root
+
+# Keep logs in journald.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

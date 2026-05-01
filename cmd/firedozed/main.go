@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"firedoze/internal/api"
 	"firedoze/internal/config"
@@ -130,6 +131,14 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	select {
 	case <-ctx.Done():
+		sleepCtx, cancelSleep := context.WithTimeout(context.Background(), firecracker.ShutdownSleepTimeout)
+		defer cancelSleep()
+		start := time.Now()
+		if err := manager.SleepRunningVMs(sleepCtx); err != nil {
+			logger.Warn("sleep running vms during shutdown", "error", err)
+		} else {
+			logger.Info("slept running vms during shutdown", "duration", time.Since(start))
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), api.ShutdownTimeout)
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
