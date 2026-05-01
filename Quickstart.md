@@ -25,11 +25,18 @@ sudo apt-get install -y build-essential git iptables wireguard-tools e2fsprogs o
 
 ## 2. Build and Install
 
-From the repo:
+On the host, build and install the daemon:
 
 ```sh
 go build -o firedozed ./cmd/firedozed
 sudo install -m 0755 firedozed /usr/local/bin/firedozed
+```
+
+On your laptop, build and install the client command:
+
+```sh
+go build -o firedoze ./cmd/firedoze
+sudo install -m 0755 firedoze /usr/local/bin/firedoze
 ```
 
 Create the config and state directories:
@@ -213,89 +220,75 @@ Bring the tunnel up on your laptop with `wg-quick` or your WireGuard client.
 
 ## 10. Use the API
 
-All API commands go over WireGuard:
+The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1` or your API port is not `8081`, set `FIREDOZE_API`:
 
 ```sh
-API=http://10.77.0.1:8081
+export FIREDOZE_API=http://10.77.0.1:8081
+```
 
-curl "$API/"
-curl "$API/health"
-curl "$API/config"
+Check that the API is reachable:
+
+```sh
+firedoze health
 ```
 
 Create and start a VM:
 
 ```sh
-curl -X POST "$API/vms" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"demo"}'
-
-curl -X POST "$API/vms/demo/start"
-```
-
-List VMs:
-
-```sh
-curl "$API/vms"
+firedoze vm create demo
+firedoze vm start demo
 ```
 
 Update a VM's firedoze settings, such as default HTTP port or idle timeout:
 
 ```sh
-curl -X PATCH "$API/vms/demo/settings" \
-  -H 'Content-Type: application/json' \
-  -d '{"default_http_port":3000,"idle_sleep_after_seconds":900}'
+firedoze vm settings demo --http-port 3000 --idle-sleep-after 900
 ```
 
 This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.
 
-SSH to the VM:
+List VMs and SSH to one:
 
 ```sh
-ssh root@demo.dev.example.com
+firedoze vm list
+firedoze ssh demo
 ```
 
 Sleep or stop a VM:
 
 ```sh
-curl -X POST "$API/vms/demo/sleep"
-curl -X POST "$API/vms/demo/stop"
+firedoze vm sleep demo
+firedoze vm stop demo
 ```
 
 Delete a VM and its state directory:
 
 ```sh
-curl -X DELETE "$API/vms/demo"
+firedoze vm delete demo
 ```
 
 Save a named snapshot:
 
 ```sh
-curl -X POST "$API/snapshots" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"demo-base","vm":"demo"}'
+firedoze snapshot save demo-base demo
 ```
 
 Restore a snapshot as a new VM:
 
 ```sh
-curl -X POST "$API/snapshots/demo-base/restore" \
-  -H 'Content-Type: application/json' \
-  -d '{"vm":"demo-copy"}'
+firedoze snapshot restore demo-base demo-copy
 ```
 
 Delete a snapshot and its files:
 
 ```sh
-curl -X DELETE "$API/snapshots/demo-base"
+firedoze snapshot delete demo-base
 ```
 
 Create a public web route alias:
 
 ```sh
-curl -X POST "$API/routes" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"app","vm":"demo","port":8080}'
+firedoze route create app demo 8080
 ```
 
 That route maps:
@@ -309,5 +302,18 @@ If `demo` is sleeping when a request reaches `app.dev.example.com`, firedoze wak
 Delete the route alias:
 
 ```sh
-curl -X DELETE "$API/routes/app"
+firedoze route delete app
+```
+
+For scripts that need exact response bodies, add `--json`:
+
+```sh
+firedoze --json vm list
+```
+
+The raw HTTP API is still available. This is useful for debugging or for commands the client has not wrapped yet:
+
+```sh
+curl "$FIREDOZE_API/health"
+curl -X POST "$FIREDOZE_API/vms/demo/start"
 ```

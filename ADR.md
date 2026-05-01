@@ -108,9 +108,9 @@ The daemon does not manage host firewall rules or cloud security groups in v1.
 
 Required firewall/security-group setup should be documented instead.
 
-## API Style
+## API And Client Style
 
-The management API is command-oriented HTTP, optimized for `curl`.
+The management API is command-oriented HTTP and remains usable directly with `curl`.
 
 JSON request bodies are acceptable for commands with more complex input.
 
@@ -118,13 +118,15 @@ The API is experimental in early versions and may change freely.
 
 The API should expose a simple help/landing endpoint with available commands and example `curl` invocations.
 
-API responses should optimize usability and include ready-to-run commands where useful, such as:
+The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
+
+API responses should still optimize usability and include ready-to-run commands where useful, such as:
 
 ```text
 ssh ubuntu@myvm.dev.example.com
 ```
 
-The VM and route API responses include default hostnames, URLs, SSH commands, and common follow-up `curl` commands.
+The VM and route API responses include default hostnames, URLs, SSH commands, and common follow-up commands.
 
 ## Metadata
 
@@ -405,4 +407,4 @@ Host firewall/security group requirements must be documented before real deploym
 9. Add named exact-state snapshots.
 10. Add clone-from-snapshot with identity rewrite.
 11. Add idle detection and exact sleep/resume.
-12. Add usability polish: help endpoint, generated WG configs, ready-to-run SSH/curl outputs.
+12. Add usability polish: help endpoint, generated WG configs, client command, ready-to-run SSH/API outputs.
