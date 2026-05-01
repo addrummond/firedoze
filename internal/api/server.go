@@ -7,17 +7,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/store"
-
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	wgconfig "firedoze/internal/wireguard"
 )
 
 const ShutdownTimeout = 5 * time.Second
@@ -220,7 +217,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"interface":   s.cfg.WireGuard.Interface,
 			"listen_port": s.cfg.WireGuard.ListenPort,
 			"address":     s.cfg.WireGuard.Address,
-			"endpoint":    s.wireGuardEndpoint(),
+			"endpoint":    wgconfig.Endpoint(s.cfg),
 			"peers":       len(s.cfg.WireGuard.Peers),
 		},
 		"vm_network": map[string]any{
@@ -611,7 +608,7 @@ func (s *Server) handleWireGuardPeerConfig(w http.ResponseWriter, r *http.Reques
 		if peer.Name != name {
 			continue
 		}
-		cfg, err := s.wireGuardPeerConfig(peer)
+		cfg, err := wgconfig.PeerConfig(s.cfg, peer)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -703,90 +700,6 @@ func (s *Server) publicURL(hostname string) string {
 		return "http://" + hostname
 	}
 	return "http://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPPort))
-}
-
-func (s *Server) wireGuardPeerConfig(peer config.WGPeer) (string, error) {
-	serverPublicKey, err := s.serverWireGuardPublicKey()
-	if err != nil {
-		return "", err
-	}
-	clientAddresses := peerClientAddresses(peer.AllowedIPs)
-	if len(clientAddresses) == 0 {
-		clientAddresses = []string{"<client-wireguard-address>"}
-	}
-	allowedIPs := []string{wireGuardHostCIDR(s.cfg.WireGuard.Address), s.cfg.VMNetwork.Subnet}
-	allowedIPs = compactStrings(allowedIPs)
-	dnsIP, _, err := net.ParseCIDR(s.cfg.WireGuard.Address)
-	if err != nil {
-		return "", err
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "[Interface]\n")
-	fmt.Fprintf(&b, "PrivateKey = <client-private-key>\n")
-	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))
-	fmt.Fprintf(&b, "DNS = %s\n\n", dnsIP.String())
-	fmt.Fprintf(&b, "[Peer]\n")
-	fmt.Fprintf(&b, "PublicKey = %s\n", serverPublicKey)
-	fmt.Fprintf(&b, "Endpoint = %s\n", s.wireGuardEndpoint())
-	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(allowedIPs, ", "))
-	fmt.Fprintf(&b, "PersistentKeepalive = 25\n")
-	return b.String(), nil
-}
-
-func (s *Server) serverWireGuardPublicKey() (string, error) {
-	data, err := os.ReadFile(s.cfg.WireGuard.PrivateKeyFile)
-	if err != nil {
-		return "", err
-	}
-	privateKey, err := wgtypes.ParseKey(strings.TrimSpace(string(data)))
-	if err != nil {
-		return "", err
-	}
-	return privateKey.PublicKey().String(), nil
-}
-
-func (s *Server) wireGuardEndpoint() string {
-	if s.cfg.WireGuard.Endpoint != "" {
-		return s.cfg.WireGuard.Endpoint
-	}
-	return "<firedoze-public-host>:" + fmt.Sprint(s.cfg.WireGuard.ListenPort)
-}
-
-func peerClientAddresses(allowedIPs []string) []string {
-	var addresses []string
-	for _, cidr := range allowedIPs {
-		ip, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		ones, bits := ipNet.Mask.Size()
-		if ones != bits {
-			continue
-		}
-		addresses = append(addresses, ip.String()+fmt.Sprintf("/%d", bits))
-	}
-	return addresses
-}
-
-func wireGuardHostCIDR(address string) string {
-	ip, ipNet, err := net.ParseCIDR(address)
-	if err != nil {
-		return address
-	}
-	_, bits := ipNet.Mask.Size()
-	return ip.String() + fmt.Sprintf("/%d", bits)
-}
-
-func compactStrings(values []string) []string {
-	var out []string
-	for _, value := range values {
-		if value == "" || slices.Contains(out, value) {
-			continue
-		}
-		out = append(out, value)
-	}
-	return out
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

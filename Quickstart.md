@@ -69,14 +69,13 @@ cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
 
 ## 5. Create a WireGuard Peer Key
 
-On your laptop:
+On your laptop, use `firedozed` to generate a WireGuard client key pair. You can use a locally built `firedozed` binary for this; it does not need root for key generation.
 
 ```sh
-wg genkey | tee firedoze-client.key | wg pubkey > firedoze-client.pub
-cat firedoze-client.pub
+firedozed -wg-gen-client-key
 ```
 
-Copy the public key. You will paste it into the server config.
+Save the private key somewhere safe. Copy the public key into the server config.
 
 ## 6. Configure firedoze
 
@@ -184,10 +183,18 @@ The provided unit uses systemd readiness notification and a watchdog. If the dae
 Once firedozed is running, fetch a client config template:
 
 ```sh
+firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
+```
+
+Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client.
+
+You can also fetch the same template over the WireGuard-only API after your tunnel is already working:
+
+```sh
 curl http://10.77.0.1:8081/wireguard/peers/alice-laptop/config
 ```
 
-This only works after you already have some WireGuard route to the API. For the first connection, create the client config manually using the same values:
+If you need to create the client config manually, use these values:
 
 ```ini
 [Interface]
@@ -202,10 +209,10 @@ AllowedIPs = 10.77.0.1/32, 10.88.0.0/16
 PersistentKeepalive = 25
 ```
 
-The server public key is derived from `/etc/firedoze/wg.key`. On the server:
+The server public key is derived from `/etc/firedoze/wg.key`. On the server, print it with:
 
 ```sh
-sudo cat /etc/firedoze/wg.key | wg pubkey
+sudo firedozed -config /etc/firedoze/firedoze.toml -wg-server-public-key
 ```
 
 Bring the tunnel up on your laptop with `wg-quick` or your WireGuard client.
