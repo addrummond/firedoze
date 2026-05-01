@@ -131,8 +131,10 @@ Metadata is stored in local SQLite.
 Use the Go SQLite library:
 
 ```text
-github.com/ncruces/go-sqlite3
+github.com/mattn/go-sqlite3
 ```
+
+This means firedoze requires cgo and a C compiler for builds. That is acceptable because the practical target is x86_64 Linux.
 
 No external database is used.
 
