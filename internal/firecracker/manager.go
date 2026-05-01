@@ -174,6 +174,44 @@ func (m *Manager) ListSnapshots(ctx context.Context) ([]store.Snapshot, error) {
 	return m.store.ListSnapshots(ctx)
 }
 
+func (m *Manager) UpdateVM(ctx context.Context, name string, params store.UpdateVMParams) (store.VM, error) {
+	if params.DefaultHTTPPort != nil && (*params.DefaultHTTPPort <= 0 || *params.DefaultHTTPPort > 65535) {
+		return store.VM{}, errors.New("default_http_port must be between 1 and 65535")
+	}
+	if params.IdleSleepAfterSeconds != nil && *params.IdleSleepAfterSeconds < 0 {
+		return store.VM{}, errors.New("idle_sleep_after_seconds cannot be negative")
+	}
+	return m.store.UpdateVM(ctx, name, params)
+}
+
+func (m *Manager) DeleteVM(ctx context.Context, name string) error {
+	if _, err := m.store.GetVM(ctx, name); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	_, running := m.running[name]
+	m.mu.Unlock()
+	if running {
+		if err := m.StopVM(ctx, name); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(m.layout(name).vmDir); err != nil {
+		return err
+	}
+	return m.store.DeleteVM(ctx, name)
+}
+
+func (m *Manager) DeleteSnapshot(ctx context.Context, name string) error {
+	if _, err := m.store.GetSnapshot(ctx, name); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(m.snapshotLayout(name).dir); err != nil {
+		return err
+	}
+	return m.store.DeleteSnapshot(ctx, name)
+}
+
 func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	vm, err := m.store.GetVM(ctx, name)
 	if err != nil {

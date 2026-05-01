@@ -37,7 +37,10 @@ type APIConfig struct {
 }
 
 type CaddyConfig struct {
-	HTTPPort int `toml:"http_port"`
+	HTTPPort          int  `toml:"http_port"`
+	HTTPSPort         int  `toml:"https_port"`
+	AutoHTTPS         bool `toml:"auto_https"`
+	InternalProxyPort int  `toml:"internal_proxy_port"`
 }
 
 type DNSConfig struct {
@@ -123,7 +126,10 @@ func Default() Config {
 			Port: 8081,
 		},
 		Caddy: CaddyConfig{
-			HTTPPort: 8080,
+			HTTPPort:          8080,
+			HTTPSPort:         8443,
+			AutoHTTPS:         false,
+			InternalProxyPort: 18082,
 		},
 		DNS: DNSConfig{
 			Port: 53,
@@ -219,6 +225,12 @@ func (c Config) Validate() error {
 	}
 	if c.Caddy.HTTPPort <= 0 || c.Caddy.HTTPPort > 65535 {
 		return fmt.Errorf("caddy.http_port must be between 1 and 65535")
+	}
+	if c.Caddy.HTTPSPort <= 0 || c.Caddy.HTTPSPort > 65535 {
+		return fmt.Errorf("caddy.https_port must be between 1 and 65535")
+	}
+	if c.Caddy.InternalProxyPort <= 0 || c.Caddy.InternalProxyPort > 65535 {
+		return fmt.Errorf("caddy.internal_proxy_port must be between 1 and 65535")
 	}
 	if c.DNS.Port <= 0 || c.DNS.Port > 65535 {
 		return fmt.Errorf("dns.port must be between 1 and 65535")

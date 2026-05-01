@@ -20,6 +20,7 @@ import (
 	"firedoze/internal/proxy"
 	"firedoze/internal/resolver"
 	"firedoze/internal/store"
+	"firedoze/internal/systemd"
 )
 
 func main() {
@@ -85,6 +86,14 @@ func run() int {
 		}
 		manager := firecracker.NewManager(cfg, db, logger)
 		proxyManager := proxy.NewManager(cfg, db, logger)
+		wakeProxy := proxy.NewWakeProxy(cfg, db, manager, logger)
+		wakeCtx, cancelWake := context.WithCancel(ctx)
+		defer cancelWake()
+		go func() {
+			if err := wakeProxy.Run(wakeCtx); err != nil {
+				logger.Error("serve wake proxy", "error", err)
+			}
+		}()
 		if err := proxyManager.Reconcile(ctx); err != nil {
 			logger.Error("start caddy", "error", err)
 			return 1
@@ -128,9 +137,15 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 		logger.Info("management API listening", "addr", server.Addr)
 		errCh <- server.ListenAndServe()
 	}()
+	if systemd.Ready() {
+		logger.Info("notified systemd ready")
+	}
+	stopWatchdog := systemd.StartWatchdog(logger)
+	defer stopWatchdog()
 
 	select {
 	case <-ctx.Done():
+		systemd.Stopping()
 		sleepCtx, cancelSleep := context.WithTimeout(context.Background(), firecracker.ShutdownSleepTimeout)
 		defer cancelSleep()
 		start := time.Now()

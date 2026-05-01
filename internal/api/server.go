@@ -56,6 +56,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /config", s.handleConfig)
 	s.mux.HandleFunc("GET /vms", s.handleListVMs)
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
+	s.mux.HandleFunc("PATCH /vms/{name}/settings", s.handleUpdateVMSettings)
+	s.mux.HandleFunc("DELETE /vms/{name}", s.handleDeleteVM)
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
 	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
 	s.mux.HandleFunc("POST /vms/{name}/sleep", s.handleSleepVM)
@@ -64,6 +66,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
 	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
 	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
+	s.mux.HandleFunc("DELETE /snapshots/{name}", s.handleDeleteSnapshot)
 	s.mux.HandleFunc("POST /snapshots/{name}/restore", s.handleRestoreSnapshot)
 	s.mux.HandleFunc("GET /wireguard/peers", s.handleListWireGuardPeers)
 	s.mux.HandleFunc("GET /wireguard/peers/{name}/config", s.handleWireGuardPeerConfig)
@@ -108,6 +111,18 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"path":        "/vms/{name}/start",
 				"description": "start a VM",
 				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/start",
+			},
+			{
+				"method":      "PATCH",
+				"path":        "/vms/{name}/settings",
+				"description": "update VM settings",
+				"curl":        "curl -X PATCH http://" + r.Host + `/vms/demo/settings -d '{"default_http_port":3000}'`,
+			},
+			{
+				"method":      "DELETE",
+				"path":        "/vms/{name}",
+				"description": "delete a VM and its state directory",
+				"curl":        "curl -X DELETE http://" + r.Host + "/vms/demo",
 			},
 			{
 				"method":      "POST",
@@ -158,6 +173,12 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"curl":        "curl -X POST http://" + r.Host + `/snapshots/base-node-app/restore -d '{"vm":"demo-clone"}'`,
 			},
 			{
+				"method":      "DELETE",
+				"path":        "/snapshots/{name}",
+				"description": "delete a named snapshot and its files",
+				"curl":        "curl -X DELETE http://" + r.Host + "/snapshots/base-node-app",
+			},
+			{
 				"method":      "GET",
 				"path":        "/wireguard/peers",
 				"description": "list configured WireGuard peers",
@@ -187,7 +208,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"port": s.cfg.API.Port,
 		},
 		"caddy": map[string]any{
-			"http_port": s.cfg.Caddy.HTTPPort,
+			"http_port":           s.cfg.Caddy.HTTPPort,
+			"https_port":          s.cfg.Caddy.HTTPSPort,
+			"auto_https":          s.cfg.Caddy.AutoHTTPS,
+			"internal_proxy_port": s.cfg.Caddy.InternalProxyPort,
 		},
 		"dns": map[string]any{
 			"port": s.cfg.DNS.Port,
@@ -283,6 +307,54 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+}
+
+func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var req struct {
+		DefaultHTTPPort       *int `json:"default_http_port"`
+		IdleSleepAfterSeconds *int `json:"idle_sleep_after_seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	vm, err := s.manager.UpdateVM(r.Context(), name, store.UpdateVMParams{
+		DefaultHTTPPort:       req.DefaultHTTPPort,
+		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+}
+
+func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.manager.DeleteVM(r.Context(), name); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
@@ -502,6 +574,23 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm, r.Host)})
 }
 
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validSnapshotName(name) {
+		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
+		return
+	}
+	if err := s.manager.DeleteSnapshot(r.Context(), name); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 func (s *Server) handleListWireGuardPeers(w http.ResponseWriter, r *http.Request) {
 	peers := make([]map[string]any, 0, len(s.cfg.WireGuard.Peers))
 	for _, peer := range s.cfg.WireGuard.Peers {
@@ -569,13 +658,15 @@ func (s *Server) vmInfo(vm store.VM, apiHost string) vmInfo {
 		Hostname: hostname,
 		SSH:      "ssh " + s.cfg.SSH.User + "@" + hostname,
 		URLs: map[string]string{
-			"default": "https://" + hostname,
+			"default": s.publicURL(hostname),
 		},
 		Commands: map[string]string{
-			"start": "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/start",
-			"stop":  "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/stop",
-			"sleep": "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/sleep",
-			"ssh":   "ssh " + s.cfg.SSH.User + "@" + hostname,
+			"start":    "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/start",
+			"stop":     "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/stop",
+			"sleep":    "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/sleep",
+			"settings": "curl -X PATCH http://" + apiHost + "/vms/" + vm.Name + `/settings -d '{"default_http_port":3000}'`,
+			"delete":   "curl -X DELETE http://" + apiHost + "/vms/" + vm.Name,
+			"ssh":      "ssh " + s.cfg.SSH.User + "@" + hostname,
 		},
 	}
 }
@@ -593,12 +684,25 @@ func (s *Server) routeInfo(route store.Route) routeInfo {
 	return routeInfo{
 		Route:    route,
 		Hostname: hostname,
-		URL:      "https://" + hostname,
+		URL:      s.publicURL(hostname),
 	}
 }
 
 func (s *Server) defaultHostname(name string) string {
 	return name + "." + strings.TrimSuffix(s.cfg.BaseDomain, ".")
+}
+
+func (s *Server) publicURL(hostname string) string {
+	if s.cfg.Caddy.AutoHTTPS {
+		if s.cfg.Caddy.HTTPSPort == 443 {
+			return "https://" + hostname
+		}
+		return "https://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPSPort))
+	}
+	if s.cfg.Caddy.HTTPPort == 80 {
+		return "http://" + hostname
+	}
+	return "http://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPPort))
 }
 
 func (s *Server) wireGuardPeerConfig(peer config.WGPeer) (string, error) {

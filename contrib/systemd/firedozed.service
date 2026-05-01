@@ -5,10 +5,11 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+Type=notify
 ExecStart=/usr/local/bin/firedozed -config /etc/firedoze/firedoze.toml -setup-wireguard -serve
 Restart=on-failure
 RestartSec=5s
+WatchdogSec=30s
 TimeoutStopSec=180s
 KillSignal=SIGTERM
 KillMode=control-group

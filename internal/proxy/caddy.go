@@ -55,7 +55,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err := caddy.Load(data, true); err != nil {
 		return err
 	}
-	m.logger.Info("reconciled caddy routes", "routes", routeCount, "http_port", m.cfg.Caddy.HTTPPort)
+	m.logger.Info("reconciled caddy routes", "routes", routeCount, "http_port", m.cfg.Caddy.HTTPPort, "https_port", m.cfg.Caddy.HTTPSPort, "auto_https", m.cfg.Caddy.AutoHTTPS)
 	return nil
 }
 
@@ -74,8 +74,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := vm.Name + "." + m.cfg.BaseDomain
-		upstream := net.JoinHostPort(vm.PrivateIP, strconv.Itoa(vm.DefaultHTTPPort))
-		routes = append(routes, reverseProxyRoute(host, upstream))
+		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
 	}
 	for _, alias := range aliases {
 		vm, ok := vmsByName[alias.VMName]
@@ -83,8 +82,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := alias.Name + "." + m.cfg.BaseDomain
-		upstream := net.JoinHostPort(vm.PrivateIP, strconv.Itoa(alias.Port))
-		routes = append(routes, reverseProxyRoute(host, upstream))
+		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
 	}
 	routes = append(routes, map[string]any{
 		"handle": []map[string]any{{
@@ -94,6 +92,18 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 		}},
 	})
 
+	server := map[string]any{
+		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
+		"routes": routes,
+	}
+	if m.cfg.Caddy.AutoHTTPS {
+		server["listen"] = []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort), ":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)}
+	} else {
+		server["automatic_https"] = map[string]any{
+			"disable": true,
+		}
+	}
+
 	return map[string]any{
 		"admin": map[string]any{
 			"disabled": true,
@@ -101,17 +111,15 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 		"apps": map[string]any{
 			"http": map[string]any{
 				"servers": map[string]any{
-					"firedoze": map[string]any{
-						"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
-						"routes": routes,
-						"automatic_https": map[string]any{
-							"disable": true,
-						},
-					},
+					"firedoze": server,
 				},
 			},
 		},
 	}, len(routes) - 1
+}
+
+func (m *Manager) wakeProxyUpstream() string {
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(m.cfg.Caddy.InternalProxyPort))
 }
 
 func DefaultHost(vmName string, baseDomain string) string {

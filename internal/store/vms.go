@@ -30,6 +30,11 @@ type CreateVMParams struct {
 	IdleSleepAfterSeconds int
 }
 
+type UpdateVMParams struct {
+	DefaultHTTPPort       *int
+	IdleSleepAfterSeconds *int
+}
+
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
 	_, err := s.db.ExecContext(ctx, `
 		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds)
@@ -96,6 +101,50 @@ func (s *Store) SetVMState(ctx context.Context, name string, state string) error
 		set state = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		where name = ?
 	`, state, name)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+	}
+	return nil
+}
+
+func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams) (VM, error) {
+	vm, err := s.GetVM(ctx, name)
+	if err != nil {
+		return VM{}, err
+	}
+	if params.DefaultHTTPPort != nil {
+		vm.DefaultHTTPPort = *params.DefaultHTTPPort
+	}
+	if params.IdleSleepAfterSeconds != nil {
+		vm.IdleSleepAfterSeconds = *params.IdleSleepAfterSeconds
+	}
+	result, err := s.db.ExecContext(ctx, `
+		update vms
+		set default_http_port = ?, idle_sleep_after_seconds = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		where name = ?
+	`, vm.DefaultHTTPPort, vm.IdleSleepAfterSeconds, name)
+	if err != nil {
+		return VM{}, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return VM{}, err
+	}
+	if rows == 0 {
+		return VM{}, fmt.Errorf("%w: vm %q", ErrNotFound, name)
+	}
+	return s.GetVM(ctx, name)
+}
+
+func (s *Store) DeleteVM(ctx context.Context, name string) error {
+	result, err := s.db.ExecContext(ctx, `delete from vms where name = ?`, name)
 	if err != nil {
 		return err
 	}

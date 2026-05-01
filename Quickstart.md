@@ -110,6 +110,12 @@ allowed_ips = ["10.77.0.2/32"]
 [vm_network]
 subnet = "10.88.0.0/16"
 
+[caddy]
+http_port = 80
+https_port = 443
+auto_https = true
+internal_proxy_port = 18082
+
 [ssh]
 user = "root"
 authorized_key_files = ["/etc/firedoze/authorized_keys"]
@@ -128,13 +134,27 @@ default_disk_bytes = 536870912
 Open these inbound ports to the host:
 
 - UDP `51820` for WireGuard.
-- TCP `80` and `443` later for public HTTPS routes. During early local testing, the default Caddy listener is `8080`.
+- TCP `80` and `443` for public HTTP/HTTPS routes when `caddy.auto_https = true`.
 
 Set public wildcard DNS for HTTP routes:
 
 ```text
 *.dev.example.com -> your firedoze host public IP
 ```
+
+Caddy obtains certificates automatically for each VM or route hostname when `caddy.auto_https = true`. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
+
+For local development without public DNS or ACME, use HTTP-only mode:
+
+```toml
+[caddy]
+http_port = 8080
+https_port = 8443
+auto_https = false
+internal_proxy_port = 18082
+```
+
+In that mode, public route URLs use `http://name.dev.example.com:8080`.
 
 firedoze also runs a private DNS server on the WireGuard IP. It resolves default VM names like:
 
@@ -156,6 +176,8 @@ journalctl -u firedozed -f
 ```
 
 When systemd stops firedozed, the daemon tries to sleep all running VMs before exit.
+
+The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
 ## 9. Connect WireGuard
 
@@ -214,6 +236,16 @@ List VMs:
 curl http://10.77.0.1:8081/vms
 ```
 
+Update a VM's firedoze settings, such as default HTTP port or idle timeout:
+
+```sh
+curl -X PATCH http://10.77.0.1:8081/vms/demo/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"default_http_port":3000,"idle_sleep_after_seconds":900}'
+```
+
+This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.
+
 SSH to the VM:
 
 ```sh
@@ -225,6 +257,12 @@ Sleep or stop a VM:
 ```sh
 curl -X POST http://10.77.0.1:8081/vms/demo/sleep
 curl -X POST http://10.77.0.1:8081/vms/demo/stop
+```
+
+Delete a VM and its state directory:
+
+```sh
+curl -X DELETE http://10.77.0.1:8081/vms/demo
 ```
 
 Save a named snapshot:
@@ -243,6 +281,12 @@ curl -X POST http://10.77.0.1:8081/snapshots/demo-base/restore \
   -d '{"vm":"demo-copy"}'
 ```
 
+Delete a snapshot and its files:
+
+```sh
+curl -X DELETE http://10.77.0.1:8081/snapshots/demo-base
+```
+
 Create a public HTTP route alias:
 
 ```sh
@@ -257,4 +301,10 @@ That route maps:
 https://app.dev.example.com -> demo VM port 8080
 ```
 
-Early local builds may still be using the configured plain HTTP Caddy port instead of full Auto HTTPS.
+If `demo` is sleeping when a request reaches `app.dev.example.com`, firedoze wakes it before proxying the request. If wake takes longer than the client allows, retry the request.
+
+Delete the route alias:
+
+```sh
+curl -X DELETE http://10.77.0.1:8081/routes/app
+```

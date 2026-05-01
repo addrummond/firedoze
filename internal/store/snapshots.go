@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 type Snapshot struct {
@@ -84,6 +85,21 @@ func (s *Store) SnapshotExists(ctx context.Context, name string) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+func (s *Store) DeleteSnapshot(ctx context.Context, name string) error {
+	result, err := s.db.ExecContext(ctx, `delete from snapshots where name = ?`, name)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("%w: snapshot %q", ErrNotFound, name)
+	}
+	return nil
 }
 
 type snapshotScanner interface {

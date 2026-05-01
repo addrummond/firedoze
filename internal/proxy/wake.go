@@ -1,0 +1,138 @@
+package proxy
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"firedoze/internal/config"
+	"firedoze/internal/firecracker"
+	"firedoze/internal/store"
+)
+
+type VMStarter interface {
+	StartVM(context.Context, string) (store.VM, error)
+}
+
+type WakeProxy struct {
+	cfg     config.Config
+	store   *store.Store
+	manager VMStarter
+	logger  *slog.Logger
+}
+
+func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger *slog.Logger) *WakeProxy {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &WakeProxy{
+		cfg:     cfg,
+		store:   st,
+		manager: manager,
+		logger:  logger,
+	}
+}
+
+func (p *WakeProxy) Run(ctx context.Context) error {
+	server := &http.Server{
+		Addr:    net.JoinHostPort("127.0.0.1", strconv.Itoa(p.cfg.Caddy.InternalProxyPort)),
+		Handler: p,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		p.logger.Info("wake proxy listening", "addr", server.Addr)
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
+
+func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	vm, port, ok := p.routeForHost(r.Context(), r.Host)
+	if !ok {
+		http.Error(w, "firedoze route not found", http.StatusNotFound)
+		return
+	}
+	if vm.State == "sleeping" {
+		started, err := p.manager.StartVM(r.Context(), vm.Name)
+		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
+			p.logger.Warn("wake vm for http route", "vm", vm.Name, "host", r.Host, "error", err)
+			http.Error(w, "firedoze wake failed", http.StatusServiceUnavailable)
+			return
+		}
+		if err == nil {
+			vm = started
+		} else if refreshed, refreshErr := p.store.GetVM(r.Context(), vm.Name); refreshErr == nil {
+			vm = refreshed
+		}
+		p.logger.Info("woke vm for http route", "vm", vm.Name, "host", r.Host)
+	}
+	if vm.State != "running" {
+		http.Error(w, "firedoze vm is not running", http.StatusServiceUnavailable)
+		return
+	}
+	if vm.PrivateIP == "" {
+		http.Error(w, "firedoze vm has no private ip", http.StatusServiceUnavailable)
+		return
+	}
+
+	target := &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(vm.PrivateIP, strconv.Itoa(port)),
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		p.logger.Warn("proxy vm http route", "vm", vm.Name, "host", req.Host, "target", target.Host, "error", err)
+		http.Error(w, "firedoze proxy failed", http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM, int, bool) {
+	host := strings.ToLower(hostport)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(host, ".")
+	base := strings.TrimSuffix(strings.ToLower(p.cfg.BaseDomain), ".")
+	suffix := "." + base
+	if !strings.HasSuffix(host, suffix) {
+		return store.VM{}, 0, false
+	}
+	name := strings.TrimSuffix(host, suffix)
+	if name == "" || strings.Contains(name, ".") {
+		return store.VM{}, 0, false
+	}
+
+	if vm, err := p.store.GetVM(ctx, name); err == nil {
+		return vm, vm.DefaultHTTPPort, true
+	}
+
+	route, err := p.store.GetRoute(ctx, name)
+	if err != nil {
+		return store.VM{}, 0, false
+	}
+	vm, err := p.store.GetVM(ctx, route.VMName)
+	if err != nil {
+		return store.VM{}, 0, false
+	}
+	return vm, route.Port, true
+}
