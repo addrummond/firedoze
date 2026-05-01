@@ -363,6 +363,8 @@ For public HTTPS to work:
 
 No DNS-01 provider integration is required in v1.
 
+The first embedded Caddy implementation is verified with a plain HTTP listener on a configurable high port and `automatic_https` disabled in the generated Caddy server config. This proves route generation and proxying to VM private IPs without requiring public DNS or ACME during early development. The production-oriented path remains per-host Auto HTTPS on ports 80/443.
+
 ## Open Implementation Notes
 
 Exact Firecracker snapshot behavior needs careful implementation because memory state, disk state, network identity, and guest identity must line up.

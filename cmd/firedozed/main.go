@@ -15,6 +15,7 @@ import (
 	"firedoze/internal/api"
 	"firedoze/internal/config"
 	"firedoze/internal/host"
+	"firedoze/internal/proxy"
 	"firedoze/internal/store"
 	"firedoze/internal/vmm"
 )
@@ -81,7 +82,13 @@ func run() int {
 			return 1
 		}
 		manager := vmm.NewManager(cfg, db, logger)
-		if err := serveAPI(ctx, logger, cfg, manager); err != nil {
+		proxyManager := proxy.NewManager(cfg, db, logger)
+		if err := proxyManager.Reconcile(ctx); err != nil {
+			logger.Error("start caddy", "error", err)
+			return 1
+		}
+		defer proxyManager.Stop()
+		if err := serveAPI(ctx, logger, cfg, manager, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
 		}
@@ -90,7 +97,7 @@ func run() int {
 	return 0
 }
 
-func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *vmm.Manager) error {
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *vmm.Manager, proxyManager api.Proxy) error {
 	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
 	if err != nil {
 		return err
@@ -101,7 +108,7 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	server := &http.Server{
 		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),
-		Handler: api.NewServer(cfg, manager),
+		Handler: api.NewServer(cfg, manager, proxyManager),
 	}
 
 	errCh := make(chan error, 1)

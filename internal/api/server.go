@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,13 +18,19 @@ const ShutdownTimeout = 5 * time.Second
 type Server struct {
 	cfg     config.Config
 	manager *vmm.Manager
+	proxy   Proxy
 	mux     *http.ServeMux
 }
 
-func NewServer(cfg config.Config, manager *vmm.Manager) http.Handler {
+type Proxy interface {
+	Reconcile(context.Context) error
+}
+
+func NewServer(cfg config.Config, manager *vmm.Manager, proxy Proxy) http.Handler {
 	server := &Server{
 		cfg:     cfg,
 		manager: manager,
+		proxy:   proxy,
 		mux:     http.NewServeMux(),
 	}
 	server.routes()
@@ -107,6 +114,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"api": map[string]any{
 			"port": s.cfg.API.Port,
 		},
+		"caddy": map[string]any{
+			"http_port": s.cfg.Caddy.HTTPPort,
+		},
 		"wireguard": map[string]any{
 			"interface":   s.cfg.WireGuard.Interface,
 			"listen_port": s.cfg.WireGuard.ListenPort,
@@ -166,6 +176,10 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"vm": vm})
 }
 
@@ -182,6 +196,10 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"vm": vm})
 }
 
@@ -195,7 +213,18 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+func (s *Server) reconcileProxy(r *http.Request) error {
+	if s.proxy == nil {
+		return nil
+	}
+	return s.proxy.Reconcile(r.Context())
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
