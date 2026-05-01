@@ -58,10 +58,10 @@ func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConf
 			return fmt.Errorf("peer %q public key: %w", peer.Name, err)
 		}
 		var allowedIPs []net.IPNet
-		for _, allowedCIDR := range peer.AllowedCIDRs() {
+		for _, allowedCIDR := range peer.AllowedIPs {
 			_, allowedIP, err := net.ParseCIDR(allowedCIDR)
 			if err != nil {
-				return fmt.Errorf("peer %q allowed_ip: %w", peer.Name, err)
+				return fmt.Errorf("peer %q allowed_ips: %w", peer.Name, err)
 			}
 			allowedIPs = append(allowedIPs, *allowedIP)
 		}

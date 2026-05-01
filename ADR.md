@@ -97,7 +97,7 @@ private_key_file = "/etc/firedoze/wg.key"
 [[wireguard.peers]]
 name = "alice-laptop"
 public_key = "..."
-allowed_ip = "10.77.0.2/32"
+allowed_ips = ["10.77.0.2/32"]
 ```
 
 firedoze should make WireGuard easy by generating sample peer configs.
