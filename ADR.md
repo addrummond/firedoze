@@ -180,6 +180,8 @@ github.com/miekg/dns
 
 WireGuard peer configs should set the firedoze WireGuard IP as DNS where practical.
 
+WireGuard peer configuration must include routes for both the WireGuard management address and the VM private subnet. The config format should support multiple peer allowed IP CIDRs.
+
 ## VM Networking
 
 v1 uses private VM networking only.
@@ -196,18 +198,22 @@ There is no SSH jump service and no public SSH.
 
 VM private IPs do not need to be stable across sleep/resume or clone operations, but API responses should expose them for debugging.
 
+The initial Firecracker implementation uses one TAP device per VM. The quickstart guest image derives its guest IP from a `06:00:*` MAC address and configures a `/30`; firedoze currently matches that behavior by assigning the host side as `guest_ip - 1` and the guest as `guest_ip`.
+
+For v1, firedoze applies host-side SNAT/MASQUERADE from the WireGuard subnet to each VM TAP network. This avoids requiring the guest to know routes back to the WireGuard management subnet.
+
 ## SSH
 
 SSH is private over WireGuard only.
 
 Every new VM receives a shared admin-configured authorized-keys list. There is no per-VM or per-user SSH authorization model in v1.
 
-The default user is expected to be the base image's normal cloud user, likely `ubuntu`.
+The default user is expected to be the base image's normal user. The current Firecracker quickstart image supports root SSH, so the early implementation injects configured keys into `/root/.ssh/authorized_keys`.
 
 The preferred user experience is:
 
 ```text
-ssh ubuntu@myvm.dev.example.com
+ssh root@myvm.dev.example.com
 ```
 
 This relies on the WireGuard-only DNS responder resolving VM hostnames to private VM IPs for connected peers.

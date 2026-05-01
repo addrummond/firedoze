@@ -21,6 +21,7 @@ type VM struct {
 
 type CreateVMParams struct {
 	Name            string
+	PrivateIP       string
 	VCPUs           int
 	MemoryMiB       int
 	DiskBytes       int64
@@ -29,9 +30,9 @@ type CreateVMParams struct {
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
 	_, err := s.db.ExecContext(ctx, `
-		insert into vms (name, state, vcpus, memory_mib, disk_bytes, default_http_port)
-		values (?, 'stopped', ?, ?, ?, ?)
-	`, params.Name, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort)
+		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port)
+		values (?, 'stopped', ?, ?, ?, ?, ?)
+	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort)
 	if err != nil {
 		return VM{}, err
 	}
@@ -77,6 +78,14 @@ func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 		return VM{}, err
 	}
 	return vm, nil
+}
+
+func (s *Store) CountVMs(ctx context.Context) (int, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `select count(*) from vms`).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (s *Store) SetVMState(ctx context.Context, name string, state string) error {

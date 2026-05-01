@@ -35,6 +35,8 @@ type Process struct {
 	Name       string
 	RuntimeDir string
 	SocketPath string
+	TapName    string
+	GuestCIDR  string
 	Command    *exec.Cmd
 }
 
@@ -62,6 +64,13 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	}
 	if params.DefaultHTTPPort == 0 {
 		params.DefaultHTTPPort = m.cfg.DefaultHTTPPort
+	}
+	if params.PrivateIP == "" {
+		ip, err := m.nextPrivateIP(ctx)
+		if err != nil {
+			return store.VM{}, err
+		}
+		params.PrivateIP = ip.String()
 	}
 	return m.store.CreateVM(ctx, params)
 }
@@ -93,6 +102,13 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	if err := ensureDisk(layout.diskPath, m.cfg.Firecracker.BaseRootfsPath, vm.DiskBytes); err != nil {
 		return store.VM{}, fmt.Errorf("prepare disk: %w", err)
 	}
+	if err := m.injectAuthorizedKeys(ctx, layout.diskPath); err != nil {
+		return store.VM{}, fmt.Errorf("inject authorized keys: %w", err)
+	}
+	netdev, err := m.prepareNetwork(ctx, vm)
+	if err != nil {
+		return store.VM{}, fmt.Errorf("prepare network: %w", err)
+	}
 	if err := writeFirecrackerConfig(layout.configPath, firecrackerConfig{
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
@@ -103,6 +119,11 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 			PathOnHost:   layout.diskPath,
 			IsRootDevice: true,
 			IsReadOnly:   false,
+		}},
+		NetworkInterfaces: []networkInterface{{
+			IfaceID:     "eth0",
+			HostDevName: netdev.tapName,
+			GuestMAC:    netdev.guestMAC,
 		}},
 		MachineConfig: machineConfig{
 			VCPUCount:  vm.VCPUs,
@@ -138,6 +159,8 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		Name:       name,
 		RuntimeDir: layout.runtimeDir,
 		SocketPath: layout.socketPath,
+		TapName:    netdev.tapName,
+		GuestCIDR:  netdev.guestCIDR,
 		Command:    cmd,
 	}
 
@@ -211,7 +234,134 @@ func (m *Manager) StopVM(ctx context.Context, name string) error {
 	}
 
 	_ = os.Remove(proc.SocketPath)
+	_ = m.cleanupNetwork(proc)
 	return m.store.SetVMState(ctx, name, "stopped")
+}
+
+type preparedNetwork struct {
+	tapName   string
+	guestMAC  string
+	guestCIDR string
+}
+
+func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetwork, error) {
+	if vm.PrivateIP == "" {
+		return preparedNetwork{}, errors.New("vm has no private_ip")
+	}
+	guestIP := net.ParseIP(vm.PrivateIP).To4()
+	if guestIP == nil {
+		return preparedNetwork{}, fmt.Errorf("private_ip must be IPv4: %q", vm.PrivateIP)
+	}
+	hostIP := append(net.IP(nil), guestIP...)
+	hostIP[3]--
+	if hostIP[3] == 0 {
+		return preparedNetwork{}, fmt.Errorf("private_ip %s has invalid /30 host peer", vm.PrivateIP)
+	}
+
+	tapName := tapName(vm.Name)
+	if err := run(ctx, "ip", "link", "delete", tapName); err != nil {
+		m.logger.Debug("delete existing tap", "tap", tapName, "error", err)
+	}
+	if err := run(ctx, "ip", "tuntap", "add", "dev", tapName, "mode", "tap"); err != nil {
+		return preparedNetwork{}, err
+	}
+	if err := run(ctx, "ip", "addr", "add", hostIP.String()+"/30", "dev", tapName); err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+	if err := run(ctx, "ip", "link", "set", tapName, "up"); err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+	if err := run(ctx, "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
+		return preparedNetwork{}, err
+	}
+	guestCIDR := guestIP.String() + "/30"
+	if err := m.ensureMasquerade(ctx, guestCIDR, tapName); err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+
+	return preparedNetwork{
+		tapName:   tapName,
+		guestMAC:  macForGuestIP(guestIP),
+		guestCIDR: guestCIDR,
+	}, nil
+}
+
+func (m *Manager) ensureMasquerade(ctx context.Context, guestCIDR string, tapName string) error {
+	_, wgNet, err := net.ParseCIDR(m.cfg.WireGuard.Address)
+	if err != nil {
+		return err
+	}
+	checkArgs := []string{"-t", "nat", "-C", "POSTROUTING", "-s", wgNet.String(), "-d", guestCIDR, "-o", tapName, "-j", "MASQUERADE"}
+	if err := run(ctx, "iptables", checkArgs...); err == nil {
+		return nil
+	}
+	addArgs := append([]string{"-t", "nat", "-A", "POSTROUTING"}, checkArgs[4:]...)
+	return run(ctx, "iptables", addArgs...)
+}
+
+func (m *Manager) cleanupNetwork(proc *Process) error {
+	var errs []error
+	if proc.GuestCIDR != "" && proc.TapName != "" {
+		if _, wgNet, err := net.ParseCIDR(m.cfg.WireGuard.Address); err == nil {
+			errs = append(errs, run(context.Background(), "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgNet.String(), "-d", proc.GuestCIDR, "-o", proc.TapName, "-j", "MASQUERADE"))
+		}
+	}
+	errs = append(errs, deleteTap(proc.TapName))
+	return errors.Join(errs...)
+}
+
+func (m *Manager) nextPrivateIP(ctx context.Context) (net.IP, error) {
+	_, subnet, err := net.ParseCIDR(m.cfg.VMNetwork.Subnet)
+	if err != nil {
+		return nil, err
+	}
+	base := subnet.IP.To4()
+	if base == nil {
+		return nil, errors.New("vm_network.subnet must be IPv4 for v1")
+	}
+	count, err := m.store.CountVMs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ip := append(net.IP(nil), base...)
+	offset := 2 + count*4
+	ip[2] += byte(offset / 256)
+	ip[3] += byte(offset % 256)
+	if !subnet.Contains(ip) {
+		return nil, fmt.Errorf("vm subnet exhausted: %s", subnet)
+	}
+	return ip, nil
+}
+
+func tapName(vmName string) string {
+	name := "fdtap-" + vmName
+	if len(name) > 15 {
+		return name[:15]
+	}
+	return name
+}
+
+func macForGuestIP(ip net.IP) string {
+	return fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", ip[0], ip[1], ip[2], ip[3])
+}
+
+func deleteTap(name string) error {
+	if name == "" {
+		return nil
+	}
+	return run(context.Background(), "ip", "link", "delete", name)
+}
+
+func run(ctx context.Context, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %v: %w: %s", name, args, err, string(output))
+	}
+	return nil
 }
 
 type layout struct {
@@ -262,6 +412,48 @@ func ensureDisk(path string, source string, size int64) error {
 		return err
 	}
 	return out.Close()
+}
+
+func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) error {
+	if len(m.cfg.SSH.AuthorizedKeyFiles) == 0 {
+		return nil
+	}
+	var keys []byte
+	for _, path := range m.cfg.SSH.AuthorizedKeyFiles {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		keys = append(keys, data...)
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			keys = append(keys, '\n')
+		}
+	}
+
+	tmp, err := os.CreateTemp("", "firedoze-authorized-keys-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(keys); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := run(ctx, "debugfs", "-w", "-R", "mkdir /root/.ssh", diskPath); err != nil {
+		m.logger.Debug("mkdir /root/.ssh in guest disk", "error", err)
+	}
+	if err := run(ctx, "debugfs", "-w", "-R", "rm /root/.ssh/authorized_keys", diskPath); err != nil {
+		m.logger.Debug("remove existing authorized_keys in guest disk", "error", err)
+	}
+	if err := run(ctx, "debugfs", "-w", "-R", "write "+tmpPath+" /root/.ssh/authorized_keys", diskPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 func writeFirecrackerConfig(path string, cfg firecrackerConfig) error {
@@ -323,9 +515,10 @@ func firecrackerAction(ctx context.Context, socketPath string, action string) er
 }
 
 type firecrackerConfig struct {
-	BootSource    bootSource    `json:"boot-source"`
-	Drives        []drive       `json:"drives"`
-	MachineConfig machineConfig `json:"machine-config"`
+	BootSource        bootSource         `json:"boot-source"`
+	Drives            []drive            `json:"drives"`
+	NetworkInterfaces []networkInterface `json:"network-interfaces,omitempty"`
+	MachineConfig     machineConfig      `json:"machine-config"`
 }
 
 type bootSource struct {
@@ -338,6 +531,12 @@ type drive struct {
 	PathOnHost   string `json:"path_on_host"`
 	IsRootDevice bool   `json:"is_root_device"`
 	IsReadOnly   bool   `json:"is_read_only"`
+}
+
+type networkInterface struct {
+	IfaceID     string `json:"iface_id"`
+	HostDevName string `json:"host_dev_name"`
+	GuestMAC    string `json:"guest_mac"`
 }
 
 type machineConfig struct {

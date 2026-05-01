@@ -61,17 +61,33 @@ func (c WireGuardConfig) Validate() error {
 		if peer.PublicKey == "" {
 			return fmt.Errorf("wireguard.peers[%d].public_key is required", i)
 		}
-		if _, _, err := net.ParseCIDR(peer.AllowedIP); err != nil {
-			return fmt.Errorf("wireguard.peers[%d].allowed_ip must be CIDR: %w", i, err)
+		if len(peer.AllowedCIDRs()) == 0 {
+			return fmt.Errorf("wireguard.peers[%d] needs allowed_ip or allowed_ips", i)
+		}
+		for j, allowedIP := range peer.AllowedCIDRs() {
+			if _, _, err := net.ParseCIDR(allowedIP); err != nil {
+				return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] must be CIDR: %w", i, j, err)
+			}
 		}
 	}
 	return nil
 }
 
 type WGPeer struct {
-	Name      string `toml:"name"`
-	PublicKey string `toml:"public_key"`
-	AllowedIP string `toml:"allowed_ip"`
+	Name       string   `toml:"name"`
+	PublicKey  string   `toml:"public_key"`
+	AllowedIP  string   `toml:"allowed_ip"`
+	AllowedIPs []string `toml:"allowed_ips"`
+}
+
+func (p WGPeer) AllowedCIDRs() []string {
+	if len(p.AllowedIPs) > 0 {
+		return p.AllowedIPs
+	}
+	if p.AllowedIP != "" {
+		return []string{p.AllowedIP}
+	}
+	return nil
 }
 
 type VMNetworkConfig struct {
