@@ -14,14 +14,15 @@ import (
 const DefaultPath = "/etc/firedoze/firedoze.toml"
 
 type Config struct {
-	BaseDomain      string          `toml:"base_domain"`
-	DefaultHTTPPort int             `toml:"default_http_port"`
-	StateDir        string          `toml:"state_dir"`
-	API             APIConfig       `toml:"api"`
-	Metadata        MetadataConfig  `toml:"metadata"`
-	WireGuard       WireGuardConfig `toml:"wireguard"`
-	VMNetwork       VMNetworkConfig `toml:"vm_network"`
-	SSH             SSHConfig       `toml:"ssh"`
+	BaseDomain      string            `toml:"base_domain"`
+	DefaultHTTPPort int               `toml:"default_http_port"`
+	StateDir        string            `toml:"state_dir"`
+	API             APIConfig         `toml:"api"`
+	Metadata        MetadataConfig    `toml:"metadata"`
+	WireGuard       WireGuardConfig   `toml:"wireguard"`
+	VMNetwork       VMNetworkConfig   `toml:"vm_network"`
+	SSH             SSHConfig         `toml:"ssh"`
+	Firecracker     FirecrackerConfig `toml:"firecracker"`
 }
 
 type MetadataConfig struct {
@@ -82,6 +83,15 @@ type SSHConfig struct {
 	AuthorizedKeyFiles []string `toml:"authorized_key_files"`
 }
 
+type FirecrackerConfig struct {
+	BinaryPath       string `toml:"binary_path"`
+	BaseKernelPath   string `toml:"base_kernel_path"`
+	BaseRootfsPath   string `toml:"base_rootfs_path"`
+	DefaultVCPUs     int    `toml:"default_vcpus"`
+	DefaultMemoryMiB int    `toml:"default_memory_mib"`
+	DefaultDiskBytes int64  `toml:"default_disk_bytes"`
+}
+
 func Default() Config {
 	return Config{
 		BaseDomain:      "dev.example.com",
@@ -104,6 +114,14 @@ func Default() Config {
 		},
 		SSH: SSHConfig{
 			User: "ubuntu",
+		},
+		Firecracker: FirecrackerConfig{
+			BinaryPath:       "/usr/local/bin/firecracker",
+			BaseKernelPath:   "/var/lib/firedoze/images/vmlinux.bin",
+			BaseRootfsPath:   "/var/lib/firedoze/images/rootfs.ext4",
+			DefaultVCPUs:     1,
+			DefaultMemoryMiB: 128,
+			DefaultDiskBytes: 512 * 1024 * 1024,
 		},
 	}
 }
@@ -178,6 +196,24 @@ func (c Config) Validate() error {
 	}
 	if c.SSH.User == "" {
 		return fmt.Errorf("ssh.user is required")
+	}
+	if c.Firecracker.BinaryPath == "" {
+		return fmt.Errorf("firecracker.binary_path is required")
+	}
+	if c.Firecracker.BaseKernelPath == "" {
+		return fmt.Errorf("firecracker.base_kernel_path is required")
+	}
+	if c.Firecracker.BaseRootfsPath == "" {
+		return fmt.Errorf("firecracker.base_rootfs_path is required")
+	}
+	if c.Firecracker.DefaultVCPUs <= 0 {
+		return fmt.Errorf("firecracker.default_vcpus must be positive")
+	}
+	if c.Firecracker.DefaultMemoryMiB <= 0 {
+		return fmt.Errorf("firecracker.default_memory_mib must be positive")
+	}
+	if c.Firecracker.DefaultDiskBytes <= 0 {
+		return fmt.Errorf("firecracker.default_disk_bytes must be positive")
 	}
 	return nil
 }

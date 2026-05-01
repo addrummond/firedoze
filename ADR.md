@@ -365,6 +365,8 @@ Wake-on-request through embedded Caddy needs a mechanism for Caddy route handlin
 
 Idle detection should likely start with host-visible network counters per VM TAP interface. More complex eBPF or conntrack approaches can come later if needed.
 
+The initial Firecracker integration uses `firecracker --api-sock ... --config-file ...`, which starts the microVM immediately from the config file. In this launch mode, firedoze must not send a separate `InstanceStart` action. Later snapshot/restore work may require moving to a more explicit API-driven configuration flow.
+
 Host firewall/security group requirements must be documented before real deployment, especially:
 
 - Public 80/443 to host.

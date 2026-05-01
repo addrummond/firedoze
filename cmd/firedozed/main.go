@@ -16,6 +16,7 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/host"
 	"firedoze/internal/store"
+	"firedoze/internal/vmm"
 )
 
 func main() {
@@ -79,7 +80,8 @@ func run() int {
 			logger.Error("refusing to serve API without -setup-wireguard")
 			return 1
 		}
-		if err := serveAPI(ctx, logger, cfg); err != nil {
+		manager := vmm.NewManager(cfg, db, logger)
+		if err := serveAPI(ctx, logger, cfg, manager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
 		}
@@ -88,7 +90,7 @@ func run() int {
 	return 0
 }
 
-func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *vmm.Manager) error {
 	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
 	if err != nil {
 		return err
@@ -99,7 +101,7 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config) error
 
 	server := &http.Server{
 		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),
-		Handler: api.NewServer(cfg),
+		Handler: api.NewServer(cfg, manager),
 	}
 
 	errCh := make(chan error, 1)
