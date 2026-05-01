@@ -26,6 +26,11 @@ var ErrAlreadyRunning = errors.New("vm already running")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
+const (
+	debugfsPath  = "/usr/sbin/debugfs"
+	iptablesPath = "/usr/sbin/iptables"
+)
+
 type Manager struct {
 	cfg    config.Config
 	store  *store.Store
@@ -291,7 +296,7 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
-	if err := run(ctx, "sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
+	if err := enableIPv4Forwarding(); err != nil {
 		return preparedNetwork{}, err
 	}
 	guestCIDR := guestIP.String() + "/30"
@@ -313,18 +318,18 @@ func (m *Manager) ensureMasquerade(ctx context.Context, guestCIDR string, tapNam
 		return err
 	}
 	checkArgs := []string{"-t", "nat", "-C", "POSTROUTING", "-s", wgNet.String(), "-d", guestCIDR, "-o", tapName, "-j", "MASQUERADE"}
-	if err := run(ctx, "iptables", checkArgs...); err == nil {
+	if err := run(ctx, iptablesPath, checkArgs...); err == nil {
 		return nil
 	}
 	addArgs := append([]string{"-t", "nat", "-A", "POSTROUTING"}, checkArgs[4:]...)
-	return run(ctx, "iptables", addArgs...)
+	return run(ctx, iptablesPath, addArgs...)
 }
 
 func (m *Manager) cleanupNetwork(proc *Process) error {
 	var errs []error
 	if proc.GuestCIDR != "" && proc.TapName != "" {
 		if _, wgNet, err := net.ParseCIDR(m.cfg.WireGuard.Address); err == nil {
-			errs = append(errs, run(context.Background(), "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", wgNet.String(), "-d", proc.GuestCIDR, "-o", proc.TapName, "-j", "MASQUERADE"))
+			errs = append(errs, run(context.Background(), iptablesPath, "-t", "nat", "-D", "POSTROUTING", "-s", wgNet.String(), "-d", proc.GuestCIDR, "-o", proc.TapName, "-j", "MASQUERADE"))
 		}
 	}
 	errs = append(errs, deleteTap(proc.TapName))
@@ -364,6 +369,10 @@ func tapName(vmName string) string {
 
 func macForGuestIP(ip net.IP) string {
 	return fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", ip[0], ip[1], ip[2], ip[3])
+}
+
+func enableIPv4Forwarding() error {
+	return os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644)
 }
 
 func deleteTap(name string) error {
@@ -470,13 +479,13 @@ func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) err
 		return err
 	}
 
-	if err := run(ctx, "debugfs", "-w", "-R", "mkdir /root/.ssh", diskPath); err != nil {
+	if err := run(ctx, debugfsPath, "-w", "-R", "mkdir /root/.ssh", diskPath); err != nil {
 		m.logger.Debug("mkdir /root/.ssh in guest disk", "error", err)
 	}
-	if err := run(ctx, "debugfs", "-w", "-R", "rm /root/.ssh/authorized_keys", diskPath); err != nil {
+	if err := run(ctx, debugfsPath, "-w", "-R", "rm /root/.ssh/authorized_keys", diskPath); err != nil {
 		m.logger.Debug("remove existing authorized_keys in guest disk", "error", err)
 	}
-	if err := run(ctx, "debugfs", "-w", "-R", "write "+tmpPath+" /root/.ssh/authorized_keys", diskPath); err != nil {
+	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" /root/.ssh/authorized_keys", diskPath); err != nil {
 		return err
 	}
 	return nil
