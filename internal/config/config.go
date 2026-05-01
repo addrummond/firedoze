@@ -37,10 +37,9 @@ type APIConfig struct {
 }
 
 type CaddyConfig struct {
-	HTTPPort          int  `toml:"http_port"`
-	HTTPSPort         int  `toml:"https_port"`
-	AutoHTTPS         bool `toml:"auto_https"`
-	InternalProxyPort int  `toml:"internal_proxy_port"`
+	HTTPPort          int `toml:"http_port"`
+	HTTPSPort         int `toml:"https_port"`
+	InternalProxyPort int `toml:"internal_proxy_port"`
 }
 
 type DNSConfig struct {
@@ -126,9 +125,8 @@ func Default() Config {
 			Port: 8081,
 		},
 		Caddy: CaddyConfig{
-			HTTPPort:          8080,
-			HTTPSPort:         8443,
-			AutoHTTPS:         false,
+			HTTPPort:          80,
+			HTTPSPort:         443,
 			InternalProxyPort: 18082,
 		},
 		DNS: DNSConfig{

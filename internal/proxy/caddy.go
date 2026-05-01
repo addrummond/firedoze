@@ -55,7 +55,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err := caddy.Load(data, true); err != nil {
 		return err
 	}
-	m.logger.Info("reconciled caddy routes", "routes", routeCount, "http_port", m.cfg.Caddy.HTTPPort, "https_port", m.cfg.Caddy.HTTPSPort, "auto_https", m.cfg.Caddy.AutoHTTPS)
+	m.logger.Info("reconciled caddy routes", "routes", routeCount, "http_port", m.cfg.Caddy.HTTPPort, "https_port", m.cfg.Caddy.HTTPSPort)
 	return nil
 }
 
@@ -93,15 +93,8 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 	})
 
 	server := map[string]any{
-		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
+		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort), ":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
 		"routes": routes,
-	}
-	if m.cfg.Caddy.AutoHTTPS {
-		server["listen"] = []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort), ":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)}
-	} else {
-		server["automatic_https"] = map[string]any{
-			"disable": true,
-		}
 	}
 
 	return map[string]any{
@@ -110,6 +103,8 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 		},
 		"apps": map[string]any{
 			"http": map[string]any{
+				"http_port":  m.cfg.Caddy.HTTPPort,
+				"https_port": m.cfg.Caddy.HTTPSPort,
 				"servers": map[string]any{
 					"firedoze": server,
 				},

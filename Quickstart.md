@@ -112,7 +112,6 @@ subnet = "10.88.0.0/16"
 [caddy]
 http_port = 80
 https_port = 443
-auto_https = true
 internal_proxy_port = 18082
 
 [ssh]
@@ -133,27 +132,15 @@ default_disk_bytes = 536870912
 Open these inbound ports to the host:
 
 - UDP `51820` for WireGuard.
-- TCP `80` and `443` for public HTTP/HTTPS routes when `caddy.auto_https = true`.
+- TCP `80` and `443` for public web routes.
 
-Set public wildcard DNS for HTTP routes:
+Set public wildcard DNS for web routes:
 
 ```text
 *.dev.example.com -> your firedoze host public IP
 ```
 
-Caddy obtains certificates automatically for each VM or route hostname when `caddy.auto_https = true`. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
-
-For local development without public DNS or ACME, use HTTP-only mode:
-
-```toml
-[caddy]
-http_port = 8080
-https_port = 8443
-auto_https = false
-internal_proxy_port = 18082
-```
-
-In that mode, public route URLs use `http://name.dev.example.com:8080`.
+Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
 
 firedoze also runs a private DNS server on the WireGuard IP. It resolves default VM names like:
 
@@ -294,7 +281,7 @@ Delete a snapshot and its files:
 curl -X DELETE http://10.77.0.1:8081/snapshots/demo-base
 ```
 
-Create a public HTTP route alias:
+Create a public web route alias:
 
 ```sh
 curl -X POST http://10.77.0.1:8081/routes \

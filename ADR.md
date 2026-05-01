@@ -260,7 +260,7 @@ Route names are globally unique DNS-safe labels.
 
 Routes may target any guest TCP port number, but the target service must speak HTTP. WebSockets should work through Caddy. Raw TCP forwarding and TLS passthrough are not v1 features.
 
-Caddy proxies to the VM private IP over the host-to-VM private network.
+Caddy routes public hosts to firedoze's internal wake proxy. The wake proxy resumes sleeping VMs when needed, then proxies to the VM private IP over the host-to-VM private network.
 
 ## Wake on HTTPS
 
@@ -373,7 +373,7 @@ For public HTTPS to work:
 
 No DNS-01 provider integration is required in v1.
 
-The first embedded Caddy implementation is verified with a plain HTTP listener on a configurable high port and `automatic_https` disabled in the generated Caddy server config. This proves route generation and proxying to VM private IPs without requiring public DNS or ACME during early development. The production-oriented path remains per-host Auto HTTPS on ports 80/443.
+The embedded Caddy integration always runs with Auto HTTPS enabled. firedoze can configure the HTTP and HTTPS listener ports, but there is no separate insecure public routing mode. The normal deployment path is per-host Auto HTTPS on ports 80/443.
 
 ## Open Implementation Notes
 

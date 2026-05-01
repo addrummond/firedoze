@@ -136,19 +136,19 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			{
 				"method":      "GET",
 				"path":        "/routes",
-				"description": "list public HTTP routes",
+				"description": "list public web routes",
 				"curl":        "curl http://" + r.Host + "/routes",
 			},
 			{
 				"method":      "POST",
 				"path":        "/routes",
-				"description": "create a public HTTP route alias",
+				"description": "create a public web route alias",
 				"curl":        "curl -X POST http://" + r.Host + `/routes -d '{"name":"app","vm":"demo","port":8080}'`,
 			},
 			{
 				"method":      "DELETE",
 				"path":        "/routes/{name}",
-				"description": "delete a public HTTP route alias",
+				"description": "delete a public web route alias",
 				"curl":        "curl -X DELETE http://" + r.Host + "/routes/app",
 			},
 			{
@@ -207,7 +207,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"caddy": map[string]any{
 			"http_port":           s.cfg.Caddy.HTTPPort,
 			"https_port":          s.cfg.Caddy.HTTPSPort,
-			"auto_https":          s.cfg.Caddy.AutoHTTPS,
 			"internal_proxy_port": s.cfg.Caddy.InternalProxyPort,
 		},
 		"dns": map[string]any{
@@ -690,16 +689,10 @@ func (s *Server) defaultHostname(name string) string {
 }
 
 func (s *Server) publicURL(hostname string) string {
-	if s.cfg.Caddy.AutoHTTPS {
-		if s.cfg.Caddy.HTTPSPort == 443 {
-			return "https://" + hostname
-		}
-		return "https://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPSPort))
+	if s.cfg.Caddy.HTTPSPort == 443 {
+		return "https://" + hostname
 	}
-	if s.cfg.Caddy.HTTPPort == 80 {
-		return "http://" + hostname
-	}
-	return "http://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPPort))
+	return "https://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPSPort))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
