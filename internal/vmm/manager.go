@@ -18,9 +18,13 @@ import (
 
 	"firedoze/internal/config"
 	"firedoze/internal/store"
+
+	"github.com/vishvananda/netlink"
 )
 
 var ErrAlreadyRunning = errors.New("vm already running")
+
+const tuntapModeTap netlink.TuntapMode = 0x0002
 
 type Manager struct {
 	cfg    config.Config
@@ -259,17 +263,31 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 	}
 
 	tapName := tapName(vm.Name)
-	if err := run(ctx, "ip", "link", "delete", tapName); err != nil {
+	if err := deleteTap(tapName); err != nil {
 		m.logger.Debug("delete existing tap", "tap", tapName, "error", err)
 	}
-	if err := run(ctx, "ip", "tuntap", "add", "dev", tapName, "mode", "tap"); err != nil {
+	tap := &netlink.Tuntap{
+		LinkAttrs: netlink.LinkAttrs{Name: tapName},
+		Mode:      tuntapModeTap,
+	}
+	if err := netlink.LinkAdd(tap); err != nil {
 		return preparedNetwork{}, err
 	}
-	if err := run(ctx, "ip", "addr", "add", hostIP.String()+"/30", "dev", tapName); err != nil {
+	link, err := netlink.LinkByName(tapName)
+	if err != nil {
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
-	if err := run(ctx, "ip", "link", "set", tapName, "up"); err != nil {
+	addr, err := netlink.ParseAddr(hostIP.String() + "/30")
+	if err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+	if err := netlink.AddrReplace(link, addr); err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
@@ -352,7 +370,15 @@ func deleteTap(name string) error {
 	if name == "" {
 		return nil
 	}
-	return run(context.Background(), "ip", "link", "delete", name)
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		var notFound netlink.LinkNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return err
+	}
+	return netlink.LinkDel(link)
 }
 
 func run(ctx context.Context, name string, args ...string) error {

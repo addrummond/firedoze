@@ -198,7 +198,7 @@ There is no SSH jump service and no public SSH.
 
 VM private IPs do not need to be stable across sleep/resume or clone operations, but API responses should expose them for debugging.
 
-The initial Firecracker implementation uses one TAP device per VM. The quickstart guest image derives its guest IP from a `06:00:*` MAC address and configures a `/30`; firedoze currently matches that behavior by assigning the host side as `guest_ip - 1` and the guest as `guest_ip`.
+The initial Firecracker implementation uses one TAP device per VM, created and configured through Linux netlink rather than shelling out to `ip`. The quickstart guest image derives its guest IP from a `06:00:*` MAC address and configures a `/30`; firedoze currently matches that behavior by assigning the host side as `guest_ip - 1` and the guest as `guest_ip`.
 
 For v1, firedoze applies host-side SNAT/MASQUERADE from the WireGuard subnet to each VM TAP network. This avoids requiring the guest to know routes back to the WireGuard management subnet.
 
