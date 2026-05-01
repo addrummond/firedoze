@@ -180,6 +180,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"ssh": map[string]any{
 			"user": s.cfg.SSH.User,
 		},
+		"idle": map[string]any{
+			"check_interval_seconds":      s.cfg.Idle.CheckIntervalSeconds,
+			"default_sleep_after_seconds": s.cfg.Idle.DefaultSleepAfterSeconds,
+		},
 		"firecracker": map[string]any{
 			"binary_path":        s.cfg.Firecracker.BinaryPath,
 			"base_kernel_path":   s.cfg.Firecracker.BaseKernelPath,
@@ -202,11 +206,12 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name            string `json:"name"`
-		VCPUs           int    `json:"vcpus"`
-		MemoryMiB       int    `json:"memory_mib"`
-		DiskBytes       int64  `json:"disk_bytes"`
-		DefaultHTTPPort int    `json:"default_http_port"`
+		Name                  string `json:"name"`
+		VCPUs                 int    `json:"vcpus"`
+		MemoryMiB             int    `json:"memory_mib"`
+		DiskBytes             int64  `json:"disk_bytes"`
+		DefaultHTTPPort       int    `json:"default_http_port"`
+		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -217,11 +222,12 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vm, err := s.manager.CreateVM(r.Context(), store.CreateVMParams{
-		Name:            req.Name,
-		VCPUs:           req.VCPUs,
-		MemoryMiB:       req.MemoryMiB,
-		DiskBytes:       req.DiskBytes,
-		DefaultHTTPPort: req.DefaultHTTPPort,
+		Name:                  req.Name,
+		VCPUs:                 req.VCPUs,
+		MemoryMiB:             req.MemoryMiB,
+		DiskBytes:             req.DiskBytes,
+		DefaultHTTPPort:       req.DefaultHTTPPort,
+		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
@@ -418,12 +424,13 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapshotName := r.PathValue("name")
 	var req struct {
-		VMName          string `json:"vm_name"`
-		VM              string `json:"vm"`
-		VCPUs           int    `json:"vcpus"`
-		MemoryMiB       int    `json:"memory_mib"`
-		DiskBytes       int64  `json:"disk_bytes"`
-		DefaultHTTPPort int    `json:"default_http_port"`
+		VMName                string `json:"vm_name"`
+		VM                    string `json:"vm"`
+		VCPUs                 int    `json:"vcpus"`
+		MemoryMiB             int    `json:"memory_mib"`
+		DiskBytes             int64  `json:"disk_bytes"`
+		DefaultHTTPPort       int    `json:"default_http_port"`
+		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -441,11 +448,12 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vm, err := s.manager.RestoreSnapshot(r.Context(), snapshotName, store.CreateVMParams{
-		Name:            req.VMName,
-		VCPUs:           req.VCPUs,
-		MemoryMiB:       req.MemoryMiB,
-		DiskBytes:       req.DiskBytes,
-		DefaultHTTPPort: req.DefaultHTTPPort,
+		Name:                  req.VMName,
+		VCPUs:                 req.VCPUs,
+		MemoryMiB:             req.MemoryMiB,
+		DiskBytes:             req.DiskBytes,
+		DefaultHTTPPort:       req.DefaultHTTPPort,
+		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError

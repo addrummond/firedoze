@@ -83,6 +83,9 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	if params.DefaultHTTPPort == 0 {
 		params.DefaultHTTPPort = m.cfg.DefaultHTTPPort
 	}
+	if params.IdleSleepAfterSeconds < 0 {
+		return store.VM{}, errors.New("idle_sleep_after_seconds cannot be negative")
+	}
 	if params.PrivateIP == "" {
 		ip, err := m.nextPrivateIP(ctx)
 		if err != nil {
@@ -126,6 +129,9 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 	}
 	if params.DefaultHTTPPort == 0 {
 		params.DefaultHTTPPort = m.cfg.DefaultHTTPPort
+	}
+	if params.IdleSleepAfterSeconds < 0 {
+		return store.VM{}, errors.New("idle_sleep_after_seconds cannot be negative")
 	}
 	if params.PrivateIP == "" {
 		ip, err := m.nextPrivateIP(ctx)

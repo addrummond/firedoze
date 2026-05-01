@@ -23,6 +23,7 @@ type Config struct {
 	WireGuard       WireGuardConfig   `toml:"wireguard"`
 	VMNetwork       VMNetworkConfig   `toml:"vm_network"`
 	SSH             SSHConfig         `toml:"ssh"`
+	Idle            IdleConfig        `toml:"idle"`
 	Firecracker     FirecrackerConfig `toml:"firecracker"`
 }
 
@@ -93,6 +94,11 @@ type SSHConfig struct {
 	AuthorizedKeyFiles []string `toml:"authorized_key_files"`
 }
 
+type IdleConfig struct {
+	CheckIntervalSeconds     int `toml:"check_interval_seconds"`
+	DefaultSleepAfterSeconds int `toml:"default_sleep_after_seconds"`
+}
+
 type FirecrackerConfig struct {
 	BinaryPath       string `toml:"binary_path"`
 	BaseKernelPath   string `toml:"base_kernel_path"`
@@ -127,6 +133,10 @@ func Default() Config {
 		},
 		SSH: SSHConfig{
 			User: "ubuntu",
+		},
+		Idle: IdleConfig{
+			CheckIntervalSeconds:     30,
+			DefaultSleepAfterSeconds: 30 * 60,
 		},
 		Firecracker: FirecrackerConfig{
 			BinaryPath:       "/usr/local/bin/firecracker",
@@ -212,6 +222,12 @@ func (c Config) Validate() error {
 	}
 	if c.SSH.User == "" {
 		return fmt.Errorf("ssh.user is required")
+	}
+	if c.Idle.CheckIntervalSeconds <= 0 {
+		return fmt.Errorf("idle.check_interval_seconds must be positive")
+	}
+	if c.Idle.DefaultSleepAfterSeconds < 0 {
+		return fmt.Errorf("idle.default_sleep_after_seconds cannot be negative")
 	}
 	if c.Firecracker.BinaryPath == "" {
 		return fmt.Errorf("firecracker.binary_path is required")
