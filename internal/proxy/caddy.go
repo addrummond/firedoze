@@ -42,8 +42,12 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	aliases, err := m.store.ListRoutes(ctx)
+	if err != nil {
+		return err
+	}
 
-	cfg, routeCount := m.caddyConfig(vms)
+	cfg, routeCount := m.caddyConfig(vms, aliases)
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -61,25 +65,26 @@ func (m *Manager) Stop() error {
 	return caddy.Stop()
 }
 
-func (m *Manager) caddyConfig(vms []store.VM) (map[string]any, int) {
-	routes := make([]map[string]any, 0, len(vms)+1)
+func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string]any, int) {
+	routes := make([]map[string]any, 0, len(vms)+len(aliases)+1)
+	vmsByName := make(map[string]store.VM, len(vms))
 	for _, vm := range vms {
+		vmsByName[vm.Name] = vm
 		if vm.PrivateIP == "" {
 			continue
 		}
 		host := vm.Name + "." + m.cfg.BaseDomain
 		upstream := net.JoinHostPort(vm.PrivateIP, strconv.Itoa(vm.DefaultHTTPPort))
-		routes = append(routes, map[string]any{
-			"match": []map[string]any{{
-				"host": []string{host},
-			}},
-			"handle": []map[string]any{{
-				"handler": "reverse_proxy",
-				"upstreams": []map[string]any{{
-					"dial": upstream,
-				}},
-			}},
-		})
+		routes = append(routes, reverseProxyRoute(host, upstream))
+	}
+	for _, alias := range aliases {
+		vm, ok := vmsByName[alias.VMName]
+		if !ok || vm.PrivateIP == "" {
+			continue
+		}
+		host := alias.Name + "." + m.cfg.BaseDomain
+		upstream := net.JoinHostPort(vm.PrivateIP, strconv.Itoa(alias.Port))
+		routes = append(routes, reverseProxyRoute(host, upstream))
 	}
 	routes = append(routes, map[string]any{
 		"handle": []map[string]any{{
@@ -111,4 +116,18 @@ func (m *Manager) caddyConfig(vms []store.VM) (map[string]any, int) {
 
 func DefaultHost(vmName string, baseDomain string) string {
 	return fmt.Sprintf("%s.%s", vmName, baseDomain)
+}
+
+func reverseProxyRoute(host string, upstream string) map[string]any {
+	return map[string]any{
+		"match": []map[string]any{{
+			"host": []string{host},
+		}},
+		"handle": []map[string]any{{
+			"handler": "reverse_proxy",
+			"upstreams": []map[string]any{{
+				"dial": upstream,
+			}},
+		}},
+	}
 }

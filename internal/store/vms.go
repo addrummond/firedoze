@@ -50,7 +50,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 	}
 	defer rows.Close()
 
-	var vms []VM
+	vms := []VM{}
 	for rows.Next() {
 		var vm VM
 		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort); err != nil {

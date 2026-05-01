@@ -88,7 +88,7 @@ func run() int {
 			return 1
 		}
 		defer proxyManager.Stop()
-		if err := serveAPI(ctx, logger, cfg, manager, proxyManager); err != nil {
+		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
 		}
@@ -97,7 +97,7 @@ func run() int {
 	return 0
 }
 
-func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *firecracker.Manager, proxyManager api.Proxy) error {
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *firecracker.Manager, db *store.Store, proxyManager api.Proxy) error {
 	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	server := &http.Server{
 		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),
-		Handler: api.NewServer(cfg, manager, proxyManager),
+		Handler: api.NewServer(cfg, manager, db, proxyManager),
 	}
 
 	errCh := make(chan error, 1)

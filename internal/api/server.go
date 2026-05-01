@@ -18,6 +18,7 @@ const ShutdownTimeout = 5 * time.Second
 type Server struct {
 	cfg     config.Config
 	manager *firecracker.Manager
+	store   *store.Store
 	proxy   Proxy
 	mux     *http.ServeMux
 }
@@ -26,10 +27,11 @@ type Proxy interface {
 	Reconcile(context.Context) error
 }
 
-func NewServer(cfg config.Config, manager *firecracker.Manager, proxy Proxy) http.Handler {
+func NewServer(cfg config.Config, manager *firecracker.Manager, st *store.Store, proxy Proxy) http.Handler {
 	server := &Server{
 		cfg:     cfg,
 		manager: manager,
+		store:   st,
 		proxy:   proxy,
 		mux:     http.NewServeMux(),
 	}
@@ -49,6 +51,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
 	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
+	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
+	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
+	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +101,24 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 				"path":        "/vms/{name}/stop",
 				"description": "stop a VM",
 				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/stop",
+			},
+			{
+				"method":      "GET",
+				"path":        "/routes",
+				"description": "list public HTTP routes",
+				"curl":        "curl http://" + r.Host + "/routes",
+			},
+			{
+				"method":      "POST",
+				"path":        "/routes",
+				"description": "create a public HTTP route alias",
+				"curl":        "curl -X POST http://" + r.Host + `/routes -d '{"name":"app","vm":"demo","port":8080}'`,
+			},
+			{
+				"method":      "DELETE",
+				"path":        "/routes/{name}",
+				"description": "delete a public HTTP route alias",
+				"curl":        "curl -X DELETE http://" + r.Host + "/routes/app",
 			},
 		},
 	})
@@ -218,6 +241,83 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
+	routes, err := s.store.ListRoutes(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"routes": routes})
+}
+
+func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name   string `json:"name"`
+		VMName string `json:"vm_name"`
+		VM     string `json:"vm"`
+		Port   int    `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.VMName == "" {
+		req.VMName = req.VM
+	}
+	if !validVMName(req.Name) {
+		writeError(w, http.StatusBadRequest, errors.New("name must contain only lowercase letters, numbers, and hyphens"))
+		return
+	}
+	if !validVMName(req.VMName) {
+		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+		return
+	}
+	if req.Port <= 0 || req.Port > 65535 {
+		writeError(w, http.StatusBadRequest, errors.New("port must be between 1 and 65535"))
+		return
+	}
+	reserved, err := s.store.VMExists(r.Context(), req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if reserved {
+		writeError(w, http.StatusConflict, errors.New("route name is reserved by a VM default hostname"))
+		return
+	}
+	route, err := s.store.CreateRoute(r.Context(), store.CreateRouteParams{
+		Name:   req.Name,
+		VMName: req.VMName,
+		Port:   req.Port,
+	})
+	if err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"route": route})
+}
+
+func (s *Server) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.store.DeleteRoute(r.Context(), name); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (s *Server) reconcileProxy(r *http.Request) error {
