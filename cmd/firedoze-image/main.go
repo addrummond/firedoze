@@ -550,6 +550,7 @@ func newGuestOverlay() *guestOverlay {
 			"etc/systemd/system/systemd-networkd-wait-online.service":             "/dev/null",
 			"etc/systemd/system/multipathd.service":                               "/dev/null",
 			"etc/systemd/system/multipathd.socket":                                "/dev/null",
+			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                     "",
 			"etc/systemd/system/sockets.target.wants/ssh.socket":                  "",
 			"etc/systemd/system/multi-user.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
 			"etc/systemd/system/multi-user.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",

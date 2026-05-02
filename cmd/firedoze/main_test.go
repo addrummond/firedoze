@@ -57,6 +57,16 @@ func TestParseNamesAndFlags(t *testing.T) {
 	}
 }
 
+func TestSplitUpArgs(t *testing.T) {
+	createArgs, sshArgs := splitUpArgs([]string{"demo", "--memory-mib", "1024", "--", "-L", "8080:localhost:8080"})
+	if got, want := strings.Join(createArgs, "\x00"), strings.Join([]string{"demo", "--memory-mib", "1024"}, "\x00"); got != want {
+		t.Fatalf("createArgs = %#v", createArgs)
+	}
+	if got, want := strings.Join(sshArgs, "\x00"), strings.Join([]string{"-L", "8080:localhost:8080"}, "\x00"); got != want {
+		t.Fatalf("sshArgs = %#v", sshArgs)
+	}
+}
+
 func TestNewClientAddsDefaultPort(t *testing.T) {
 	tests := []struct {
 		name string
@@ -90,6 +100,9 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	})
 	want := []string{
 		"ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
 		"-o", "PubkeyAuthentication=no",
 		"-o", "PreferredAuthentications=none,password",
 		"-o", "NumberOfPasswordPrompts=1",

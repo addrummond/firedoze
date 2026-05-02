@@ -148,6 +148,8 @@ func (a app) dispatch(args []string) error {
 		return a.wg(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
+	case "up":
+		return a.up(args[1:])
 	case "with-vm-ip":
 		return a.withVMIP(args[1:])
 	default:
@@ -209,17 +211,34 @@ func (a app) vm(args []string) error {
 		}
 		return printJSON(out)
 	case "create":
-		return a.vmCreate(args[1:])
+		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
+		if err != nil {
+			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
+		}
+		return a.createVMs(params, names)
 	case "start", "sleep", "stop":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: firedoze vm %s <name>", args[0])
 		}
-		methodPath := "/vms/" + url.PathEscape(args[1]) + "/" + args[0]
-		var out map[string]any
-		if err := a.client.do(context.Background(), http.MethodPost, methodPath, nil, &out); err != nil {
-			return err
+		if args[0] == "start" {
+			vm, err := a.startVM(args[1])
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return printJSON(map[string]any{"vm": vm})
+			}
+		} else {
+			methodPath := "/vms/" + url.PathEscape(args[1]) + "/" + args[0]
+			var out map[string]any
+			if err := a.client.do(context.Background(), http.MethodPost, methodPath, nil, &out); err != nil {
+				return err
+			}
+			if a.json {
+				return printJSON(out)
+			}
 		}
-		return a.printJSONOrLine(out, fmt.Sprintf("%s %s", args[1], pastTense(args[0])))
+		return a.printJSONOrLine(map[string]any{"status": pastTense(args[0])}, fmt.Sprintf("%s %s", args[1], pastTense(args[0])))
 	case "delete", "rm":
 		if len(args) < 2 {
 			return errors.New("usage: firedoze vm delete <name> [name...]")
@@ -246,8 +265,16 @@ func (a app) vm(args []string) error {
 	}
 }
 
-func (a app) vmCreate(args []string) error {
-	flags := flag.NewFlagSet("firedoze vm create", flag.ContinueOnError)
+type vmCreateParams struct {
+	VCPUs                 int
+	MemoryMiB             int
+	DiskBytes             int64
+	DefaultHTTPPort       int
+	IdleSleepAfterSeconds int
+}
+
+func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string, error) {
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	vcpus := flags.Int("vcpus", 0, "vCPUs")
 	memoryMiB := flags.Int("memory-mib", 0, "memory in MiB")
@@ -256,23 +283,25 @@ func (a app) vmCreate(args []string) error {
 	idle := flags.Int("idle-sleep-after", 0, "idle sleep timeout in seconds")
 	names, err := parseNamesAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
+		return vmCreateParams{}, nil, err
 	}
+	return vmCreateParams{
+		VCPUs:                 *vcpus,
+		MemoryMiB:             *memoryMiB,
+		DiskBytes:             *diskBytes,
+		DefaultHTTPPort:       *httpPort,
+		IdleSleepAfterSeconds: *idle,
+	}, names, nil
+}
+
+func (a app) createVMs(params vmCreateParams, names []string) error {
 	created := []vmInfo{}
 	for _, name := range names {
-		body := map[string]any{"name": name}
-		addInt(body, "vcpus", *vcpus)
-		addInt(body, "memory_mib", *memoryMiB)
-		addInt64(body, "disk_bytes", *diskBytes)
-		addInt(body, "default_http_port", *httpPort)
-		addInt(body, "idle_sleep_after_seconds", *idle)
-		var out struct {
-			VM vmInfo `json:"vm"`
-		}
-		if err := a.client.do(context.Background(), http.MethodPost, "/vms", body, &out); err != nil {
+		vm, err := a.createVM(params, name)
+		if err != nil {
 			return err
 		}
-		created = append(created, out.VM)
+		created = append(created, vm)
 	}
 	if a.json {
 		return printJSON(map[string]any{"vms": created})
@@ -281,6 +310,32 @@ func (a app) vmCreate(args []string) error {
 		fmt.Printf("%s created\n", vm.Name)
 	}
 	return nil
+}
+
+func (a app) createVM(params vmCreateParams, name string) (vmInfo, error) {
+	body := map[string]any{"name": name}
+	addInt(body, "vcpus", params.VCPUs)
+	addInt(body, "memory_mib", params.MemoryMiB)
+	addInt64(body, "disk_bytes", params.DiskBytes)
+	addInt(body, "default_http_port", params.DefaultHTTPPort)
+	addInt(body, "idle_sleep_after_seconds", params.IdleSleepAfterSeconds)
+	var out struct {
+		VM vmInfo `json:"vm"`
+	}
+	if err := a.client.do(context.Background(), http.MethodPost, "/vms", body, &out); err != nil {
+		return vmInfo{}, err
+	}
+	return out.VM, nil
+}
+
+func (a app) startVM(name string) (vmInfo, error) {
+	var out struct {
+		VM vmInfo `json:"vm"`
+	}
+	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/start", nil, &out); err != nil {
+		return vmInfo{}, err
+	}
+	return out.VM, nil
 }
 
 func (a app) vmSettings(args []string) error {
@@ -424,6 +479,76 @@ func (a app) route(args []string) error {
 	}
 }
 
+func (a app) up(args []string) error {
+	if a.json {
+		return errors.New("firedoze up does not support --json")
+	}
+	createArgs, sshArgs := splitUpArgs(args)
+	params, names, err := parseVMCreateArgs("firedoze up", createArgs)
+	if err != nil {
+		return fmt.Errorf("%w\nusage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]", err)
+	}
+	if len(names) != 1 {
+		return errors.New("usage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]")
+	}
+	name := names[0]
+	vm, found, err := a.findVM(name)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if vm, err = a.createVM(params, name); err != nil {
+			return err
+		}
+		if !a.json {
+			fmt.Printf("%s created\n", name)
+		}
+	}
+	if vm.State != "running" {
+		if vm, err = a.startVM(name); err != nil {
+			return err
+		}
+		if !a.json {
+			fmt.Printf("%s started\n", name)
+		}
+	}
+	if !a.json {
+		fmt.Printf("waiting for %s ssh\n", name)
+	}
+	if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
+		return err
+	}
+	return a.ssh(append([]string{name}, sshArgs...))
+}
+
+func splitUpArgs(args []string) ([]string, []string) {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
+}
+
+func waitForSSH(ip string, timeout time.Duration) error {
+	if ip == "" {
+		return errors.New("VM has no private IP")
+	}
+	addr := net.JoinHostPort(ip, "22")
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for SSH at %s", addr)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func (a app) ssh(args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: firedoze ssh <vm> [ssh args...]")
@@ -461,18 +586,29 @@ func (a app) withVMIP(args []string) error {
 }
 
 func (a app) lookupVM(name string) (vmInfo, error) {
+	vm, found, err := a.findVM(name)
+	if err != nil {
+		return vmInfo{}, err
+	}
+	if !found {
+		return vmInfo{}, fmt.Errorf("VM not found: %s", name)
+	}
+	return vm, nil
+}
+
+func (a app) findVM(name string) (vmInfo, bool, error) {
 	var out struct {
 		VMs []vmInfo `json:"vms"`
 	}
 	if err := a.client.do(context.Background(), http.MethodGet, "/vms", nil, &out); err != nil {
-		return vmInfo{}, err
+		return vmInfo{}, false, err
 	}
 	for _, vm := range out.VMs {
 		if vm.Name == name {
-			return vm, nil
+			return vm, true, nil
 		}
 	}
-	return vmInfo{}, fmt.Errorf("VM not found: %s", name)
+	return vmInfo{}, false, nil
 }
 
 func sshCommand(vm vmInfo) []string {
@@ -493,6 +629,9 @@ func withFiredozeSSHOptions(fields []string) []string {
 	}
 	args := []string{
 		fields[0],
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
 		"-o", "PubkeyAuthentication=no",
 		"-o", "PreferredAuthentications=none,password",
 		"-o", "NumberOfPasswordPrompts=1",
@@ -696,6 +835,7 @@ Commands:
   route delete <route>
   wg keygen
   ssh <vm> [ssh args...]
+  up <vm> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 
 Environment:
