@@ -3,7 +3,7 @@
 # This file is installed as /etc/firedoze/firedoze.example.toml for reference.
 # For a real host config, prefer:
 #
-#   sudo firedozed -init-config -init-sslip-host PUBLIC_IP
+#   sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 #
 # That command writes /etc/firedoze/firedoze.toml and chooses random private
 # network ranges to reduce conflicts when one laptop connects to multiple

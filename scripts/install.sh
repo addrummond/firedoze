@@ -82,7 +82,7 @@ Next steps:
   1. Build firedoze commands: task build
   2. Build and install the base image: ./firedoze-image build && task image:install
   3. Create $config_dst:
-       sudo firedozed -init-config -init-sslip-host <PUBLIC_IP>
+       sudo firedozed -init-config -init-sslip-host \$(curl -4 https://ifconfig.me)
   4. Ask the client to run 'firedoze wg keygen', then add their public key:
        sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
   5. Start the daemon:

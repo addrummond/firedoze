@@ -15,3 +15,5 @@
 - Figure out why exactly we need chmodIfExists in the image builder.
 - Check if we guard against multiple wireguard peers with the same IP or name.
 - Do we reclaim ips for sleeping VMs? Is there any reason not to use ipv6 for the private ips?
+- Consider best default idle timeout.
+- Add an image:build task for consistency?

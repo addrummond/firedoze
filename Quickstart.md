@@ -47,7 +47,7 @@ task firecracker:install
 task build
 ./firedoze-image build
 task image:install
-sudo firedozed -init-config -init-sslip-host <PUBLIC_IP>
+sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # Alice runs this on her laptop and sends you only the public_key:
 firedoze wg keygen
@@ -122,10 +122,10 @@ firedoze uses WireGuard as the access-control layer. The generated base image co
 Create the host config:
 
 ```sh
-sudo firedozed -init-config -init-sslip-host <PUBLIC_IP>
+sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 ```
 
-Replace `PUBLIC_IP` with the public IP address that client laptops should use for WireGuard. `-init-sslip-host` also sets `base_domain` to `PUBLIC_IP.sslip.io`, which is useful when the host has no real domain yet.
+`-init-sslip-host` also sets `base_domain` to `PUBLIC_IP.sslip.io`, which is useful when the host has no real domain yet.
 
 If you already have DNS, use `-init-host` with `-init-base-domain` instead:
 
