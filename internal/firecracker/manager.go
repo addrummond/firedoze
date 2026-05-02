@@ -49,9 +49,9 @@ type Manager struct {
 	store  *store.Store
 	logger *slog.Logger
 
-	mu       sync.Mutex
-	running  map[string]*Process
-	starting map[string]struct{}
+	mu      sync.Mutex
+	running map[string]*Process
+	vmOps   map[string]struct{}
 }
 
 type Process struct {
@@ -69,11 +69,11 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:      cfg,
-		store:    st,
-		logger:   logger,
-		running:  make(map[string]*Process),
-		starting: make(map[string]struct{}),
+		cfg:     cfg,
+		store:   st,
+		logger:  logger,
+		running: make(map[string]*Process),
+		vmOps:   make(map[string]struct{}),
 	}
 }
 
@@ -313,15 +313,15 @@ func readImageManifest(p string) (map[string]string, error) {
 
 func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 	m.mu.Lock()
-	if _, ok := m.starting[name]; ok {
+	if _, ok := m.vmOps[name]; ok {
 		m.mu.Unlock()
 		return ErrAlreadyRunning
 	}
-	m.starting[name] = struct{}{}
+	m.vmOps[name] = struct{}{}
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
-		delete(m.starting, name)
+		delete(m.vmOps, name)
 		m.mu.Unlock()
 	}()
 
@@ -361,15 +361,15 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		m.mu.Unlock()
 		return store.VM{}, ErrAlreadyRunning
 	}
-	if _, ok := m.starting[name]; ok {
+	if _, ok := m.vmOps[name]; ok {
 		m.mu.Unlock()
 		return store.VM{}, ErrAlreadyRunning
 	}
-	m.starting[name] = struct{}{}
+	m.vmOps[name] = struct{}{}
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
-		delete(m.starting, name)
+		delete(m.vmOps, name)
 		m.mu.Unlock()
 	}()
 
