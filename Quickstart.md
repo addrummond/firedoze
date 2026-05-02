@@ -11,7 +11,7 @@ Use an x86_64 Linux box with:
 - KVM available at `/dev/kvm`.
 - Kernel WireGuard support.
 - `iptables`, `debugfs`, `ssh-keygen`, and `systemd`.
-- Firecracker installed at `/usr/local/bin/firecracker`.
+- Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
 
 On Ubuntu, the host packages are roughly:
@@ -30,29 +30,30 @@ curl https://mise.run/bash | sh
 source ~/.bashrc
 ```
 
-Clone the private repo on the Linux host, install the pinned tools, then run the installer from the repo root:
+Clone the private repo on the Linux host and install the pinned tools:
 
 ```sh
 git clone REPO_URL firedoze
 cd firedoze
 mise install
-./scripts/install.sh
 ```
 
 The fastest possible setup (using [sslip.io](https://sslip.io) to obtain a hostname) is:
 
 ```sh
 ./scripts/install.sh
-task build:image && ./firedoze-image build
+task firecracker:install
+task build
+./firedoze-image build
 task image:install
-sudo firedozed -init-config -init-sslip-host PUBLIC_IP
+sudo firedozed -init-config -init-sslip-host <PUBLIC_IP>
 
 # Alice runs this on her laptop and sends you only the public_key:
 firedoze wg keygen
 
 # You add Alice's laptop as a WireGuard peer on the server, which prints her
 # client config template.
-sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 # Alice replaces <client-private-key> in the printed config with the private
 # key she generated, then connects WireGuard on her laptop.
 
@@ -65,7 +66,6 @@ Alice can now connect:
 sudo wg-quick up /path/to/alice-client.conf
 firedoze health # check API connectivity
 ```
-
 
 The rest of this section explains the above steps in order.
 
@@ -81,7 +81,17 @@ The installer:
 
 Existing config and VM state are left alone when you reinstall. The real config is created later with `firedozed -init-config`.
 
-### 2.2 Build and install base images
+### 2.2 Install Firecracker
+
+Install the pinned upstream Firecracker VMM binary:
+
+```sh
+task firecracker:install
+```
+
+This downloads the release tarball declared in `Taskfile.yml`, validates its SHA-256 checksum, and installs it as `/usr/local/bin/firecracker`.
+
+### 2.3 Build and install base images
 
 Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
 
@@ -104,14 +114,14 @@ The install task copies the generated files here:
 
 The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
 
-### 2.3 Configure firedoze
+### 2.4 Configure firedoze
 
 firedoze uses WireGuard as the access-control layer. The generated base image configures the `ubuntu` guest account for passwordless SSH, and VM SSH is reachable only through the WireGuard-routed private VM network.
 
 Create the host config:
 
 ```sh
-sudo firedozed -init-config -init-sslip-host PUBLIC_IP
+sudo firedozed -init-config -init-sslip-host <PUBLIC_IP>
 ```
 
 Replace `PUBLIC_IP` with the public IP address that client laptops should use for WireGuard. `-init-sslip-host` also sets `base_domain` to `PUBLIC_IP.sslip.io`, which is useful when the host has no real domain yet.
@@ -153,7 +163,7 @@ The client keeps `private_key` secret and sends only `public_key` to the admin.
 To add Alice's laptop, the admin runs this on the firedoze host:
 
 ```sh
-sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 ```
 
 The command picks the next free client address, updates `/etc/firedoze/firedoze.toml` automatically, and prints a WireGuard client config for Alice. The printed config contains `<client-private-key>` as a placeholder; Alice replaces that placeholder with the private key generated on her laptop.
@@ -161,10 +171,10 @@ The command picks the next free client address, updates `/etc/firedoze/firedoze.
 To choose the client address yourself, pass a unique `/32` address inside the generated WireGuard subnet:
 
 ```sh
-sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY 10.93.0.2/32
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> 10.93.0.2/32
 ```
 
-### 2.4 Configure firewall and public DNS
+### 2.5 Configure firewall and public DNS
 
 Open these inbound ports to the host:
 
@@ -179,7 +189,7 @@ Set public wildcard DNS for web routes:
 
 Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
 
-### 2.5 Start firedozed
+### 2.6 Start firedozed
 
 ```sh
 sudo systemctl enable --now firedozed
@@ -196,7 +206,7 @@ When systemd stops firedozed, the daemon tries to sleep all running VMs before e
 
 The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
-### 2.6 Connect WireGuard
+### 2.7 Connect WireGuard
 
 Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
 

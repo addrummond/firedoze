@@ -1,5 +1,9 @@
 version: '3'
 
+vars:
+  FIRECRACKER_VERSION: v1.15.1
+  FIRECRACKER_X86_64_SHA256: d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
+
 tasks:
   default:
     desc: Show available tasks
@@ -61,3 +65,24 @@ tasks:
       - sudo install -m 0644 dist/base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
       - sudo install -m 0644 dist/base-image/initrd.img /var/lib/firedoze/images/initrd.img
       - sudo install -m 0644 dist/base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+
+  firecracker:install:
+    desc: Download and install the upstream Firecracker binary to /usr/local/bin/firecracker
+    cmds:
+      - |
+        set -eu
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64) sha256="{{.FIRECRACKER_X86_64_SHA256}}" ;;
+          *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+        esac
+        release_url="https://github.com/firecracker-microvm/firecracker/releases"
+        version="{{.FIRECRACKER_VERSION}}"
+        tarball="firecracker-$version-$arch.tgz"
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL "$release_url/download/$version/$tarball" -o "$tmp/$tarball"
+        printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c -
+        tar -xzf "$tmp/$tarball" -C "$tmp"
+        sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker
+        /usr/local/bin/firecracker --version
