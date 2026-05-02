@@ -159,9 +159,9 @@ func (a app) vm(args []string) error {
 			return printJSON(out)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATE\tIP\tSSH\tURL")
+		fmt.Fprintln(w, "NAME\tSTATE\tRUNTIME\tIP\tSSH\tURL")
 		for _, vm := range out.VMs {
-			fmt.Fprintf(w, "%s\t%s\t%s\tfiredoze ssh %s\t%s\n", vm.Name, vm.State, vm.PrivateIP, vm.Name, vm.URLs["default"])
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\tfiredoze ssh %s\t%s\n", vm.Name, vm.State, runtimeSinceStart(vm), vm.PrivateIP, vm.Name, vm.URLs["default"])
 		}
 		return w.Flush()
 	case "create":
@@ -382,6 +382,43 @@ func sshCommand(vm vmInfo) []string {
 		}
 	}
 	return append([]string{}, fields...)
+}
+
+func runtimeSinceStart(vm vmInfo) string {
+	if vm.State != "running" || vm.LastStartedAt == "" {
+		return "-"
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, vm.LastStartedAt)
+	if err != nil {
+		return "-"
+	}
+	elapsed := time.Since(startedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return formatDuration(elapsed)
+}
+
+func formatDuration(duration time.Duration) string {
+	duration = duration.Truncate(time.Second)
+	days := duration / (24 * time.Hour)
+	duration -= days * 24 * time.Hour
+	hours := duration / time.Hour
+	duration -= hours * time.Hour
+	minutes := duration / time.Minute
+	duration -= minutes * time.Minute
+	seconds := duration / time.Second
+
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd%dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	case minutes > 0:
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	default:
+		return fmt.Sprintf("%ds", seconds)
+	}
 }
 
 func (c *client) do(ctx context.Context, method string, path string, body any, out any) error {

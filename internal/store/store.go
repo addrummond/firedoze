@@ -46,7 +46,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "snapshots", "mem_path", "text not null default ''"); err != nil {
 		return err
 	}
-	return s.ensureColumn(ctx, "vms", "idle_sleep_after_seconds", "integer not null default 0")
+	if err := s.ensureColumn(ctx, "vms", "idle_sleep_after_seconds", "integer not null default 0"); err != nil {
+		return err
+	}
+	return s.ensureColumn(ctx, "vms", "last_started_at", "text not null default ''")
 }
 
 func (s *Store) Now(ctx context.Context) (time.Time, error) {
@@ -73,6 +76,7 @@ create table if not exists vms (
 	disk_bytes integer not null,
 	default_http_port integer not null,
 	idle_sleep_after_seconds integer not null default 0,
+	last_started_at text not null default '',
 	created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

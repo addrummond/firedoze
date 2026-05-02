@@ -18,6 +18,7 @@ type VM struct {
 	DiskBytes             int64  `json:"disk_bytes"`
 	DefaultHTTPPort       int    `json:"default_http_port"`
 	IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds,omitempty"`
+	LastStartedAt         string `json:"last_started_at,omitempty"`
 }
 
 type CreateVMParams struct {
@@ -48,7 +49,7 @@ func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error)
 
 func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at
 		from vms
 		order by name
 	`)
@@ -60,7 +61,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 	vms := []VM{}
 	for rows.Next() {
 		var vm VM
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds); err != nil {
+		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt); err != nil {
 			return nil, err
 		}
 		vms = append(vms, vm)
@@ -74,10 +75,10 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 	var vm VM
 	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at
 		from vms
 		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds)
+	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
@@ -98,9 +99,15 @@ func (s *Store) CountVMs(ctx context.Context) (int, error) {
 func (s *Store) SetVMState(ctx context.Context, name string, state string) error {
 	result, err := s.db.ExecContext(ctx, `
 		update vms
-		set state = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		set
+			state = ?,
+			last_started_at = case
+				when ? = 'running' then strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+				else last_started_at
+			end,
+			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		where name = ?
-	`, state, name)
+	`, state, state, name)
 	if err != nil {
 		return err
 	}
