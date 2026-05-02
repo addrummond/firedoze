@@ -110,23 +110,27 @@ Required firewall/security-group setup should be documented instead.
 
 ## API And Client Style
 
-The management API is command-oriented HTTP and remains usable directly with `curl`.
+The management API is a WireGuard-only HTTP API with JSON request and response bodies.
 
-JSON request bodies are acceptable for commands with more complex input.
+The API is primarily a machine interface for the `firedoze` client command, not a human-first curl interface. It should be regular, small, and easy for scripts to consume, but it does not need to include ready-to-run shell commands, curl examples, or tutorial-style response bodies.
 
-The API is experimental in early versions and may change freely.
+The API is experimental in early versions and may change freely. Compatibility should favor the `firedoze` client UX over preserving raw HTTP ergonomics.
 
-The API should expose a simple help/landing endpoint with available commands and example `curl` invocations.
+The root endpoint returns a compact JSON resource index. Errors are JSON objects. Operational endpoints return structured resources such as VMs, routes, snapshots, WireGuard peers, and WireGuard peer config templates. The WireGuard peer config endpoint returns the generated `wg-quick` config as a JSON string field, not as `text/plain`.
 
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
-API responses should still optimize usability and include ready-to-run commands where useful, such as:
+The client should provide the friendly operational surface:
 
-```text
-ssh ubuntu@myvm.dev.example.com
-```
+- `firedoze vm list`
+- `firedoze vm create/start/sleep/stop/delete/settings`
+- `firedoze ssh <vm>`
+- `firedoze snapshot ...`
+- `firedoze route ...`
 
-The VM and route API responses include default hostnames, URLs, SSH commands, and common follow-up commands.
+For scripts that need exact API responses, the client supports `--json`. Human-readable client output can include convenience commands such as `firedoze ssh <vm>`, public URLs, and runtime/status columns, but those are client presentation choices rather than command strings embedded in the API.
+
+The API may still expose useful derived fields, such as default hostnames, public URLs, private IPs, and SSH targets, when those fields are part of the resource model rather than follow-up command guidance.
 
 ## Metadata
 
@@ -409,7 +413,7 @@ Host firewall/security group requirements must be documented before real deploym
 1. Create repository and ADR.
 2. Bootstrap Go daemon with config and SQLite metadata.
 3. Manage kernel WireGuard interface from config.
-4. Expose command-oriented HTTP API only on WireGuard.
+4. Expose JSON HTTP API only on WireGuard.
 5. Start/stop one Firecracker VM from the fixed base image.
 6. Inject shared authorized keys and make SSH work over WireGuard/private DNS.
 7. Embed Caddy and serve default VM route.
@@ -417,4 +421,4 @@ Host firewall/security group requirements must be documented before real deploym
 9. Add named exact-state snapshots.
 10. Add clone-from-snapshot with identity rewrite.
 11. Add idle detection and exact sleep/resume.
-12. Add usability polish: help endpoint, generated WG configs, client command, ready-to-run SSH/API outputs.
+12. Add usability polish: generated WG configs, client command, friendly VM list output, and ready-to-run SSH/public URL output in the client.
