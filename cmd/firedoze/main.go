@@ -24,7 +24,6 @@ import (
 
 const (
 	defaultAPIPort = "8081"
-	defaultAPI     = "http://10.77.0.1:" + defaultAPIPort
 )
 
 type client struct {
@@ -67,9 +66,6 @@ func main() {
 
 func run(args []string) int {
 	apiURL := os.Getenv("FIREDOZE_API")
-	if apiURL == "" {
-		apiURL = defaultAPI
-	}
 
 	flags := flag.NewFlagSet("firedoze", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -89,10 +85,18 @@ func run(args []string) int {
 		return 2
 	}
 
-	c, err := newClient(apiURL)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
+	var c *client
+	if commandNeedsAPI(flags.Args()) {
+		if apiURL == "" {
+			fmt.Fprintln(os.Stderr, "missing API URL: set FIREDOZE_API or pass --api")
+			return 2
+		}
+		var err error
+		c, err = newClient(apiURL)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
 	}
 	a := app{client: c, json: *jsonOutput}
 	if err := a.dispatch(flags.Args()); err != nil {
@@ -100,6 +104,20 @@ func run(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func commandNeedsAPI(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "help", "-h", "--help":
+		return false
+	case "wg":
+		return false
+	default:
+		return true
+	}
 }
 
 func newClient(rawURL string) (*client, error) {
@@ -902,6 +920,7 @@ Commands:
   with-vm-ip <vm> <command> [args...]
 
 Environment:
-  FIREDOZE_API  API URL (default http://10.77.0.1:8081; port 8081 is added if omitted)
+  FIREDOZE_API  API URL. Required for daemon commands unless --api is passed.
+                Port 8081 is added if omitted.
 `)
 }

@@ -91,6 +91,37 @@ func TestNewClientAddsDefaultPort(t *testing.T) {
 	}
 }
 
+func TestCommandNeedsAPI(t *testing.T) {
+	tests := []struct {
+		args []string
+		want bool
+	}{
+		{args: []string{"help"}, want: false},
+		{args: []string{"wg", "keygen"}, want: false},
+		{args: []string{"health"}, want: true},
+		{args: []string{"vm", "list"}, want: true},
+	}
+	for _, tt := range tests {
+		if got := commandNeedsAPI(tt.args); got != tt.want {
+			t.Fatalf("commandNeedsAPI(%#v) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestRunRequiresAPIForDaemonCommands(t *testing.T) {
+	t.Setenv("FIREDOZE_API", "")
+	if got := run([]string{"health"}); got != 2 {
+		t.Fatalf("run without API = %d, want 2", got)
+	}
+}
+
+func TestRunAllowsLocalCommandsWithoutAPI(t *testing.T) {
+	t.Setenv("FIREDOZE_API", "")
+	if got := run([]string{"wg", "keygen"}); got != 0 {
+		t.Fatalf("wg keygen without API = %d, want 0", got)
+	}
+}
+
 func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	got := sshCommand(vmInfo{
 		VM: store.VM{
