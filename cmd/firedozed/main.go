@@ -15,6 +15,7 @@ import (
 
 	"firedoze/internal/api"
 	"firedoze/internal/config"
+	fdDNS "firedoze/internal/dns"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/host"
 	"firedoze/internal/proxy"
@@ -161,6 +162,12 @@ func run() int {
 			logger.Error("refusing to serve API without -setup-wireguard")
 			return 1
 		}
+		if cfg.DNS.Enabled {
+			if err := host.NewLinuxOps(logger).EnsureLoopbackAddress(ctx, cfg.DNS.ListenIP); err != nil {
+				logger.Error("setup dns address", "address", cfg.DNS.ListenIP, "error", err)
+				return 1
+			}
+		}
 		manager := firecracker.NewManager(cfg, db, logger)
 		if err := manager.ReconcileStartup(ctx); err != nil {
 			logger.Error("reconcile firecracker state", "error", err)
@@ -181,6 +188,13 @@ func run() int {
 				logger.Error("serve ssh wake proxy", "error", err)
 			}
 		}()
+		if cfg.DNS.Enabled {
+			go func() {
+				if err := fdDNS.NewServer(cfg.DNS, db, logger).Run(wakeCtx); err != nil {
+					logger.Error("serve dns", "error", err)
+				}
+			}()
+		}
 		if err := proxyManager.Reconcile(ctx); err != nil {
 			logger.Error("start caddy", "error", err)
 			return 1

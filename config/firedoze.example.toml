@@ -45,6 +45,16 @@ private_key_file = "/etc/firedoze/wg.key"
 # your WireGuard subnet, VPC, LAN, or VPN routes.
 subnet = "10.88.0.0/16"
 
+[dns]
+enabled = true
+domain = "firedoze"
+# Reserved host-side DNS IP for VM-to-VM service discovery. Leave blank to use
+# the first usable IP in vm_network.subnet.
+listen_ip = ""
+port = 53
+ttl_seconds = 30
+upstream_servers = ["1.1.1.1:53", "8.8.8.8:53"]
+
 [ssh]
 user = "ubuntu"
 # Private SSH wake proxy port on the firedoze host. The firedoze client uses

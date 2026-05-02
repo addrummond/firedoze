@@ -17,11 +17,25 @@ func TestInitTOMLSSLIPHostUsesSSLIPAndRandomNetworks(t *testing.T) {
 		`endpoint = "203.0.113.10:51820"`,
 		`address = "10.`,
 		`subnet = "10.`,
-		"firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY",
+		`[dns]`,
+		`domain = "firedoze"`,
+		"firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated config missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestDNSListenIPDefaultsToFirstUsableVMNetworkIP(t *testing.T) {
+	cfg := Default()
+	cfg.VMNetwork.Subnet = "10.123.0.0/16"
+	cfg.DNS.ListenIP = ""
+	if err := cfg.applyDerivedDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DNS.ListenIP != "10.123.0.1" {
+		t.Fatalf("dns.listen_ip = %q, want 10.123.0.1", cfg.DNS.ListenIP)
 	}
 }
 

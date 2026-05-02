@@ -114,6 +114,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"vm_network": map[string]any{
 			"subnet": s.cfg.VMNetwork.Subnet,
 		},
+		"dns": map[string]any{
+			"enabled":          s.cfg.DNS.Enabled,
+			"domain":           s.cfg.DNS.Domain,
+			"listen_ip":        s.cfg.DNS.ListenIP,
+			"port":             s.cfg.DNS.Port,
+			"ttl_seconds":      s.cfg.DNS.TTLSeconds,
+			"upstream_servers": s.cfg.DNS.UpstreamServers,
+		},
 		"ssh": map[string]any{
 			"user": s.cfg.SSH.User,
 		},

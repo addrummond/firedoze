@@ -779,17 +779,35 @@ o3="$(printf "%d" "0x$5")"
 o4="$(printf "%d" "0x$6")"
 guest_ip="$o1.$o2.$o3.$o4"
 host_ip="$o1.$o2.$o3.$((o4 - 1))"
+dns_ip=""
+dns_domain="firedoze"
+for arg in $(cat /proc/cmdline 2>/dev/null || true); do
+  case "$arg" in
+    firedoze.dns_ip=*) dns_ip="${arg#firedoze.dns_ip=}" ;;
+    firedoze.dns_domain=*) dns_domain="${arg#firedoze.dns_domain=}" ;;
+  esac
+done
 
 /bin/ip addr flush dev "$dev"
 /bin/ip addr add "$guest_ip/30" dev "$dev"
 /bin/ip link set "$dev" up
 /bin/ip route replace default via "$host_ip" dev "$dev"
+if [ -n "$dns_ip" ]; then
+  /bin/ip route replace "$dns_ip/32" via "$host_ip" dev "$dev"
+fi
 
 rm -f /etc/resolv.conf
-cat >/etc/resolv.conf <<RESOLV
+if [ -n "$dns_ip" ]; then
+  cat >/etc/resolv.conf <<RESOLV
+search $dns_domain
+nameserver $dns_ip
+RESOLV
+else
+  cat >/etc/resolv.conf <<RESOLV
 nameserver 1.1.1.1
 nameserver 8.8.8.8
 RESOLV
+fi
 `,
 		},
 		{

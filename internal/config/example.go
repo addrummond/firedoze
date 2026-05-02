@@ -64,13 +64,23 @@ private_key_file = "/etc/firedoze/wg.key"
 # Add one peer for each laptop that should administer firedoze.
 # Each peer needs a unique /32 address inside the WireGuard subnet.
 #
-# firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY appends the peer block
+# firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> appends the peer block
 # automatically and prints a client config with a private-key placeholder.
 
 [vm_network]
 # Private IPv4 range used for VM addresses. Change it if it overlaps with
 # your WireGuard subnet, VPC, LAN, or VPN routes.
 subnet = %q
+
+[dns]
+enabled = true
+domain = "firedoze"
+# Reserved host-side DNS IP for VM-to-VM service discovery. Leave blank to use
+# the first usable IP in vm_network.subnet.
+listen_ip = ""
+port = 53
+ttl_seconds = 30
+upstream_servers = ["1.1.1.1:53", "8.8.8.8:53"]
 
 [ssh]
 user = "ubuntu"

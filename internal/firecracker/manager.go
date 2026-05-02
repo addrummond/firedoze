@@ -436,7 +436,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
 			InitrdPath:      m.cfg.Firecracker.BaseInitrdPath,
-			BootArgs:        "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw",
+			BootArgs:        m.bootArgs(),
 		},
 		Drives: []drive{{
 			DriveID:      "rootfs",
@@ -475,6 +475,15 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 
 	m.logger.Info("started vm", "vm", name, "pid", proc.Command.Process.Pid)
 	return m.store.GetVM(ctx, name)
+}
+
+func (m *Manager) bootArgs() string {
+	args := "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw"
+	if m.cfg.DNS.Enabled {
+		args += " firedoze.dns_ip=" + m.cfg.DNS.ListenIP
+		args += " firedoze.dns_domain=" + m.cfg.DNS.Domain
+	}
+	return args
 }
 
 func (m *Manager) resumeVM(ctx context.Context, vm store.VM) (store.VM, error) {
@@ -764,7 +773,10 @@ func (m *Manager) nextPrivateIP(ctx context.Context) (net.IP, error) {
 		return nil, err
 	}
 	ip := append(net.IP(nil), base...)
-	offset := 2 + count*4
+	// Reserve the first /30 in the VM subnet for host-side infrastructure.
+	// The DNS resolver uses the first usable address, so VM allocation starts
+	// at the second guest address in the /30 sequence.
+	offset := 6 + count*4
 	ip[2] += byte(offset / 256)
 	ip[3] += byte(offset % 256)
 	if !subnet.Contains(ip) {

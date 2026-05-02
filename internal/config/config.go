@@ -22,6 +22,7 @@ type Config struct {
 	Metadata        MetadataConfig    `toml:"metadata"`
 	WireGuard       WireGuardConfig   `toml:"wireguard"`
 	VMNetwork       VMNetworkConfig   `toml:"vm_network"`
+	DNS             DNSConfig         `toml:"dns"`
 	SSH             SSHConfig         `toml:"ssh"`
 	Idle            IdleConfig        `toml:"idle"`
 	Firecracker     FirecrackerConfig `toml:"firecracker"`
@@ -92,6 +93,15 @@ type VMNetworkConfig struct {
 	Subnet string `toml:"subnet"`
 }
 
+type DNSConfig struct {
+	Enabled         bool     `toml:"enabled"`
+	Domain          string   `toml:"domain"`
+	ListenIP        string   `toml:"listen_ip"`
+	Port            int      `toml:"port"`
+	TTLSeconds      int      `toml:"ttl_seconds"`
+	UpstreamServers []string `toml:"upstream_servers"`
+}
+
 type SSHConfig struct {
 	User          string `toml:"user"`
 	WakeProxyPort int    `toml:"wake_proxy_port"`
@@ -137,6 +147,13 @@ func Default() Config {
 		VMNetwork: VMNetworkConfig{
 			Subnet: "10.88.0.0/16",
 		},
+		DNS: DNSConfig{
+			Enabled:         true,
+			Domain:          "firedoze",
+			Port:            53,
+			TTLSeconds:      30,
+			UpstreamServers: []string{"1.1.1.1:53", "8.8.8.8:53"},
+		},
 		SSH: SSHConfig{
 			User:          "ubuntu",
 			WakeProxyPort: 18022,
@@ -165,6 +182,9 @@ func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) && path == DefaultPath {
+			if err := cfg.applyDerivedDefaults(); err != nil {
+				return Config{}, err
+			}
 			return cfg, cfg.Validate()
 		}
 		return Config{}, err
@@ -195,6 +215,27 @@ func (c *Config) applyDerivedDefaults() error {
 	}
 	if c.Metadata.Path == "" {
 		c.Metadata.Path = filepath.Join(c.StateDir, "firedoze.db")
+	}
+	if c.DNS.Enabled {
+		if c.DNS.Domain == "" {
+			c.DNS.Domain = "firedoze"
+		}
+		if c.DNS.Port == 0 {
+			c.DNS.Port = 53
+		}
+		if c.DNS.TTLSeconds == 0 {
+			c.DNS.TTLSeconds = 30
+		}
+		if len(c.DNS.UpstreamServers) == 0 {
+			c.DNS.UpstreamServers = []string{"1.1.1.1:53", "8.8.8.8:53"}
+		}
+		if c.DNS.ListenIP == "" {
+			ip, err := FirstUsableIP(c.VMNetwork.Subnet)
+			if err != nil {
+				return err
+			}
+			c.DNS.ListenIP = ip.String()
+		}
 	}
 	return nil
 }
@@ -233,6 +274,29 @@ func (c Config) Validate() error {
 	if _, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
 	}
+	if c.DNS.Enabled {
+		if c.DNS.Domain == "" {
+			return fmt.Errorf("dns.domain is required when dns is enabled")
+		}
+		if strings.Contains(c.DNS.Domain, "://") {
+			return fmt.Errorf("dns.domain must be a DNS name, not a URL")
+		}
+		if net.ParseIP(c.DNS.ListenIP) == nil {
+			return fmt.Errorf("dns.listen_ip must be an IP address")
+		}
+		if c.DNS.Port <= 0 || c.DNS.Port > 65535 {
+			return fmt.Errorf("dns.port must be between 1 and 65535")
+		}
+		if c.DNS.TTLSeconds <= 0 {
+			return fmt.Errorf("dns.ttl_seconds must be positive")
+		}
+		for i, upstream := range c.DNS.UpstreamServers {
+			host, port, err := net.SplitHostPort(upstream)
+			if err != nil || host == "" || port == "" {
+				return fmt.Errorf("dns.upstream_servers[%d] must be host:port", i)
+			}
+		}
+	}
 	if c.SSH.User == "" {
 		return fmt.Errorf("ssh.user is required")
 	}
@@ -264,4 +328,20 @@ func (c Config) Validate() error {
 		return fmt.Errorf("firecracker.default_disk_bytes must be positive")
 	}
 	return nil
+}
+
+func FirstUsableIP(cidr string) (net.IP, error) {
+	ip, subnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("parse subnet: %w", err)
+	}
+	ip = append(net.IP(nil), ip.To4()...)
+	if ip == nil {
+		return nil, fmt.Errorf("subnet must be IPv4: %s", cidr)
+	}
+	ip[3]++
+	if !subnet.Contains(ip) {
+		return nil, fmt.Errorf("subnet has no usable DNS IP: %s", cidr)
+	}
+	return ip, nil
 }
