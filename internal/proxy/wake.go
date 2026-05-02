@@ -83,7 +83,15 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if refreshed, refreshErr := p.store.GetVM(r.Context(), vm.Name); refreshErr == nil {
 			vm = refreshed
 		}
-		p.logger.Info("woke vm for http route", "vm", vm.Name, "host", r.Host)
+		p.logger.Info(
+			"woke vm for http route",
+			"vm", vm.Name,
+			"host", r.Host,
+			"method", r.Method,
+			"path", r.URL.RequestURI(),
+			"remote_addr", r.RemoteAddr,
+			"user_agent", r.UserAgent(),
+		)
 	}
 	if vm.State != "running" {
 		http.Error(w, "firedoze vm is not running", http.StatusServiceUnavailable)
