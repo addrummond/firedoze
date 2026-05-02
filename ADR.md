@@ -215,6 +215,8 @@ The client resolves the VM to its private IP through the management API before s
 
 The `firedoze ssh <vm>` client starts or resumes the VM when needed, waits for guest SSH, then execs OpenSSH against the VM private IPv6 address. Passive SSH wake-on-network is disabled for the IPv6-only VM network for now.
 
+Public HTTP wake is gated by a self-hosted CAPTCHA when the target VM is sleeping. After a browser completes the challenge, firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires. The cookie signing key is generated automatically under the firedoze state directory and is not part of hand-written config.
+
 ## Public HTTPS
 
 Public web access is provided through embedded Caddy.

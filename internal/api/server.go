@@ -172,7 +172,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
-		AutoWake              bool   `json:"auto_wake"`
+		AutoWake              *bool  `json:"auto_wake"`
 		PublicHTTP            bool   `json:"public_http"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -190,7 +190,8 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
-		AutoWake:              req.AutoWake,
+		AutoWake:              req.AutoWake != nil && *req.AutoWake,
+		AutoWakeSet:           req.AutoWake != nil,
 		PublicHTTP:            req.PublicHTTP,
 	})
 	if err != nil {
@@ -462,7 +463,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
-		AutoWake              bool   `json:"auto_wake"`
+		AutoWake              *bool  `json:"auto_wake"`
 		PublicHTTP            bool   `json:"public_http"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -487,7 +488,8 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
-		AutoWake:              req.AutoWake,
+		AutoWake:              req.AutoWake != nil && *req.AutoWake,
+		AutoWakeSet:           req.AutoWake != nil,
 		PublicHTTP:            req.PublicHTTP,
 	})
 	if err != nil {

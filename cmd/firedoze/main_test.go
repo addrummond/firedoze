@@ -226,6 +226,19 @@ func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 	}
 }
 
+func TestVMCreateNoAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "--no-auto-wake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !params.NoAutoWake {
+		t.Fatal("NoAutoWake = false, want true")
+	}
+	if strings.Join(names, ",") != "alpha,beta" {
+		t.Fatalf("names = %#v, want alpha,beta", names)
+	}
+}
+
 func TestVMCreatePublicFlag(t *testing.T) {
 	params, names, err := parseVMCreateArgs("test", []string{"alpha", "--public"})
 	if err != nil {

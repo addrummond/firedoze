@@ -39,6 +39,7 @@ type CreateVMParams struct {
 	KernelID              string
 	BaseImageMetadata     string
 	AutoWake              bool
+	AutoWakeSet           bool
 	PublicHTTP            bool
 }
 

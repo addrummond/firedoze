@@ -4,8 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"firedoze/internal/config"
 	"firedoze/internal/store"
@@ -17,12 +20,12 @@ type recordingStarter struct {
 
 func (s *recordingStarter) StartVM(context.Context, string) (store.VM, error) {
 	s.starts++
-	return store.VM{Name: "demo", State: "running", PrivateIP: "10.88.0.2", DefaultHTTPPort: 8080, AutoWake: true}, nil
+	return store.VM{Name: "demo", State: "running", PrivateIP: "fd7a:115c:a1e0::3", DefaultHTTPPort: 8080, AutoWake: true}, nil
 }
 
 func TestWakeProxyDoesNotWakeWhenAutoWakeDisabled(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "10.88.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
@@ -45,9 +48,9 @@ func TestWakeProxyDoesNotWakeWhenAutoWakeDisabled(t *testing.T) {
 	}
 }
 
-func TestWakeProxyDoesNotWakeCrawler(t *testing.T) {
+func TestWakeProxyRequiresCaptchaBeforeWaking(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "10.88.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
@@ -58,16 +61,49 @@ func TestWakeProxyDoesNotWakeCrawler(t *testing.T) {
 	proxy := NewWakeProxy(testConfig(), st, starter, nil)
 	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
 	req.Host = "demo.example.test"
-	req.Header.Set("User-Agent", "Mozilla/5.0 (l9scan/2.0; +https://leakix.net)")
 	resp := httptest.NewRecorder()
 
 	proxy.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", resp.Code, http.StatusForbidden)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusOK)
 	}
 	if starter.starts != 0 {
 		t.Fatalf("starts = %d, want 0", starter.starts)
+	}
+	if !strings.Contains(resp.Body.String(), "Are you human?") {
+		t.Fatalf("response missing captcha page:\n%s", resp.Body.String())
+	}
+}
+
+func TestWakeProxyWakesWithSignedCookie(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+		t.Fatal(err)
+	}
+
+	starter := &recordingStarter{}
+	cfg := testConfig()
+	proxy := NewWakeProxy(cfg, st, starter, nil)
+	key, err := ensureWakeGateKey(filepath.Join(cfg.StateDir, "wake_gate.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.Host = "demo.example.test"
+	req.AddCookie(&http.Cookie{
+		Name:  wakeGateCookieName,
+		Value: signedWakeCookie(key, "demo.example.test", time.Now().Add(time.Hour)),
+	})
+	resp := httptest.NewRecorder()
+
+	proxy.ServeHTTP(resp, req)
+
+	if starter.starts == 0 {
+		t.Fatalf("starts = %d, want non-zero", starter.starts)
 	}
 }
 
@@ -87,5 +123,6 @@ func testStore(t *testing.T) *store.Store {
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.BaseDomain = "example.test"
+	cfg.StateDir = filepath.Join(os.TempDir(), "firedoze-wake-test")
 	return cfg
 }

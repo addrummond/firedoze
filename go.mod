@@ -6,6 +6,7 @@ toolchain go1.26.2
 
 require (
 	github.com/caddyserver/caddy/v2 v2.11.2
+	github.com/dchest/captcha v1.1.0
 	github.com/diskfs/go-diskfs v1.9.1
 	github.com/firecracker-microvm/firecracker-go-sdk v1.0.0
 	github.com/go-openapi/runtime v0.24.0
@@ -16,7 +17,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vishvananda/netlink v1.3.1
-	github.com/x-way/crawlerdetect v0.2.30
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 )
 

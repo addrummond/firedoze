@@ -15,8 +15,6 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/store"
-
-	"github.com/x-way/crawlerdetect"
 )
 
 type VMStarter interface {
@@ -28,6 +26,7 @@ type WakeProxy struct {
 	store   *store.Store
 	manager VMStarter
 	logger  *slog.Logger
+	gate    *wakeGate
 }
 
 func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger *slog.Logger) *WakeProxy {
@@ -39,6 +38,7 @@ func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger 
 		store:   st,
 		manager: manager,
 		logger:  logger,
+		gate:    newWakeGate(cfg, logger),
 	}
 }
 
@@ -73,6 +73,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "firedoze route not found", http.StatusNotFound)
 		return
 	}
+	host := routeHost(r.Host)
 	if vm.State != "running" {
 		if !vm.AutoWake {
 			p.logger.Info(
@@ -87,17 +88,8 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "firedoze vm auto wake is disabled", http.StatusServiceUnavailable)
 			return
 		}
-		if isScannerRequest(r) {
-			p.logger.Info(
-				"ignored scanner http wake",
-				"vm", vm.Name,
-				"host", r.Host,
-				"method", r.Method,
-				"path", r.URL.RequestURI(),
-				"remote_addr", r.RemoteAddr,
-				"user_agent", r.UserAgent(),
-			)
-			http.Error(w, "firedoze wake ignored", http.StatusForbidden)
+		if !p.gate.approved(r, host) {
+			p.gate.handle(w, r, host)
 			return
 		}
 		started, err := p.manager.StartVM(r.Context(), vm.Name)
@@ -143,11 +135,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM, int, bool) {
-	host := strings.ToLower(hostport)
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.TrimSuffix(host, ".")
+	host := routeHost(hostport)
 	base := strings.TrimSuffix(strings.ToLower(p.cfg.BaseDomain), ".")
 	suffix := "." + base
 	if !strings.HasSuffix(host, suffix) {
@@ -173,25 +161,10 @@ func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM
 	return vm, route.Port, true
 }
 
-func isScannerRequest(r *http.Request) bool {
-	userAgent := r.UserAgent()
-	if crawlerdetect.IsCrawler(userAgent) {
-		return true
+func routeHost(hostport string) string {
+	host := strings.ToLower(hostport)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
-	lower := strings.ToLower(userAgent)
-	for _, marker := range scannerUserAgentMarkers {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-var scannerUserAgentMarkers = []string{
-	"censys",
-	"leakix",
-	"l9scan",
-	"masscan",
-	"shodan",
-	"zgrab",
+	return strings.TrimSuffix(host, ".")
 }
