@@ -283,6 +283,15 @@ firedoze vm list
 firedoze ssh demo
 ```
 
+Run the built-in hello web server inside the VM:
+
+```sh
+firedoze ssh demo
+firedoze-hello
+```
+
+In another terminal on your laptop, open or curl the VM URL shown by `firedoze vm list`. The default route proxies to port `8080`, which is also the default `firedoze-hello` port.
+
 Sleep or stop a VM:
 
 ```sh

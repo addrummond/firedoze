@@ -672,6 +672,53 @@ RESOLV
 `,
 		},
 		{
+			path: "usr/local/bin/firedoze-hello",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+port="${1:-8080}"
+case "$port" in
+  ''|*[!0-9]*)
+    echo "usage: firedoze-hello [port]" >&2
+    exit 2
+    ;;
+esac
+if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+  echo "port must be between 1 and 65535" >&2
+  exit 2
+fi
+
+if ! command -v nc >/dev/null 2>&1; then
+  echo "firedoze-hello requires nc/netcat in the guest image" >&2
+  exit 1
+fi
+
+echo "firedoze-hello listening on 0.0.0.0:$port" >&2
+while :; do
+  {
+    printf 'HTTP/1.1 200 OK\r\n'
+    printf 'Content-Type: text/plain; charset=utf-8\r\n'
+    printf 'Connection: close\r\n'
+    printf '\r\n'
+    printf 'firedoze hello\n'
+    printf '\n'
+    printf 'time: %s\n' "$(date -Iseconds 2>/dev/null || date)"
+    printf 'hostname: %s\n' "$(hostname)"
+    printf 'user: %s\n' "$(id)"
+    printf 'kernel: %s\n' "$(uname -a)"
+    printf 'uptime: %s\n' "$(uptime 2>/dev/null || true)"
+    printf '\n'
+    printf 'addresses:\n'
+    ip -brief addr show scope global 2>/dev/null || ip addr show scope global 2>/dev/null || true
+    printf '\n'
+    printf 'routes:\n'
+    ip route 2>/dev/null || true
+  } | nc -l -p "$port" -q 1
+done
+`,
+		},
+		{
 			path: "etc/systemd/system/firedoze-network.service",
 			mode: 0o644,
 			data: `[Unit]
@@ -728,6 +775,7 @@ WantedBy=multi-user.target
 		"etc/systemd/system/multi-user.target.wants",
 		"etc/sudoers.d",
 		"home/ubuntu",
+		"usr/local/bin",
 		"usr/local/sbin",
 	} {
 		if err := mkdirAll(efs, dir, 0o755, 0, 0, now); err != nil {
