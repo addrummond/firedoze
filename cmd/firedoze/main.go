@@ -492,33 +492,96 @@ func (a app) up(args []string) error {
 		return errors.New("usage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]")
 	}
 	name := names[0]
-	vm, found, err := a.findVM(name)
-	if err != nil {
+	var vm vmInfo
+	var found bool
+	if err := runWithSpinner(os.Stderr, "checking VM "+name, func() error {
+		var err error
+		vm, found, err = a.findVM(name)
+		return err
+	}); err != nil {
 		return err
 	}
 	if !found {
-		if vm, err = a.createVM(params, name); err != nil {
+		if err := runWithSpinner(os.Stderr, "creating VM "+name, func() error {
+			var err error
+			vm, err = a.createVM(params, name)
+			return err
+		}); err != nil {
 			return err
 		}
-		if !a.json {
-			fmt.Printf("%s created\n", name)
-		}
+	} else {
+		fmt.Fprintf(os.Stderr, "using existing VM %s (%s)\n", name, vm.State)
 	}
 	if vm.State != "running" {
-		if vm, err = a.startVM(name); err != nil {
+		if err := runWithSpinner(os.Stderr, "starting VM "+name, func() error {
+			var err error
+			vm, err = a.startVM(name)
+			return err
+		}); err != nil {
 			return err
 		}
-		if !a.json {
-			fmt.Printf("%s started\n", name)
-		}
+	} else {
+		fmt.Fprintf(os.Stderr, "VM %s is already running\n", name)
 	}
-	if !a.json {
-		fmt.Printf("waiting for %s ssh\n", name)
-	}
-	if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
+	if err := runWithSpinner(os.Stderr, "waiting for SSH on "+vm.PrivateIP, func() error {
+		return waitForSSH(vm.PrivateIP, 2*time.Minute)
+	}); err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "connecting to %s (%s)\n", name, vm.PrivateIP)
 	return a.ssh(append([]string{name}, sshArgs...))
+}
+
+func runWithSpinner(w io.Writer, label string, fn func() error) error {
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() {
+		done <- fn()
+	}()
+
+	if !isTerminal(w) {
+		fmt.Fprintf(w, "start: %s\n", label)
+		err := <-done
+		if err != nil {
+			fmt.Fprintf(w, "failed: %s (%s)\n", label, formatDuration(time.Since(started)))
+			return err
+		}
+		fmt.Fprintf(w, "done: %s (%s)\n", label, formatDuration(time.Since(started)))
+		return nil
+	}
+
+	frames := []byte{'|', '/', '-', '\\'}
+	ticker := time.NewTicker(120 * time.Millisecond)
+	defer ticker.Stop()
+
+	frame := 0
+	for {
+		select {
+		case err := <-done:
+			fmt.Fprint(w, "\r\033[K")
+			if err != nil {
+				fmt.Fprintf(w, "failed: %s (%s)\n", label, formatDuration(time.Since(started)))
+				return err
+			}
+			fmt.Fprintf(w, "done: %s (%s)\n", label, formatDuration(time.Since(started)))
+			return nil
+		case <-ticker.C:
+			fmt.Fprintf(w, "\r%c %s", frames[frame%len(frames)], label)
+			frame++
+		}
+	}
+}
+
+func isTerminal(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func splitUpArgs(args []string) ([]string, []string) {
