@@ -21,7 +21,7 @@ sudo apt-get update
 sudo apt-get install -y build-essential ca-certificates git iptables wireguard-tools e2fsprogs openssh-client
 ```
 
-## 2. Build and Install
+## 2. Setup
 
 Install `mise` on the Linux host. The project uses `.tool-versions` to pin the Go toolchain and Task version.
 
@@ -53,6 +53,10 @@ sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
 sudo systemctl enable --now firedozed
 ```
 
+The rest of this section explains those steps in order.
+
+### 2.1 Install firedoze
+
 The installer:
 
 - Builds `firedoze`, `firedozed`, and `firedoze-image` from the checked-out source.
@@ -63,7 +67,7 @@ The installer:
 
 Existing config and VM state are left alone when you reinstall.
 
-## 3. Build and Install Base Images
+### 2.2 Build and install base images
 
 Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
 
@@ -86,7 +90,7 @@ The install task copies the generated files here:
 
 The generated image uses the normal Ubuntu `ubuntu` user for SSH.
 
-## 4. Configure firedoze
+### 2.3 Configure firedoze
 
 firedoze injects a shared authorized keys file into new VM disks. Every client who should be able to SSH into firedoze VMs needs to provide their public SSH key to the admin.
 
@@ -124,7 +128,7 @@ The command prints:
 
 `10.77.0.2/32` is Alice's WireGuard client address. Use a different `/32` address for each laptop.
 
-## 5. Firewall and DNS
+### 2.4 Configure firewall and DNS
 
 Open these inbound ports to the host:
 
@@ -145,7 +149,7 @@ firedoze also runs a private DNS server on the WireGuard IP. It resolves default
 myvm.dev.example.com -> VM private IP
 ```
 
-## 6. Start firedozed
+### 2.5 Start firedozed
 
 ```sh
 sudo systemctl enable --now firedozed
@@ -162,7 +166,7 @@ When systemd stops firedozed, the daemon tries to sleep all running VMs before e
 
 The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
-## 7. Connect WireGuard
+### 2.6 Connect WireGuard
 
 Save the WireGuard client config printed by `-wg-new-peer` on your laptop, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
@@ -178,7 +182,7 @@ Do not invent a different client address on the laptop. Change the peer's `allow
 sudo firedozed -wg-peer-config alice-laptop
 ```
 
-## 8. Use firedoze
+## 3. Use firedoze
 
 The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1` or your API port is not `8081`, set `FIREDOZE_API`:
 
