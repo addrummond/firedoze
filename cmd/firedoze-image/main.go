@@ -826,7 +826,7 @@ if ! command -v nc >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "firedoze-hello listening on 0.0.0.0:$port" >&2
+echo "firedoze-hello listening on [::]:$port" >&2
 while :; do
   {
     uptime_seconds="$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || true)"
@@ -866,7 +866,7 @@ while :; do
     printf '\n'
     printf 'Routes\n'
     ip -6 route 2>/dev/null | awk '/^default / {print "  default via " $3 " dev " $5; next} {print "  " $0}' || true
-  } | nc -l -p "$port" -q 1
+  } | nc -6 -l -p "$port" -q 1
 done
 `,
 		},

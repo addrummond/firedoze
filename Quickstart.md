@@ -315,6 +315,8 @@ firedoze-hello
 
 In another terminal on your laptop, open or curl the VM URL shown by `firedoze vm list`. The default route proxies to port `8080`, which is also the default `firedoze-hello` port.
 
+Custom web services should listen on IPv6, for example `[::]:8080`, because the private VM network is IPv6-only.
+
 To keep the hello server running as a systemd service inside the VM:
 
 ```sh
