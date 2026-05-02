@@ -47,8 +47,9 @@ The setup shape is:
 task image:install
 # on each client laptop:
 cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
+sudo firedozed -init-config -init-sslip-host HOST
 sudoedit /etc/firedoze/firedoze.toml
-sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
+sudo firedozed -wg-new-peer alice-laptop
 # send the printed client config to Alice securely
 sudo systemctl enable --now firedozed
 ```
@@ -62,10 +63,10 @@ The installer:
 - Builds `firedoze`, `firedozed`, and `firedoze-image` from the checked-out source.
 - Installs them to `/usr/local/bin`.
 - Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
-- Installs an example config at `/etc/firedoze/firedoze.toml` if that file does not already exist.
+- Installs an example config at `/etc/firedoze/firedoze.example.toml`.
 - Installs the systemd unit and reloads systemd.
 
-Existing config and VM state are left alone when you reinstall.
+Existing config and VM state are left alone when you reinstall. The real config is created later with `firedozed -init-config`.
 
 ### 2.2 Build and install base images
 
@@ -102,13 +103,34 @@ cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
 
 Replace `HOST` with the firedoze host's public SSH name. If a client uses a different key path, use that `.pub` file instead.
 
-Edit the installed config:
+Create the host config:
+
+```sh
+sudo firedozed -init-config -init-sslip-host HOST
+```
+
+Replace `HOST` with the public DNS name or IP address that client laptops should use for WireGuard. `-init-sslip-host` also sets `base_domain` to `HOST.sslip.io`, which is useful when the host has a public IP but no real domain yet.
+
+If you already have DNS, use `-init-host` with `-init-base-domain` instead:
+
+```sh
+sudo firedozed -init-config -init-host firedoze.example.com -init-base-domain dev.example.com
+```
+
+`-init-config` writes `/etc/firedoze/firedoze.toml`, refuses to overwrite an existing config unless you pass `-init-force`, and chooses random private ranges for:
+
+- `wireguard.address`
+- `vm_network.subnet`
+
+Those randomized ranges make it less likely that one laptop will see route conflicts when connecting to multiple firedoze servers.
+
+Review the generated config:
 
 ```sh
 sudoedit /etc/firedoze/firedoze.toml
 ```
 
-The main fields to set are:
+The main fields to check are:
 
 - `base_domain`: the wildcard DNS domain for VM URLs.
 - `wireguard.endpoint`: the public host and UDP port laptops will connect to.
@@ -118,14 +140,18 @@ The main fields to set are:
 To add a laptop, add a WireGuard peer on the host:
 
 ```sh
-sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
+sudo firedozed -wg-new-peer alice-laptop
 ```
 
-The command updates `/etc/firedoze/firedoze.toml` automatically and prints a WireGuard client config for Alice.
+The command picks the next free client address, updates `/etc/firedoze/firedoze.toml` automatically, and prints a WireGuard client config for Alice.
 
 The printed config contains Alice's private WireGuard key. Send it to Alice securely. Do not paste it into Slack, Discord, issue trackers, or other shared chat systems.
 
-`10.77.0.2/32` is Alice's WireGuard client address. Use a different `/32` address for each laptop.
+To choose the client address yourself, pass a unique `/32` address inside the generated WireGuard subnet:
+
+```sh
+sudo firedozed -wg-new-peer alice-laptop 10.93.0.2/32
+```
 
 ### 2.4 Configure firewall and DNS
 
@@ -169,10 +195,10 @@ The provided unit uses systemd readiness notification and a watchdog. If the dae
 
 Save the WireGuard client config printed by `-wg-new-peer` on the client laptop, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
-The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. For the example above, Alice's config will contain:
+The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/32` address from the generated WireGuard subnet:
 
 ```ini
-Address = 10.77.0.2/32
+Address = 10.X.0.2/32
 ```
 
 Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:

@@ -9,6 +9,7 @@ unit_src=systemd/firedozed.service
 unit_dst=/etc/systemd/system/firedozed.service
 config_src=config/firedoze.example.toml
 config_dst="$sysconfdir/firedoze.toml"
+config_example_dst="$sysconfdir/firedoze.example.toml"
 
 if [ "$(id -u)" -eq 0 ]; then
   sudo_cmd=
@@ -58,10 +59,9 @@ as_root install -d -m 0755 "$statedir/images"
 as_root install -d -m 0755 /var/log/firedoze
 as_root install -d -m 0755 "$docdir"
 
-if [ ! -f "$config_dst" ]; then
-  echo "installing example config to $config_dst"
-  as_root install -m 0644 "$config_src" "$config_dst"
-else
+echo "installing example config to $config_example_dst"
+as_root install -m 0644 "$config_src" "$config_example_dst"
+if [ -f "$config_dst" ]; then
   echo "leaving existing config in place: $config_dst"
 fi
 
@@ -89,10 +89,11 @@ Next steps:
        task image:install
   3. Add your SSH public key:
        cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> $sysconfdir/authorized_keys'
-  4. Edit $config_dst:
+  4. Create and edit $config_dst:
+       sudo firedozed -init-config -init-sslip-host HOST
        sudoedit $config_dst
   5. Add a WireGuard peer and send the printed client config securely:
-       sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
+       sudo firedozed -wg-new-peer alice-laptop
   6. Start the daemon:
        sudo systemctl enable --now firedozed
 

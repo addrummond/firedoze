@@ -15,17 +15,21 @@ func TestNewPeerSetup(t *testing.T) {
 	cfg.WireGuard.Endpoint = "example.com:51820"
 	cfg.WireGuard.PrivateKeyFile = filepath.Join(dir, "wg.key")
 
-	peer, output, err := NewPeerSetup(cfg, "alice-laptop", "10.77.0.2/32")
+	peer, output, err := NewPeerSetup(cfg, "alice-laptop", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if peer.Name != "alice-laptop" {
 		t.Fatalf("peer name = %q, want alice-laptop", peer.Name)
 	}
+	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "10.77.0.2/32" {
+		t.Fatalf("allowed IPs = %#v, want 10.77.0.2/32", peer.AllowedIPs)
+	}
 
 	for _, want := range []string{
 		"# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.",
-		"# SHARE IT WITH alice-laptop SECURELY. DO NOT PASTE IT INTO CHAT\nOR VIA OTHER INSECURE CHANNELS.",
+		"# SHARE IT WITH alice-laptop SECURELY. DO NOT PASTE IT INTO CHAT.",
+		"# DO NOT SEND IT VIA OTHER INSECURE CHANNELS.",
 		"[Interface]",
 		"Address = 10.77.0.2/32",
 		"DNS = 10.77.0.1",
@@ -46,6 +50,26 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("server key mode = %v, want 0600", got)
+	}
+}
+
+func TestNewPeerSetupSkipsUsedAllowedIPs(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.WireGuard.Endpoint = "example.com:51820"
+	cfg.WireGuard.PrivateKeyFile = filepath.Join(dir, "wg.key")
+	cfg.WireGuard.Peers = []config.WGPeer{{
+		Name:       "alice-laptop",
+		PublicKey:  "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE=",
+		AllowedIPs: []string{"10.77.0.2/32"},
+	}}
+
+	peer, _, err := NewPeerSetup(cfg, "bob-laptop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "10.77.0.3/32" {
+		t.Fatalf("allowed IPs = %#v, want 10.77.0.3/32", peer.AllowedIPs)
 	}
 }
 

@@ -1,6 +1,7 @@
 package wireguard
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -41,6 +42,13 @@ func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPe
 	if name == "" {
 		return config.WGPeer{}, "", fmt.Errorf("peer name is required")
 	}
+	if allowedIP == "" {
+		var err error
+		allowedIP, err = nextPeerAllowedIP(cfg)
+		if err != nil {
+			return config.WGPeer{}, "", err
+		}
+	}
 	if _, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
 		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be CIDR: %w", err)
 	} else if ones, bits := ipNet.Mask.Size(); ones != bits {
@@ -73,6 +81,52 @@ func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPe
 		return config.WGPeer{}, "", err
 	}
 	return peer, clientConfig, nil
+}
+
+func nextPeerAllowedIP(cfg config.Config) (string, error) {
+	ip, ipNet, err := net.ParseCIDR(cfg.WireGuard.Address)
+	if err != nil {
+		return "", fmt.Errorf("wireguard.address must be CIDR: %w", err)
+	}
+	base := ip.To4()
+	if base == nil {
+		return "", fmt.Errorf("automatic peer addresses require an IPv4 wireguard.address")
+	}
+	ones, bits := ipNet.Mask.Size()
+	if bits != 32 || ones > 30 {
+		return "", fmt.Errorf("wireguard.address subnet is too small for automatic peer addresses")
+	}
+	network := binary.BigEndian.Uint32(base) & binary.BigEndian.Uint32(ipNet.Mask)
+	hostIP := binary.BigEndian.Uint32(base)
+	used := map[uint32]struct{}{
+		hostIP: {},
+	}
+	for _, peer := range cfg.WireGuard.Peers {
+		for _, allowedIP := range peer.AllowedIPs {
+			ip, ipNet, err := net.ParseCIDR(allowedIP)
+			if err != nil {
+				continue
+			}
+			ones, bits := ipNet.Mask.Size()
+			if bits != 32 || ones != 32 {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				used[binary.BigEndian.Uint32(ip4)] = struct{}{}
+			}
+		}
+	}
+	size := uint32(1) << uint32(32-ones)
+	for offset := uint32(1); offset < size-1; offset++ {
+		candidate := network + offset
+		if _, ok := used[candidate]; ok {
+			continue
+		}
+		var out [4]byte
+		binary.BigEndian.PutUint32(out[:], candidate)
+		return net.IP(out[:]).String() + "/32", nil
+	}
+	return "", fmt.Errorf("no free wireguard peer addresses in %s", cfg.WireGuard.Address)
 }
 
 func AppendPeer(path string, peer config.WGPeer) error {
@@ -188,7 +242,8 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	var b strings.Builder
 	if clientPrivateKey != "<client-private-key>" {
 		fmt.Fprintf(&b, "# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.\n")
-		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT\nOR VIA OTHER INSECURE CHANNELS.\n\n", peer.Name)
+		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT.\n", peer.Name)
+		fmt.Fprintf(&b, "# DO NOT SEND IT VIA OTHER INSECURE CHANNELS.\n\n")
 	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
