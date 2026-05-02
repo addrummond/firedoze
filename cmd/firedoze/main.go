@@ -161,7 +161,7 @@ func (a app) vm(args []string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tSTATE\tIP\tSSH\tURL")
 		for _, vm := range out.VMs {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", vm.Name, vm.State, vm.PrivateIP, vm.SSH, vm.URLs["default"])
+			fmt.Fprintf(w, "%s\t%s\t%s\tfiredoze ssh %s\t%s\n", vm.Name, vm.State, vm.PrivateIP, vm.Name, vm.URLs["default"])
 		}
 		return w.Flush()
 	case "create":
