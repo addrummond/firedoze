@@ -247,6 +247,12 @@ firedoze vm create demo
 firedoze vm start demo
 ```
 
+Create a VM if needed, start it, and SSH in when it is ready:
+
+```sh
+firedoze up demo
+```
+
 Create several VMs with the same settings:
 
 ```sh
@@ -283,6 +289,19 @@ firedoze-hello
 ```
 
 In another terminal on your laptop, open or curl the VM URL shown by `firedoze vm list`. The default route proxies to port `8080`, which is also the default `firedoze-hello` port.
+
+To keep the hello server running as a systemd service inside the VM:
+
+```sh
+sudo firedoze-hello-service install 8080
+```
+
+After it has been installed, manage it with normal systemd commands:
+
+```sh
+sudo systemctl start firedoze-hello.service
+sudo systemctl status firedoze-hello.service
+```
 
 Sleep or stop a VM:
 

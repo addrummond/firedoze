@@ -878,6 +878,90 @@ done
 `,
 		},
 		{
+			path: "usr/local/bin/firedoze-hello-service",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+usage() {
+  echo "usage: firedoze-hello-service <install|start|stop|restart|status|disable> [port]" >&2
+}
+
+cmd="${1:-}"
+port="${2:-8080}"
+case "$cmd" in
+  install|start|stop|restart|status|disable) ;;
+  -h|--help|"")
+    usage
+    exit 2
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+case "$port" in
+  ''|*[!0-9]*)
+    echo "port must be numeric" >&2
+    exit 2
+    ;;
+esac
+if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+  echo "port must be between 1 and 65535" >&2
+  exit 2
+fi
+
+unit=/etc/systemd/system/firedoze-hello.service
+
+install_unit() {
+  cat >"$unit" <<UNIT
+[Unit]
+Description=firedoze hello web server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/firedoze-hello $port
+Restart=always
+RestartSec=1s
+User=ubuntu
+Group=ubuntu
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable firedoze-hello.service >/dev/null
+}
+
+case "$cmd" in
+  install)
+    install_unit
+    systemctl restart firedoze-hello.service
+    systemctl --no-pager --full status firedoze-hello.service
+    ;;
+  start)
+    systemctl start firedoze-hello.service
+    ;;
+  stop)
+    systemctl stop firedoze-hello.service
+    ;;
+  restart)
+    systemctl restart firedoze-hello.service
+    ;;
+  status)
+    systemctl --no-pager --full status firedoze-hello.service
+    ;;
+  disable)
+    systemctl disable --now firedoze-hello.service >/dev/null || true
+    rm -f "$unit"
+    systemctl daemon-reload
+    ;;
+esac
+`,
+		},
+		{
 			path: "etc/systemd/system/firedoze-network.service",
 			mode: 0o644,
 			data: `[Unit]
