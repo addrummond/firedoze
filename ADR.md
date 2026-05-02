@@ -32,13 +32,13 @@ Security matters, but reliability and high availability do not. The environment 
 
 ## Target Platforms
 
-The intended real deployment target is a single Linux cloud VM that supports nested virtualization.
+The intended real deployment target is a single Linux server running on dedicated hardware, or in a cloud VM that supports nested virtualization.
 
-AWS is the primary target for the intended deployment model. As of February 2026, EC2 supports nested virtualization on virtual instances in the C8i, M8i, and R8i families. firedoze should assume KVM availability for Firecracker.
+AWS compatibility is required for the intended deployment model. As of February 2026, EC2 supports nested virtualization on virtual instances in the C8i, M8i, and R8i families. firedoze should assume KVM availability for Firecracker.
 
-DigitalOcean Droplets are acceptable for cheaper initial development work, subject to nested virtualization behavior and performance caveats.
+DigitalOcean Droplets may be useful for cheap initial development work, subject to nested virtualization behavior and performance caveats.
 
-The host OS should be any modern Linux distribution with KVM, kernel WireGuard, and required networking support. Ubuntu-specific assumptions should be kept small.
+The host OS should be any modern Linux distribution with KVM, kernel WireGuard, and required networking support. Initial building and testing will be done on Ubuntu, but Ubuntu-specific assumptions should be kept small.
 
 ## Single-Node Scope
 
@@ -214,12 +214,14 @@ SSH is private over WireGuard only.
 
 Every new VM receives a shared admin-configured authorized-keys list. There is no per-VM or per-user SSH authorization model in v1.
 
-The default user is expected to be the base image's normal user. The current Firecracker quickstart image supports root SSH, so the early implementation injects configured keys into `/root/.ssh/authorized_keys`.
+The default user is expected to be the base image's normal user. For the Ubuntu base image, this is `ubuntu`.
+
+firedoze injects configured SSH keys into `/etc/firedoze/authorized_keys` inside the guest. The base image configures sshd to accept that shared file, so key injection is independent of whether the SSH user is `ubuntu`, `root`, or a later image-specific user.
 
 The preferred user experience is:
 
 ```text
-ssh root@myvm.dev.example.com
+ssh ubuntu@myvm.dev.example.com
 ```
 
 This relies on the WireGuard-only DNS responder resolving VM hostnames to private VM IPs for connected peers.
@@ -328,6 +330,12 @@ The first restore implementation creates a stopped VM from the snapshot disk cop
 The base image is non-configurable in v1.
 
 Default guest OS should be Ubuntu LTS cloud image or equivalent. The VM should feel like a normal human-usable Linux computer, not a minimal appliance.
+
+The base image should be built from Ubuntu's official cloud root tarball rather than from the minimal Firecracker quickstart image. firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and extracts matching `vmlinux.bin` and `initrd.img` boot artifacts.
+
+The image builder should be host-portable for development. v1 uses Docker or Podman so the same script can run on macOS or Linux without requiring the host to mount ext4 filesystems directly.
+
+The guest image carries a tiny firedoze network service. At boot, it reads the Firecracker MAC address in the `06:00:<guest-ip-octets>` convention and configures `eth0` with the derived `/30` guest IP and default route through `guest_ip - 1`.
 
 The base image is used only for fresh VMs. Existing VMs and snapshots do not track base image updates.
 

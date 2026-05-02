@@ -248,6 +248,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	if err := writeFirecrackerConfig(layout.configPath, firecrackerConfig{
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
+			InitrdPath:      m.cfg.Firecracker.BaseInitrdPath,
 			BootArgs:        "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw",
 		},
 		Drives: []drive{{
@@ -847,13 +848,13 @@ func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) err
 		return err
 	}
 
-	if err := run(ctx, debugfsPath, "-w", "-R", "mkdir /root/.ssh", diskPath); err != nil {
-		m.logger.Debug("mkdir /root/.ssh in guest disk", "error", err)
+	if err := run(ctx, debugfsPath, "-w", "-R", "mkdir /etc/firedoze", diskPath); err != nil {
+		m.logger.Debug("mkdir /etc/firedoze in guest disk", "error", err)
 	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "rm /root/.ssh/authorized_keys", diskPath); err != nil {
+	if err := run(ctx, debugfsPath, "-w", "-R", "rm /etc/firedoze/authorized_keys", diskPath); err != nil {
 		m.logger.Debug("remove existing authorized_keys in guest disk", "error", err)
 	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" /root/.ssh/authorized_keys", diskPath); err != nil {
+	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" /etc/firedoze/authorized_keys", diskPath); err != nil {
 		return err
 	}
 	return nil
@@ -1043,6 +1044,7 @@ type firecrackerConfig struct {
 
 type bootSource struct {
 	KernelImagePath string `json:"kernel_image_path"`
+	InitrdPath      string `json:"initrd_path,omitempty"`
 	BootArgs        string `json:"boot_args"`
 }
 

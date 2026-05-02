@@ -232,6 +232,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"firecracker": map[string]any{
 			"binary_path":        s.cfg.Firecracker.BinaryPath,
 			"base_kernel_path":   s.cfg.Firecracker.BaseKernelPath,
+			"base_initrd_path":   s.cfg.Firecracker.BaseInitrdPath,
 			"base_rootfs_path":   s.cfg.Firecracker.BaseRootfsPath,
 			"default_vcpus":      s.cfg.Firecracker.DefaultVCPUs,
 			"default_memory_mib": s.cfg.Firecracker.DefaultMemoryMiB,

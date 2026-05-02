@@ -111,6 +111,7 @@ type IdleConfig struct {
 type FirecrackerConfig struct {
 	BinaryPath       string `toml:"binary_path"`
 	BaseKernelPath   string `toml:"base_kernel_path"`
+	BaseInitrdPath   string `toml:"base_initrd_path"`
 	BaseRootfsPath   string `toml:"base_rootfs_path"`
 	DefaultVCPUs     int    `toml:"default_vcpus"`
 	DefaultMemoryMiB int    `toml:"default_memory_mib"`

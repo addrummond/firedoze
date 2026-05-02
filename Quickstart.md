@@ -13,6 +13,7 @@ Use an x86_64 Linux box with:
 - `iptables`, `debugfs`, and `ssh-keygen`.
 - Firecracker installed at `/usr/local/bin/firecracker`.
 - A Firecracker-compatible kernel image.
+- A Firecracker-compatible initrd image if your kernel needs one.
 - A Firecracker-compatible ext4 root filesystem image with SSH enabled.
 - Go and a C compiler if building from source.
 
@@ -54,16 +55,42 @@ sudo install -m 0644 contrib/systemd/firedozed.service /etc/systemd/system/fired
 sudo systemctl daemon-reload
 ```
 
-## 3. Install Base Images
+## 3. Build and Install Base Images
 
-Put your Firecracker kernel and root filesystem here:
+The easiest path is to build a firedoze Ubuntu base image on your laptop, then copy the artifacts to the Linux host.
+
+On your laptop, install Docker Desktop or Podman, then run:
+
+```sh
+scripts/build-base-image.sh --out dist/base-image
+```
+
+The script downloads Ubuntu's official cloud root tarball, turns it into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+
+Copy the generated files to the host:
+
+```sh
+rsync -aSv dist/base-image/rootfs.ext4 dist/base-image/vmlinux.bin dist/base-image/initrd.img HOST:/tmp/firedoze-base-image/
+```
+
+On the host, install them here:
 
 ```text
 /var/lib/firedoze/images/vmlinux.bin
+/var/lib/firedoze/images/initrd.img
 /var/lib/firedoze/images/rootfs.ext4
 ```
 
-The current default assumes the guest supports root SSH. If your image uses another user, set `ssh.user` in the config.
+For example:
+
+```sh
+sudo mkdir -p /var/lib/firedoze/images
+sudo install -m 0644 /tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
+sudo install -m 0644 /tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
+sudo install -m 0644 /tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+```
+
+The generated image uses the normal Ubuntu `ubuntu` user for SSH.
 
 ## 4. Create SSH Keys for Guests
 
@@ -128,17 +155,18 @@ https_port = 443
 internal_proxy_port = 18082
 
 [ssh]
-user = "root"
+user = "ubuntu"
 authorized_key_files = ["/etc/firedoze/authorized_keys"]
 wake_proxy_port = 18022
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
+base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_mib = 128
-default_disk_bytes = 536870912
+default_memory_mib = 512
+default_disk_bytes = 4294967296
 ```
 
 ## 7. Firewall and DNS
