@@ -24,8 +24,8 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"# WARNING: THIS FILE CONTAINS A PRIVATE WIREGUARD KEY.",
-		"# SHARE IT WITH alice-laptop SECURELY. DO NOT PASTE IT INTO CHAT.",
+		"# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.",
+		"# SHARE IT WITH alice-laptop SECURELY. DO NOT PASTE IT INTO CHAT\nOR VIA OTHER INSECURE CHANNELS.",
 		"[Interface]",
 		"Address = 10.77.0.2/32",
 		"DNS = 10.77.0.1",

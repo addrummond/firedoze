@@ -13,3 +13,4 @@
 - Way of copying files in and out of VMs, such as `firedoze cp <vm>:<src> <dst>` and `firedoze cp <src> <vm>:<dst>`.
 - Install a 'firedoze-sleep' command within the VM. If possible, this should be a static linux x86_64 binary that can be copied into any VM and invoked to trigger a clean sleep with the same semantics as `firedoze vm sleep`.
 - Figure out why exactly we need chmodIfExists in the image builder.
+- Check if we guard against multiple wireguard peers with the same IP or name.

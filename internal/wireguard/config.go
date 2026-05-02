@@ -187,8 +187,8 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 
 	var b strings.Builder
 	if clientPrivateKey != "<client-private-key>" {
-		fmt.Fprintf(&b, "# WARNING: THIS FILE CONTAINS A PRIVATE WIREGUARD KEY.\n")
-		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT.\n\n", peer.Name)
+		fmt.Fprintf(&b, "# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.\n")
+		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT\nOR VIA OTHER INSECURE CHANNELS.\n\n", peer.Name)
 	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
