@@ -14,7 +14,6 @@
 - Install a 'firedoze-sleep' command within the VM. If possible, this should be a static linux x86_64 binary that can be copied into any VM and invoked to trigger a clean sleep with the same semantics as `firedoze vm sleep`.
 - Figure out why exactly we need chmodIfExists in the image builder.
 - Check if we guard against multiple wireguard peers with the same IP or name.
-- Is this sentence in the quickstart.md guide still accurate? "Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:"
 - Do we reclaim ips for sleeping VMs? Is there any reason not to use ipv6 for the private ips?
 - Command within the VM to suspend it so that a snapshot can be made after a script has run.
 - option to easily 'publish'/'hide' a VM from the public internet.
