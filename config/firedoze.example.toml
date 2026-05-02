@@ -43,6 +43,8 @@ private_key_file = "/etc/firedoze/wg.key"
 # allowed_ips = ["10.77.0.2/32"]
 
 [vm_network]
+# Private IPv4 range used for VM addresses. Change it if it overlaps with
+# your WireGuard subnet, VPC, LAN, or VPN routes.
 subnet = "10.88.0.0/16"
 
 [ssh]
