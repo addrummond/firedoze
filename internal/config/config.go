@@ -164,7 +164,7 @@ func Default() Config {
 		},
 		Idle: IdleConfig{
 			CheckIntervalSeconds:     30,
-			DefaultSleepAfterSeconds: 30 * 60,
+			DefaultSleepAfterSeconds: 6 * 60 * 60,
 		},
 		Firecracker: FirecrackerConfig{
 			BinaryPath:       "/usr/local/bin/firecracker",

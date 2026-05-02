@@ -434,7 +434,7 @@ wake_proxy_port = 18022
 
 [idle]
 check_interval_seconds = 30
-default_sleep_after_seconds = 1800
+default_sleep_after_seconds = 21600
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"
