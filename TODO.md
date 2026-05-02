@@ -15,5 +15,3 @@
 - Figure out why exactly we need chmodIfExists in the image builder.
 - Check if we guard against multiple wireguard peers with the same IP or name.
 - Do we reclaim ips for sleeping VMs? Is there any reason not to use ipv6 for the private ips?
-- Command within the VM to suspend it so that a snapshot can be made after a script has run.
-- option to easily 'publish'/'hide' a VM from the public internet.
