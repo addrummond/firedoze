@@ -312,6 +312,19 @@ func readImageManifest(p string) (map[string]string, error) {
 }
 
 func (m *Manager) DeleteVM(ctx context.Context, name string) error {
+	m.mu.Lock()
+	if _, ok := m.starting[name]; ok {
+		m.mu.Unlock()
+		return ErrAlreadyRunning
+	}
+	m.starting[name] = struct{}{}
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.starting, name)
+		m.mu.Unlock()
+	}()
+
 	if _, err := m.store.GetVM(ctx, name); err != nil {
 		return err
 	}
@@ -324,6 +337,9 @@ func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 		}
 	}
 	if err := os.RemoveAll(m.layout(name).vmDir); err != nil {
+		return err
+	}
+	if err := m.store.DeleteRoutesForVM(ctx, name); err != nil {
 		return err
 	}
 	return m.store.DeleteVM(ctx, name)
@@ -340,11 +356,6 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, name string) error {
 }
 
 func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
-	vm, err := m.store.GetVM(ctx, name)
-	if err != nil {
-		return store.VM{}, err
-	}
-
 	m.mu.Lock()
 	if _, ok := m.running[name]; ok {
 		m.mu.Unlock()
@@ -361,6 +372,11 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		delete(m.starting, name)
 		m.mu.Unlock()
 	}()
+
+	vm, err := m.store.GetVM(ctx, name)
+	if err != nil {
+		return store.VM{}, err
+	}
 	if vm.State == "sleeping" {
 		return m.resumeVM(ctx, vm)
 	}

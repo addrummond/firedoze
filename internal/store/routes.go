@@ -87,6 +87,11 @@ func (s *Store) DeleteRoute(ctx context.Context, name string) error {
 	return nil
 }
 
+func (s *Store) DeleteRoutesForVM(ctx context.Context, vmName string) error {
+	_, err := s.db.ExecContext(ctx, `delete from routes where vm_name = ?`, vmName)
+	return err
+}
+
 func (s *Store) VMExists(ctx context.Context, name string) (bool, error) {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `select exists(select 1 from vms where name = ?)`, name).Scan(&exists); err != nil {
