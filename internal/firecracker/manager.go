@@ -46,8 +46,9 @@ type Manager struct {
 	store  *store.Store
 	logger *slog.Logger
 
-	mu      sync.Mutex
-	running map[string]*Process
+	mu       sync.Mutex
+	running  map[string]*Process
+	starting map[string]struct{}
 }
 
 type Process struct {
@@ -65,10 +66,11 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:     cfg,
-		store:   st,
-		logger:  logger,
-		running: make(map[string]*Process),
+		cfg:      cfg,
+		store:    st,
+		logger:   logger,
+		running:  make(map[string]*Process),
+		starting: make(map[string]struct{}),
 	}
 }
 
@@ -223,7 +225,17 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		m.mu.Unlock()
 		return store.VM{}, ErrAlreadyRunning
 	}
+	if _, ok := m.starting[name]; ok {
+		m.mu.Unlock()
+		return store.VM{}, ErrAlreadyRunning
+	}
+	m.starting[name] = struct{}{}
 	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.starting, name)
+		m.mu.Unlock()
+	}()
 	if vm.State == "sleeping" {
 		return m.resumeVM(ctx, vm)
 	}
