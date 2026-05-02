@@ -218,7 +218,7 @@ The generated config includes the laptop's WireGuard `Address`. That address com
 Address = 10.X.0.2/32
 ```
 
-Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:
+The server config is the source of truth for the laptop's WireGuard address. Do not edit `Address` to a different value only on the laptop; it must match that peer's `allowed_ips` entry on the server. If you change the peer address in `/etc/firedoze/firedoze.toml`, regenerate the client config:
 
 ```sh
 sudo firedozed -wg-peer-config alice-laptop
