@@ -38,9 +38,15 @@ func ServerPublicKey(cfg config.Config) (string, error) {
 	return privateKey.PublicKey().String(), nil
 }
 
-func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPeer, string, error) {
+func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP string) (config.WGPeer, string, error) {
 	if name == "" {
 		return config.WGPeer{}, "", fmt.Errorf("peer name is required")
+	}
+	if publicKey == "" {
+		return config.WGPeer{}, "", fmt.Errorf("peer public key is required")
+	}
+	if _, err := wgtypes.ParseKey(publicKey); err != nil {
+		return config.WGPeer{}, "", fmt.Errorf("peer public key: %w", err)
 	}
 	if allowedIP == "" {
 		var err error
@@ -58,6 +64,9 @@ func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPe
 		if peer.Name == name {
 			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already exists", name)
 		}
+		if peer.PublicKey == publicKey {
+			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses that public key", peer.Name)
+		}
 		if slices.Contains(peer.AllowedIPs, allowedIP) {
 			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses %s", peer.Name, allowedIP)
 		}
@@ -67,16 +76,12 @@ func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPe
 	if err != nil {
 		return config.WGPeer{}, "", err
 	}
-	clientKeyPair, err := GenerateClientKeyPair()
-	if err != nil {
-		return config.WGPeer{}, "", err
-	}
 	peer := config.WGPeer{
 		Name:       name,
-		PublicKey:  clientKeyPair.PublicKey,
+		PublicKey:  publicKey,
 		AllowedIPs: []string{allowedIP},
 	}
-	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String(), clientKeyPair.PrivateKey)
+	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String(), "<client-private-key>")
 	if err != nil {
 		return config.WGPeer{}, "", err
 	}
@@ -240,11 +245,6 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 
 	var b strings.Builder
-	if clientPrivateKey != "<client-private-key>" {
-		fmt.Fprintf(&b, "# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.\n")
-		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT.\n", peer.Name)
-		fmt.Fprintf(&b, "# DO NOT SEND IT VIA OTHER INSECURE CHANNELS.\n\n")
-	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
 	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))

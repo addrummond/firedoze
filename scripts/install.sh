@@ -91,8 +91,8 @@ Next steps:
        cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> $sysconfdir/authorized_keys'
   4. Create $config_dst:
        sudo firedozed -init-config -init-sslip-host PUBLIC_IP
-  5. Add a WireGuard peer and send the printed client config securely:
-       sudo firedozed -wg-new-peer alice-laptop
+  5. Ask the client to run 'firedoze wg keygen', then add their public key:
+       sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
   6. Start the daemon:
        sudo systemctl enable --now firedozed
 

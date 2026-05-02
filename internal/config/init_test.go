@@ -17,7 +17,7 @@ func TestInitTOMLSSLIPHostUsesSSLIPAndRandomNetworks(t *testing.T) {
 		`endpoint = "203.0.113.10:51820"`,
 		`address = "10.`,
 		`subnet = "10.`,
-		"firedozed -wg-new-peer alice-laptop",
+		"firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated config missing %q:\n%s", want, text)

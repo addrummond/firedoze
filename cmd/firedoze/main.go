@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"firedoze/internal/store"
+	wgconfig "firedoze/internal/wireguard"
 )
 
 const defaultAPI = "http://10.77.0.1:8081"
@@ -136,10 +137,33 @@ func (a app) dispatch(args []string) error {
 		return a.snapshot(args[1:])
 	case "route":
 		return a.route(args[1:])
+	case "wg":
+		return a.wg(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func (a app) wg(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: firedoze wg keygen")
+	}
+	switch args[0] {
+	case "keygen":
+		if len(args) != 1 {
+			return errors.New("usage: firedoze wg keygen")
+		}
+		keyPair, err := wgconfig.GenerateClientKeyPair()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("private_key = %s\n", keyPair.PrivateKey)
+		fmt.Printf("public_key = %s\n", keyPair.PublicKey)
+		return nil
+	default:
+		return fmt.Errorf("unknown wg command: %s", args[0])
 	}
 }
 
@@ -622,6 +646,7 @@ Commands:
   route list
   route create <route> <vm> <port>
   route delete <route>
+  wg keygen
   ssh <vm> [ssh args...]
 
 Environment:

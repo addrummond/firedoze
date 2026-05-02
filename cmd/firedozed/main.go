@@ -38,10 +38,9 @@ func run() int {
 	var printConfig bool
 	var setupWireGuard bool
 	var serve bool
-	var wgGenClientKey bool
 	var wgServerPublicKey bool
 	var wgPeerConfig string
-	var wgNewPeer string
+	var wgAddPeer string
 
 	flag.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
 	flag.BoolVar(&initConfig, "init-config", false, "create an initial firedoze config and exit")
@@ -52,10 +51,9 @@ func run() int {
 	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
 	flag.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
 	flag.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
-	flag.BoolVar(&wgGenClientKey, "wg-gen-client-key", false, "generate a WireGuard client key pair")
 	flag.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
 	flag.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a wg-quick config for the configured peer name")
-	flag.StringVar(&wgNewPeer, "wg-new-peer", "", "add a WireGuard peer to the config and print its client config; optional allowed IP positional argument")
+	flag.StringVar(&wgAddPeer, "wg-add-peer", "", "add a WireGuard peer public key to the config and print its client config; optional allowed IP positional argument")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -86,16 +84,6 @@ func run() int {
 		fmt.Print(cfg.TOML())
 		return 0
 	}
-	if wgGenClientKey {
-		keyPair, err := wgconfig.GenerateClientKeyPair()
-		if err != nil {
-			logger.Error("generate wireguard client key", "error", err)
-			return 1
-		}
-		fmt.Printf("private_key = %s\n", keyPair.PrivateKey)
-		fmt.Printf("public_key = %s\n", keyPair.PublicKey)
-		return 0
-	}
 	if wgServerPublicKey {
 		publicKey, err := wgconfig.ServerPublicKey(cfg)
 		if err != nil {
@@ -121,22 +109,23 @@ func run() int {
 		logger.Error("wireguard peer not found", "peer", wgPeerConfig)
 		return 1
 	}
-	if wgNewPeer != "" {
-		if flag.NArg() > 1 {
-			logger.Error("usage: firedozed -wg-new-peer <peer-name> [client-wireguard-address-cidr]")
+	if wgAddPeer != "" {
+		if flag.NArg() < 1 || flag.NArg() > 2 {
+			logger.Error("usage: firedozed -wg-add-peer <peer-name> <client-public-key> [client-wireguard-address-cidr]")
 			return 1
 		}
+		publicKey := flag.Arg(0)
 		allowedIP := ""
-		if flag.NArg() == 1 {
-			allowedIP = flag.Arg(0)
+		if flag.NArg() == 2 {
+			allowedIP = flag.Arg(1)
 		}
-		peer, clientConfig, err := wgconfig.NewPeerSetup(cfg, wgNewPeer, allowedIP)
+		peer, clientConfig, err := wgconfig.NewPeerSetup(cfg, wgAddPeer, publicKey, allowedIP)
 		if err != nil {
-			logger.Error("render new wireguard peer setup", "peer", wgNewPeer, "error", err)
+			logger.Error("render new wireguard peer setup", "peer", wgAddPeer, "error", err)
 			return 1
 		}
 		if err := wgconfig.AppendPeer(configPath, peer); err != nil {
-			logger.Error("update config with new wireguard peer", "path", configPath, "peer", wgNewPeer, "error", err)
+			logger.Error("update config with new wireguard peer", "path", configPath, "peer", wgAddPeer, "error", err)
 			return 1
 		}
 		fmt.Print(clientConfig)

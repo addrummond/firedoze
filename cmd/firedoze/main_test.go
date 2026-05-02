@@ -2,6 +2,9 @@ package main
 
 import (
 	"flag"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,5 +49,28 @@ func TestParseNamesAndFlags(t *testing.T) {
 	}
 	if *diskBytes != 1024 {
 		t.Fatalf("diskBytes = %d, want 1024", *diskBytes)
+	}
+}
+
+func TestWGKeygen(t *testing.T) {
+	oldStdout := os.Stdout
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = write
+	err = (app{}).wg([]string{"keygen"})
+	_ = write.Close()
+	os.Stdout = oldStdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+	if !strings.Contains(output, "private_key = ") || !strings.Contains(output, "public_key = ") {
+		t.Fatalf("keygen output missing keys:\n%s", output)
 	}
 }

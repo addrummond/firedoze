@@ -14,8 +14,9 @@ func TestNewPeerSetup(t *testing.T) {
 	cfg := config.Default()
 	cfg.WireGuard.Endpoint = "example.com:51820"
 	cfg.WireGuard.PrivateKeyFile = filepath.Join(dir, "wg.key")
+	publicKey := "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE="
 
-	peer, output, err := NewPeerSetup(cfg, "alice-laptop", "")
+	peer, output, err := NewPeerSetup(cfg, "alice-laptop", publicKey, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,10 +28,8 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"# WARNING: THIS CONFIG CONTAINS A PRIVATE WIREGUARD KEY.",
-		"# SHARE IT WITH alice-laptop SECURELY. DO NOT PASTE IT INTO CHAT.",
-		"# DO NOT SEND IT VIA OTHER INSECURE CHANNELS.",
 		"[Interface]",
+		"PrivateKey = <client-private-key>",
 		"Address = 10.77.0.2/32",
 		"DNS = 10.77.0.1",
 		"Endpoint = example.com:51820",
@@ -40,8 +39,8 @@ func TestNewPeerSetup(t *testing.T) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
 	}
-	if strings.Contains(output, "<client-private-key>") {
-		t.Fatalf("output still contains client private key placeholder:\n%s", output)
+	if !strings.Contains(output, "<client-private-key>") {
+		t.Fatalf("output missing client private key placeholder:\n%s", output)
 	}
 
 	info, err := os.Stat(cfg.WireGuard.PrivateKeyFile)
@@ -58,13 +57,14 @@ func TestNewPeerSetupSkipsUsedAllowedIPs(t *testing.T) {
 	cfg := config.Default()
 	cfg.WireGuard.Endpoint = "example.com:51820"
 	cfg.WireGuard.PrivateKeyFile = filepath.Join(dir, "wg.key")
+	publicKey := "Kv3AQjMlBJIbgO3gxhwWyRLDaeInBG3nYJjnzTFROVU="
 	cfg.WireGuard.Peers = []config.WGPeer{{
 		Name:       "alice-laptop",
 		PublicKey:  "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE=",
 		AllowedIPs: []string{"10.77.0.2/32"},
 	}}
 
-	peer, _, err := NewPeerSetup(cfg, "bob-laptop", "")
+	peer, _, err := NewPeerSetup(cfg, "bob-laptop", publicKey, "")
 	if err != nil {
 		t.Fatal(err)
 	}
