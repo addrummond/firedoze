@@ -247,7 +247,9 @@ firedoze vm create demo
 firedoze start demo
 ```
 
-Create a VM if needed, start it, and SSH in when it is ready:
+VMs created with `firedoze vm create` are hidden by default: they are reachable over WireGuard, but they do not get a public HTTPS route until you publish them.
+
+Create a VM if needed, publish it, start it, and SSH in when it is ready:
 
 ```sh
 firedoze up demo
@@ -259,18 +261,25 @@ Create several VMs with the same settings:
 firedoze vm create alice bob charlie --memory-mib 512 --disk-bytes 8589934592
 ```
 
+Toggle public HTTPS access:
+
+```sh
+firedoze publish demo
+firedoze hide demo
+```
+
 By default, a sleeping VM only wakes when you explicitly start it with `firedoze start`, use `firedoze ssh`, or use `firedoze up`. Prefer `firedoze start` when you mean to wake an existing VM; `firedoze up` creates the VM if it does not already exist.
 
 To let public HTTPS or raw WireGuard SSH traffic wake a sleeping VM, opt in:
 
 ```sh
-firedoze vm create demo-public --auto-wake
+firedoze vm create demo-public --public --auto-wake
 ```
 
-Update a VM's firedoze settings, such as default HTTP port, idle timeout, or passive network wake:
+Update a VM's firedoze settings, such as default HTTP port, idle timeout, public HTTPS visibility, or passive network wake:
 
 ```sh
-firedoze vm settings demo --http-port 3000 --idle-sleep-after 900 --auto-wake false
+firedoze vm settings demo --http-port 3000 --idle-sleep-after 900 --public-http true --auto-wake false
 ```
 
 This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.

@@ -173,6 +173,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
 		AutoWake              bool   `json:"auto_wake"`
+		PublicHTTP            bool   `json:"public_http"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -190,6 +191,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 		AutoWake:              req.AutoWake,
+		PublicHTTP:            req.PublicHTTP,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
@@ -228,6 +230,7 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 		DefaultHTTPPort       *int  `json:"default_http_port"`
 		IdleSleepAfterSeconds *int  `json:"idle_sleep_after_seconds"`
 		AutoWake              *bool `json:"auto_wake"`
+		PublicHTTP            *bool `json:"public_http"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -237,6 +240,7 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 		AutoWake:              req.AutoWake,
+		PublicHTTP:            req.PublicHTTP,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -459,6 +463,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
 		AutoWake              bool   `json:"auto_wake"`
+		PublicHTTP            bool   `json:"public_http"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -483,6 +488,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 		AutoWake:              req.AutoWake,
+		PublicHTTP:            req.PublicHTTP,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError

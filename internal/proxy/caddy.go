@@ -70,7 +70,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 	vmsByName := make(map[string]store.VM, len(vms))
 	for _, vm := range vms {
 		vmsByName[vm.Name] = vm
-		if vm.PrivateIP == "" {
+		if vm.PrivateIP == "" || !vm.PublicHTTP {
 			continue
 		}
 		host := vm.Name + "." + m.cfg.BaseDomain
@@ -78,7 +78,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 	}
 	for _, alias := range aliases {
 		vm, ok := vmsByName[alias.VMName]
-		if !ok || vm.PrivateIP == "" {
+		if !ok || vm.PrivateIP == "" || !vm.PublicHTTP {
 			continue
 		}
 		host := alias.Name + "." + m.cfg.BaseDomain

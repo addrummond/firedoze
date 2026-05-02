@@ -226,6 +226,28 @@ func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 	}
 }
 
+func TestVMCreatePublicFlag(t *testing.T) {
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "--public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !params.PublicHTTP {
+		t.Fatal("PublicHTTP = false, want true")
+	}
+	if strings.Join(names, ",") != "alpha" {
+		t.Fatalf("names = %#v, want alpha", names)
+	}
+}
+
+func TestFoundFlag(t *testing.T) {
+	if !foundFlag([]string{"demo", "--public=false"}, "public") {
+		t.Fatal("foundFlag did not find --public=false")
+	}
+	if foundFlag([]string{"demo", "--not-public"}, "public") {
+		t.Fatal("foundFlag matched unrelated flag")
+	}
+}
+
 func TestVMListPassesNameGlobs(t *testing.T) {
 	var gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
