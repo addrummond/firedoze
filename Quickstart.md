@@ -26,17 +26,23 @@ sudo apt-get install -y build-essential git iptables wireguard-tools e2fsprogs o
 
 ## 2. Build and Install
 
+If you use mise, install the pinned project tools first:
+
+```sh
+mise install
+```
+
 On the host, build and install the daemon:
 
 ```sh
-go build -o firedozed ./cmd/firedozed
+task build:daemon
 sudo install -m 0755 firedozed /usr/local/bin/firedozed
 ```
 
 On your laptop, build and install the client command:
 
 ```sh
-go build -o firedoze ./cmd/firedoze
+task build:client
 sudo install -m 0755 firedoze /usr/local/bin/firedoze
 ```
 
@@ -62,10 +68,10 @@ The easiest path is to build a firedoze Ubuntu base image on your laptop, then c
 On your laptop, run:
 
 ```sh
-scripts/build-base-image.sh --out dist/base-image
+task image:build
 ```
 
-The script downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
 Copy the generated files to the host:
 

@@ -1,0 +1,58 @@
+version: '3'
+
+vars:
+  GO: GOTOOLCHAIN=auto go
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  fmt:
+    desc: Format Go source
+    cmds:
+      - gofmt -w cmd internal
+
+  test:
+    desc: Run the Go test suite
+    cmds:
+      - '{{.GO}} test ./...'
+
+  check:
+    desc: Format and test
+    cmds:
+      - task: fmt
+      - task: test
+
+  build:
+    desc: Build all local binaries into the repo root
+    deps:
+      - build:client
+      - build:daemon
+      - build:image
+
+  build:client:
+    desc: Build ./firedoze
+    cmds:
+      - '{{.GO}} build -o firedoze ./cmd/firedoze'
+
+  build:daemon:
+    desc: Build ./firedozed
+    cmds:
+      - '{{.GO}} build -o firedozed ./cmd/firedozed'
+
+  build:image:
+    desc: Build ./firedoze-image
+    cmds:
+      - '{{.GO}} build -o firedoze-image ./cmd/firedoze-image'
+
+  clean:
+    desc: Remove local build outputs
+    cmds:
+      - rm -f firedoze firedozed firedoze-image
+
+  image:build:
+    desc: Build the Ubuntu base image into dist/base-image
+    cmds:
+      - '{{.GO}} run ./cmd/firedoze-image build {{.CLI_ARGS}}'
