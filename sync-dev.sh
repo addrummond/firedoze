@@ -32,9 +32,9 @@ fi
 
 rsync -az --delete \
   -e "$ssh_args" \
-  --exclude .git \
-  --exclude dist \
-  --exclude firedoze \
-  --exclude firedozed \
-  --exclude firedoze-image \
+  --exclude /.git \
+  --exclude /dist \
+  --exclude /firedoze \
+  --exclude /firedozed \
+  --exclude /firedoze-image \
   ./ "$dest"
