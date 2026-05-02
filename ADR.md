@@ -224,6 +224,8 @@ ssh root@myvm.dev.example.com
 
 This relies on the WireGuard-only DNS responder resolving VM hostnames to private VM IPs for connected peers.
 
+Sleeping VMs should wake from direct SSH/network activity. The v1 implementation redirects WireGuard TCP/22 traffic for VM private IPs into a daemon-side SSH wake proxy. The proxy identifies the original destination VM, starts or resumes it, waits for guest SSH, then relays the original connection.
+
 ## Public HTTPS
 
 Public web access is provided through embedded Caddy.

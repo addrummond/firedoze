@@ -130,6 +130,7 @@ internal_proxy_port = 18082
 [ssh]
 user = "root"
 authorized_key_files = ["/etc/firedoze/authorized_keys"]
+wake_proxy_port = 18022
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"

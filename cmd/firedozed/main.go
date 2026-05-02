@@ -129,11 +129,17 @@ func run() int {
 		manager := firecracker.NewManager(cfg, db, logger)
 		proxyManager := proxy.NewManager(cfg, db, logger)
 		wakeProxy := proxy.NewWakeProxy(cfg, db, manager, logger)
+		tcpWakeProxy := proxy.NewTCPWakeProxy(cfg, db, manager, logger)
 		wakeCtx, cancelWake := context.WithCancel(ctx)
 		defer cancelWake()
 		go func() {
 			if err := wakeProxy.Run(wakeCtx); err != nil {
 				logger.Error("serve wake proxy", "error", err)
+			}
+		}()
+		go func() {
+			if err := tcpWakeProxy.RunSSH(wakeCtx); err != nil {
+				logger.Error("serve ssh wake proxy", "error", err)
 			}
 		}()
 		if err := proxyManager.Reconcile(ctx); err != nil {

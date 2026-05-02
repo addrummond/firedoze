@@ -100,6 +100,7 @@ type VMNetworkConfig struct {
 type SSHConfig struct {
 	User               string   `toml:"user"`
 	AuthorizedKeyFiles []string `toml:"authorized_key_files"`
+	WakeProxyPort      int      `toml:"wake_proxy_port"`
 }
 
 type IdleConfig struct {
@@ -145,7 +146,8 @@ func Default() Config {
 			Subnet: "10.88.0.0/16",
 		},
 		SSH: SSHConfig{
-			User: "ubuntu",
+			User:          "ubuntu",
+			WakeProxyPort: 18022,
 		},
 		Idle: IdleConfig{
 			CheckIntervalSeconds:     30,
@@ -244,6 +246,9 @@ func (c Config) Validate() error {
 	}
 	if c.SSH.User == "" {
 		return fmt.Errorf("ssh.user is required")
+	}
+	if c.SSH.WakeProxyPort <= 0 || c.SSH.WakeProxyPort > 65535 {
+		return fmt.Errorf("ssh.wake_proxy_port must be between 1 and 65535")
 	}
 	if c.Idle.CheckIntervalSeconds <= 0 {
 		return fmt.Errorf("idle.check_interval_seconds must be positive")
