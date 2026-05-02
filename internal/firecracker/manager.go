@@ -235,8 +235,14 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	if err := os.MkdirAll(layout.runtimeDir, 0o755); err != nil {
 		return store.VM{}, err
 	}
-	if err := ensureDisk(layout.diskPath, m.cfg.Firecracker.BaseRootfsPath, vm.DiskBytes); err != nil {
+	diskCreated, err := ensureDisk(layout.diskPath, m.cfg.Firecracker.BaseRootfsPath, vm.DiskBytes)
+	if err != nil {
 		return store.VM{}, fmt.Errorf("prepare disk: %w", err)
+	}
+	if diskCreated {
+		if err := m.rewriteGuestIdentity(ctx, layout.diskPath, vm.Name); err != nil {
+			return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
+		}
 	}
 	if err := m.injectAuthorizedKeys(ctx, layout.diskPath); err != nil {
 		return store.VM{}, fmt.Errorf("inject authorized keys: %w", err)
@@ -249,7 +255,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
 			InitrdPath:      m.cfg.Firecracker.BaseInitrdPath,
-			BootArgs:        "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw",
+			BootArgs:        "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw",
 		},
 		Drives: []drive{{
 			DriveID:      "rootfs",
@@ -775,30 +781,30 @@ func (m *Manager) snapshotLayout(name string) snapshotLayout {
 	}
 }
 
-func ensureDisk(path string, source string, size int64) error {
+func ensureDisk(path string, source string, size int64) (bool, error) {
 	if _, err := os.Stat(path); err == nil {
-		return nil
+		return false, nil
 	} else if !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 	in, err := os.Open(source)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer in.Close()
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
-		return err
+		return false, err
 	}
 	if err := out.Truncate(size); err != nil {
 		_ = out.Close()
-		return err
+		return false, err
 	}
-	return out.Close()
+	return true, out.Close()
 }
 
 func copyFile(dst string, src string) error {
@@ -857,21 +863,28 @@ func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) err
 	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" /etc/firedoze/authorized_keys", diskPath); err != nil {
 		return err
 	}
+	if err := run(ctx, debugfsPath, "-w", "-R", "set_inode_field /etc/firedoze/authorized_keys mode 0100644", diskPath); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmName string) error {
-	if err := writeGuestFile(ctx, diskPath, "/etc/hostname", []byte(vmName+"\n")); err != nil {
+	if err := writeGuestFileMode(ctx, diskPath, "/etc/hostname", []byte(vmName+"\n"), "0100644"); err != nil {
+		return err
+	}
+	hosts := fmt.Sprintf("127.0.0.1 localhost\n127.0.1.1 %s\n\n::1 localhost ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\nff02::2 ip6-allrouters\n", vmName)
+	if err := writeGuestFileMode(ctx, diskPath, "/etc/hosts", []byte(hosts), "0100644"); err != nil {
 		return err
 	}
 	machineID, err := randomMachineID()
 	if err != nil {
 		return err
 	}
-	if err := writeGuestFile(ctx, diskPath, "/etc/machine-id", []byte(machineID+"\n")); err != nil {
+	if err := writeGuestFileMode(ctx, diskPath, "/etc/machine-id", []byte(machineID+"\n"), "0100444"); err != nil {
 		return err
 	}
-	if err := writeGuestFile(ctx, diskPath, "/var/lib/dbus/machine-id", []byte(machineID+"\n")); err != nil {
+	if err := writeGuestFileMode(ctx, diskPath, "/var/lib/dbus/machine-id", []byte(machineID+"\n"), "0100444"); err != nil {
 		m.logger.Debug("rewrite dbus machine-id in guest disk", "error", err)
 	}
 
@@ -879,6 +892,10 @@ func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmN
 }
 
 func writeGuestFile(ctx context.Context, diskPath string, guestPath string, data []byte) error {
+	return writeGuestFileMode(ctx, diskPath, guestPath, data, "")
+}
+
+func writeGuestFileMode(ctx context.Context, diskPath string, guestPath string, data []byte, mode string) error {
 	tmp, err := os.CreateTemp("", "firedoze-guest-file-*")
 	if err != nil {
 		return err
@@ -895,7 +912,13 @@ func writeGuestFile(ctx context.Context, diskPath string, guestPath string, data
 	if err := run(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
 		// Missing files are fine; the following write creates the replacement.
 	}
-	return run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" "+guestPath, diskPath)
+	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" "+guestPath, diskPath); err != nil {
+		return err
+	}
+	if mode == "" {
+		return nil
+	}
+	return run(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
 }
 
 func rewriteSSHHostKeys(ctx context.Context, diskPath string) error {

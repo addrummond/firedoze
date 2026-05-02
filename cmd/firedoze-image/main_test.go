@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func TestParseSize(t *testing.T) {
@@ -66,5 +69,36 @@ func TestVerifySHA256(t *testing.T) {
 	}
 	if err := verifySHA256("test", []byte("hello"), strings.Repeat("0", 64)); err == nil {
 		t.Fatal("verifySHA256 accepted a mismatched checksum")
+	}
+}
+
+func TestExtractKernelELF(t *testing.T) {
+	elf := []byte{0x7f, 'E', 'L', 'F', 't', 'e', 's', 't'}
+	got, err := extractKernelELF(elf)
+	if err != nil {
+		t.Fatalf("extractKernelELF returned error for raw ELF: %v", err)
+	}
+	if !bytes.Equal(got, elf) {
+		t.Fatalf("extractKernelELF(raw ELF) = %q, want %q", got, elf)
+	}
+
+	var compressed bytes.Buffer
+	zw, err := zstd.NewWriter(&compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zw.Write(elf); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wrapped := append([]byte("boot-stub"), compressed.Bytes()...)
+	got, err = extractKernelELF(wrapped)
+	if err != nil {
+		t.Fatalf("extractKernelELF returned error for zstd payload: %v", err)
+	}
+	if !bytes.Equal(got, elf) {
+		t.Fatalf("extractKernelELF(zstd payload) = %q, want %q", got, elf)
 	}
 }

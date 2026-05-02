@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/diskfs/go-diskfs/backend/file"
 	"github.com/diskfs/go-diskfs/filesystem/ext4"
+	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 )
 
@@ -211,6 +213,12 @@ func build(args []string) error {
 		}
 		artifacts.kernel = kernel
 	}
+	kernelELF, err := extractKernelELF(artifacts.kernel.data)
+	if err != nil {
+		_ = os.Remove(tmpRootfsPath)
+		return fmt.Errorf("extract kernel ELF: %w", err)
+	}
+	artifacts.kernel.data = kernelELF
 	if artifacts.initrd == nil || *initrdPath != "" || initrdURLSet {
 		initrd, err := readBootArtifact(*initrdPath, *initrdURL, *initrdSHA256, *insecureSkipChecksums)
 		if err != nil {
@@ -398,6 +406,73 @@ func verifySHA256(name string, data []byte, expected string) error {
 	return nil
 }
 
+func extractKernelELF(kernel []byte) ([]byte, error) {
+	if isELF(kernel) {
+		return kernel, nil
+	}
+	type decompressor struct {
+		name  string
+		magic []byte
+		run   func([]byte) ([]byte, error)
+	}
+	decompressors := []decompressor{
+		{
+			name:  "zstd",
+			magic: []byte{0x28, 0xb5, 0x2f, 0xfd},
+			run: func(data []byte) ([]byte, error) {
+				dec, err := zstd.NewReader(bytes.NewReader(data))
+				if err != nil {
+					return nil, err
+				}
+				defer dec.Close()
+				return io.ReadAll(dec)
+			},
+		},
+		{
+			name:  "gzip",
+			magic: []byte{0x1f, 0x8b, 0x08},
+			run: func(data []byte) ([]byte, error) {
+				r, err := gzip.NewReader(bytes.NewReader(data))
+				if err != nil {
+					return nil, err
+				}
+				defer r.Close()
+				return io.ReadAll(r)
+			},
+		},
+		{
+			name:  "xz",
+			magic: []byte{0xfd, '7', 'z', 'X', 'Z', 0x00},
+			run: func(data []byte) ([]byte, error) {
+				r, err := xz.NewReader(bytes.NewReader(data))
+				if err != nil {
+					return nil, err
+				}
+				return io.ReadAll(r)
+			},
+		},
+	}
+	for _, dec := range decompressors {
+		for offset := 0; ; {
+			found := bytes.Index(kernel[offset:], dec.magic)
+			if found < 0 {
+				break
+			}
+			offset += found
+			data, _ := dec.run(kernel[offset:])
+			if isELF(data) {
+				return data, nil
+			}
+			offset += len(dec.magic)
+		}
+	}
+	return nil, errors.New("could not find an embedded ELF kernel payload")
+}
+
+func isELF(data []byte) bool {
+	return len(data) >= 4 && bytes.Equal(data[:4], []byte{0x7f, 'E', 'L', 'F'})
+}
+
 type bootArtifact struct {
 	path string
 	data []byte
@@ -534,9 +609,43 @@ func customizeGuest(efs *ext4.FileSystem) error {
 			data: `#!/bin/sh
 set -eu
 
-dev="${1:-eth0}"
+dev="${1:-}"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if [ -z "$dev" ]; then
+    for candidate in /sys/class/net/*; do
+      name="${candidate##*/}"
+      [ "$name" = "lo" ] && continue
+      [ -e "$candidate/address" ] || continue
+      mac="$(cat "$candidate/address")"
+      case "$mac" in
+        06:00:*) dev="$name"; break ;;
+      esac
+    done
+  fi
+  if [ -n "$dev" ]; then
+    break
+  fi
+  sleep 1
+done
+
+if [ -z "$dev" ]; then
+  for candidate in /sys/class/net/*; do
+    name="${candidate##*/}"
+    [ "$name" = "lo" ] && continue
+    echo "seen network interface $name mac=$(cat "$candidate/address" 2>/dev/null || true)" >&2
+  done
+fi
+
+if [ -z "$dev" ]; then
+  echo "could not find firedoze network interface" >&2
+  exit 1
+fi
+
 mac="$(cat "/sys/class/net/$dev/address")"
-IFS=: set -- $mac
+old_ifs="$IFS"
+IFS=:
+set -- $mac
+IFS="$old_ifs"
 
 if [ "$1:$2" != "06:00" ]; then
   echo "unexpected firedoze MAC prefix: $mac" >&2
@@ -550,11 +659,12 @@ o4="$(printf "%d" "0x$6")"
 guest_ip="$o1.$o2.$o3.$o4"
 host_ip="$o1.$o2.$o3.$((o4 - 1))"
 
-ip addr flush dev "$dev"
-ip addr add "$guest_ip/30" dev "$dev"
-ip link set "$dev" up
-ip route replace default via "$host_ip" dev "$dev"
+/bin/ip addr flush dev "$dev"
+/bin/ip addr add "$guest_ip/30" dev "$dev"
+/bin/ip link set "$dev" up
+/bin/ip route replace default via "$host_ip" dev "$dev"
 
+rm -f /etc/resolv.conf
 cat >/etc/resolv.conf <<RESOLV
 nameserver 1.1.1.1
 nameserver 8.8.8.8
@@ -572,8 +682,27 @@ Wants=network-pre.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/firedoze-guest-network eth0
+ExecStart=/usr/local/sbin/firedoze-guest-network
 RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+`,
+		},
+		{
+			path: "etc/systemd/system/firedoze-sshd.service",
+			mode: 0o644,
+			data: `[Unit]
+Description=firedoze SSH daemon
+After=network.target
+ConditionPathExists=!/etc/ssh/sshd_not_to_be_run
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/sshd
+ExecStartPre=/usr/sbin/sshd -t
+ExecStart=/usr/sbin/sshd -D -e
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
@@ -584,6 +713,11 @@ WantedBy=multi-user.target
 			mode: 0o644,
 			data: "datasource_list: [ None ]\npreserve_hostname: true\nmanage_etc_hosts: false\nssh_pwauth: false\ndisable_root: false\n",
 		},
+		{
+			path: "etc/fstab",
+			mode: 0o644,
+			data: "/dev/vda / ext4 defaults,errors=remount-ro 0 1\n",
+		},
 	}
 
 	for _, dir := range []string{
@@ -592,6 +726,8 @@ WantedBy=multi-user.target
 		"etc/ssh/sshd_config.d",
 		"etc/systemd/system",
 		"etc/systemd/system/multi-user.target.wants",
+		"etc/sudoers.d",
+		"home/ubuntu",
 		"usr/local/sbin",
 	} {
 		if err := mkdirAll(efs, dir, 0o755, 0, 0, now); err != nil {
@@ -603,16 +739,131 @@ WantedBy=multi-user.target
 			return err
 		}
 	}
+	if err := ensureLine(efs, "etc/passwd", "ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash", 0o644, 0, 0, now); err != nil {
+		return err
+	}
+	if err := ensureLine(efs, "etc/shadow", "ubuntu:!:19723:0:99999:7:::", 0o640, 0, 42, now); err != nil {
+		return err
+	}
+	if err := ensureGroupMember(efs, "etc/group", "ubuntu", "x", "1000", "ubuntu", 0o644, 0, 0, now); err != nil {
+		return err
+	}
+	if err := ensureGroupMember(efs, "etc/group", "sudo", "x", "27", "ubuntu", 0o644, 0, 0, now); err != nil {
+		return err
+	}
+	if err := ensureGroupMember(efs, "etc/gshadow", "ubuntu", "!", "", "ubuntu", 0o640, 0, 42, now); err != nil {
+		return err
+	}
+	if err := ensureGroupMember(efs, "etc/gshadow", "sudo", "*", "", "ubuntu", 0o640, 0, 42, now); err != nil {
+		return err
+	}
+	if err := writeFile(efs, "etc/sudoers.d/90-firedoze-ubuntu", []byte("ubuntu ALL=(ALL) NOPASSWD:ALL\n"), 0o440, 0, 0, now); err != nil {
+		return err
+	}
+	_ = efs.Chown("home/ubuntu", 1000, 1000)
+	for _, p := range []string{
+		"usr/bin/chfn",
+		"usr/bin/chsh",
+		"usr/bin/gpasswd",
+		"usr/bin/mount",
+		"usr/bin/newgrp",
+		"usr/bin/passwd",
+		"usr/bin/su",
+		"usr/bin/sudo",
+		"usr/bin/umount",
+	} {
+		chmodIfExists(efs, p, os.ModeSetuid|0o755)
+	}
 
 	if err := symlink(efs, "/etc/systemd/system/firedoze-network.service", "etc/systemd/system/multi-user.target.wants/firedoze-network.service", now); err != nil {
 		return err
 	}
-	for _, unit := range []string{"cloud-init.service", "cloud-init-local.service", "cloud-config.service", "cloud-final.service"} {
+	_ = efs.Remove("etc/systemd/system/sockets.target.wants/ssh.socket")
+	if err := symlink(efs, "/dev/null", "etc/systemd/system/ssh.socket", now); err != nil {
+		return err
+	}
+	if err := symlink(efs, "/etc/systemd/system/firedoze-sshd.service", "etc/systemd/system/multi-user.target.wants/firedoze-sshd.service", now); err != nil {
+		return err
+	}
+	for _, unit := range []string{"cloud-init.service", "cloud-init-local.service", "cloud-config.service", "cloud-final.service", "systemd-networkd-wait-online.service", "multipathd.service", "multipathd.socket"} {
 		if err := symlink(efs, "/dev/null", "etc/systemd/system/"+unit, now); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func ensureLine(efs *ext4.FileSystem, p string, line string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
+	data, err := efs.ReadFile(p)
+	if err != nil {
+		return fmt.Errorf("read /%s: %w", p, err)
+	}
+	if hasLine(string(data), line) {
+		return nil
+	}
+	text := string(data)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	text += line + "\n"
+	return writeFile(efs, p, []byte(text), mode, uid, gid, modTime)
+}
+
+func ensureGroupMember(efs *ext4.FileSystem, p string, name string, password string, gid string, member string, mode os.FileMode, uid int, fileGID int, modTime time.Time) error {
+	data, err := efs.ReadFile(p)
+	if err != nil {
+		return fmt.Errorf("read /%s: %w", p, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	found := false
+	for i, line := range lines {
+		fields := strings.Split(line, ":")
+		if len(fields) != 4 || fields[0] != name {
+			continue
+		}
+		found = true
+		members := splitCSV(fields[3])
+		if !stringInSlice(members, member) {
+			members = append(members, member)
+		}
+		lines[i] = strings.Join([]string{name, fields[1], fields[2], strings.Join(members, ",")}, ":")
+	}
+	if !found {
+		lines = append(lines, strings.Join([]string{name, password, gid, member}, ":"))
+	}
+	return writeFile(efs, p, []byte(strings.Join(lines, "\n")+"\n"), mode, uid, fileGID, modTime)
+}
+
+func hasLine(text string, want string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if line == want {
+			return true
+		}
+	}
+	return false
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, ",")
+}
+
+func stringInSlice(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func chmodIfExists(efs *ext4.FileSystem, p string, mode os.FileMode) {
+	if _, err := efs.Stat(p); err != nil {
+		return
+	}
+	_ = efs.Chmod(p, mode)
 }
 
 func mkdirAll(efs *ext4.FileSystem, p string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
