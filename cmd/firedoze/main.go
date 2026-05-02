@@ -188,14 +188,24 @@ func (a app) vm(args []string) error {
 		}
 		return a.printJSONOrLine(out, fmt.Sprintf("%s %s", args[1], pastTense(args[0])))
 	case "delete", "rm":
-		if len(args) != 2 {
-			return errors.New("usage: firedoze vm delete <name>")
+		if len(args) < 2 {
+			return errors.New("usage: firedoze vm delete <name> [name...]")
 		}
-		var out map[string]any
-		if err := a.client.do(context.Background(), http.MethodDelete, "/vms/"+url.PathEscape(args[1]), nil, &out); err != nil {
-			return err
+		deleted := []map[string]string{}
+		for _, name := range args[1:] {
+			var out map[string]any
+			if err := a.client.do(context.Background(), http.MethodDelete, "/vms/"+url.PathEscape(name), nil, &out); err != nil {
+				return err
+			}
+			deleted = append(deleted, map[string]string{"name": name, "status": "deleted"})
 		}
-		return a.printJSONOrLine(out, fmt.Sprintf("%s deleted", args[1]))
+		if a.json {
+			return printJSON(map[string]any{"vms": deleted})
+		}
+		for _, vm := range deleted {
+			fmt.Printf("%s deleted\n", vm["name"])
+		}
+		return nil
 	case "settings":
 		return a.vmSettings(args[1:])
 	default:
@@ -211,21 +221,33 @@ func (a app) vmCreate(args []string) error {
 	diskBytes := flags.Int64("disk-bytes", 0, "disk size in bytes")
 	httpPort := flags.Int("http-port", 0, "default guest HTTP port")
 	idle := flags.Int("idle-sleep-after", 0, "idle sleep timeout in seconds")
-	name, err := parseNameAndFlags(flags, args)
+	names, err := parseNamesAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm create <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
 	}
-	body := map[string]any{"name": name}
-	addInt(body, "vcpus", *vcpus)
-	addInt(body, "memory_mib", *memoryMiB)
-	addInt64(body, "disk_bytes", *diskBytes)
-	addInt(body, "default_http_port", *httpPort)
-	addInt(body, "idle_sleep_after_seconds", *idle)
-	var out map[string]any
-	if err := a.client.do(context.Background(), http.MethodPost, "/vms", body, &out); err != nil {
-		return err
+	created := []vmInfo{}
+	for _, name := range names {
+		body := map[string]any{"name": name}
+		addInt(body, "vcpus", *vcpus)
+		addInt(body, "memory_mib", *memoryMiB)
+		addInt64(body, "disk_bytes", *diskBytes)
+		addInt(body, "default_http_port", *httpPort)
+		addInt(body, "idle_sleep_after_seconds", *idle)
+		var out struct {
+			VM vmInfo `json:"vm"`
+		}
+		if err := a.client.do(context.Background(), http.MethodPost, "/vms", body, &out); err != nil {
+			return err
+		}
+		created = append(created, out.VM)
 	}
-	return a.printJSONOrLine(out, fmt.Sprintf("%s created", name))
+	if a.json {
+		return printJSON(map[string]any{"vms": created})
+	}
+	for _, vm := range created {
+		fmt.Printf("%s created\n", vm.Name)
+	}
+	return nil
 }
 
 func (a app) vmSettings(args []string) error {
@@ -532,6 +554,39 @@ func parseNameAndFlags(flags *flag.FlagSet, args []string) (string, error) {
 	return flags.Arg(0), nil
 }
 
+func parseNamesAndFlags(flags *flag.FlagSet, args []string) ([]string, error) {
+	if len(args) == 0 {
+		return nil, errors.New("missing name")
+	}
+	var names []string
+	var flagArgs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			if strings.Contains(arg, "=") {
+				continue
+			}
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flagArgs = append(flagArgs, args[i+1])
+				i++
+			}
+			continue
+		}
+		names = append(names, arg)
+	}
+	if err := flags.Parse(flagArgs); err != nil {
+		return nil, err
+	}
+	if flags.NArg() != 0 {
+		return nil, fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if len(names) == 0 {
+		return nil, errors.New("missing name")
+	}
+	return names, nil
+}
+
 func pastTense(verb string) string {
 	switch verb {
 	case "start":
@@ -553,11 +608,11 @@ Commands:
   config
   vm list
   vm inspect <name>
-  vm create <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
+  vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
   vm start <name>
   vm sleep <name>
   vm stop <name>
-  vm delete <name>
+  vm delete <name> [name...]
   vm settings <name> [--http-port N] [--idle-sleep-after N]
   snapshot list
   snapshot inspect <snapshot>

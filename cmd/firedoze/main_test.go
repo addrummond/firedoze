@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"testing"
 	"time"
 )
@@ -22,5 +23,28 @@ func TestFormatDuration(t *testing.T) {
 				t.Fatalf("formatDuration(%s) = %q, want %q", tt.duration, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseNamesAndFlags(t *testing.T) {
+	flags := flag.NewFlagSet("test", flag.ContinueOnError)
+	memoryMiB := flags.Int("memory-mib", 0, "")
+	diskBytes := flags.Int64("disk-bytes", 0, "")
+
+	names, err := parseNamesAndFlags(flags, []string{"alice", "bob", "--memory-mib", "512", "--disk-bytes=1024"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(names), 2; got != want {
+		t.Fatalf("len(names) = %d, want %d", got, want)
+	}
+	if names[0] != "alice" || names[1] != "bob" {
+		t.Fatalf("names = %#v", names)
+	}
+	if *memoryMiB != 512 {
+		t.Fatalf("memoryMiB = %d, want 512", *memoryMiB)
+	}
+	if *diskBytes != 1024 {
+		t.Fatalf("diskBytes = %d, want 1024", *diskBytes)
 	}
 }

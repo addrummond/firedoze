@@ -268,6 +268,12 @@ firedoze vm create demo
 firedoze vm start demo
 ```
 
+Create several VMs with the same settings:
+
+```sh
+firedoze vm create alice bob charlie --memory-mib 512 --disk-bytes 8589934592
+```
+
 Update a VM's firedoze settings, such as default HTTP port or idle timeout:
 
 ```sh
@@ -304,6 +310,8 @@ Delete a VM and its state directory:
 
 ```sh
 firedoze vm delete demo
+# or delete several at once:
+firedoze vm delete demo old-test scratch
 ```
 
 Save a named snapshot:
