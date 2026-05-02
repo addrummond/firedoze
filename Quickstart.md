@@ -38,6 +38,19 @@ cd firedoze
 ~/.local/bin/mise exec -- ./scripts/install.sh
 ```
 
+The setup shape is:
+
+```sh
+~/.local/bin/mise exec -- ./scripts/install.sh
+firedoze-image build
+~/.local/bin/mise exec -- task image:install
+cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
+sudoedit /etc/firedoze/firedoze.toml
+sudo firedozed -config /etc/firedoze/firedoze.toml -wg-new-peer alice-laptop 10.77.0.2/32
+# paste the printed [[wireguard.peers]] block into /etc/firedoze/firedoze.toml
+sudo systemctl enable --now firedozed
+```
+
 The installer:
 
 - Builds `firedoze`, `firedozed`, and `firedoze-image` from the checked-out source.
@@ -56,13 +69,12 @@ From the repo checkout, run:
 
 ```sh
 firedoze-image build
+~/.local/bin/mise exec -- task image:install
 ```
-
-From a source checkout, `task image:build` does the same thing.
 
 The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
-Install the generated files here:
+The install task copies the generated files here:
 
 ```text
 /var/lib/firedoze/images/vmlinux.bin
@@ -70,104 +82,43 @@ Install the generated files here:
 /var/lib/firedoze/images/rootfs.ext4
 ```
 
-For example:
-
-```sh
-sudo mkdir -p /var/lib/firedoze/images
-sudo install -m 0644 dist/base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
-sudo install -m 0644 dist/base-image/initrd.img /var/lib/firedoze/images/initrd.img
-sudo install -m 0644 dist/base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
-```
-
 The generated image uses the normal Ubuntu `ubuntu` user for SSH.
 
-## 4. Create SSH Keys for Guests
+## 4. Configure firedoze
 
 firedoze injects a shared authorized keys file into new VM disks.
 
 ```sh
-sudo mkdir -p /etc/firedoze
 cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
 ```
 
-## 5. Create a WireGuard Peer Key
-
-On your laptop, use `firedozed` to generate a WireGuard client key pair. You can use a locally built `firedozed` binary for this; it does not need root for key generation.
-
-```sh
-firedozed -wg-gen-client-key
-```
-
-Save the private key somewhere safe. Copy the public key into the server config.
-
-## 6. Configure firedoze
-
 Edit the installed config:
 
-The addresses below use one example WireGuard subnet.
-
-- `10.77.0.1/24` is the firedoze host's WireGuard address.
-- `10.77.0.2/32` is Alice's laptop WireGuard address.
-
-Each laptop needs one unique `/32` address inside the WireGuard subnet. You choose that address when you add the peer to `firedoze.toml`; the generated client config will then use it automatically.
-
-Minimal fields to change:
-
-```toml
-base_domain = "dev.example.com"
-default_http_port = 8080
-state_dir = "/var/lib/firedoze"
-
-[api]
-port = 8081
-
-[wireguard]
-interface = "fdwg0"
-listen_port = 51820
-address = "10.77.0.1/24"
-endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
-private_key_file = "/etc/firedoze/wg.key"
-
-[[wireguard.peers]]
-name = "alice-laptop"
-public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
-# This is Alice's WireGuard client address. Use a different /32 for each laptop.
-allowed_ips = ["10.77.0.2/32"]
-
-[vm_network]
-subnet = "10.88.0.0/16"
-
-[caddy]
-http_port = 80
-https_port = 443
-internal_proxy_port = 18082
-
-[dns]
-port = 53
-
-[metadata]
-path = "/var/lib/firedoze/firedoze.db"
-
-[ssh]
-user = "ubuntu"
-authorized_key_files = ["/etc/firedoze/authorized_keys"]
-wake_proxy_port = 18022
-
-[idle]
-check_interval_seconds = 30
-default_sleep_after_seconds = 1800
-
-[firecracker]
-binary_path = "/usr/local/bin/firecracker"
-base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
-base_initrd_path = "/var/lib/firedoze/images/initrd.img"
-base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
-default_vcpus = 1
-default_memory_mib = 512
-default_disk_bytes = 4294967296
+```sh
+sudoedit /etc/firedoze/firedoze.toml
 ```
 
-## 7. Firewall and DNS
+The main fields to set are:
+
+- `base_domain`: the wildcard DNS domain for VM URLs.
+- `wireguard.endpoint`: the public host and UDP port laptops will connect to.
+- `wireguard.peers`: one peer per laptop.
+- `firecracker.default_memory_mib`: the default VM memory size.
+
+To add a laptop, generate a peer setup bundle on the host:
+
+```sh
+sudo firedozed -config /etc/firedoze/firedoze.toml -wg-new-peer alice-laptop 10.77.0.2/32
+```
+
+The command prints:
+
+- a `[[wireguard.peers]]` TOML block to paste into `/etc/firedoze/firedoze.toml`.
+- a WireGuard client config to save on that laptop.
+
+`10.77.0.2/32` is Alice's WireGuard client address. Use a different `/32` address for each laptop.
+
+## 5. Firewall and DNS
 
 Open these inbound ports to the host:
 
@@ -188,7 +139,7 @@ firedoze also runs a private DNS server on the WireGuard IP. It resolves default
 myvm.dev.example.com -> VM private IP
 ```
 
-## 8. Start firedozed
+## 6. Start firedozed
 
 ```sh
 sudo systemctl enable --now firedozed
@@ -205,47 +156,23 @@ When systemd stops firedozed, the daemon tries to sleep all running VMs before e
 
 The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
-## 9. Connect WireGuard
+## 7. Connect WireGuard
 
-Once firedozed is running, fetch a client config template:
+Save the WireGuard client config printed by `-wg-new-peer` on your laptop, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
-```sh
-firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
-```
-
-The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. For the example above, Alice's generated config will contain:
+The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. For the example above, Alice's config will contain:
 
 ```ini
 Address = 10.77.0.2/32
 ```
 
-Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client. Do not invent a different client address at this point; change `allowed_ips` in the server config first, then regenerate the client config.
-
-If you need to create the client config manually, use the same values:
-
-```ini
-[Interface]
-PrivateKey = PASTE_CLIENT_PRIVATE_KEY_HERE
-# This must match the peer's allowed_ips entry in /etc/firedoze/firedoze.toml.
-Address = 10.77.0.2/32
-DNS = 10.77.0.1
-
-[Peer]
-PublicKey = SERVER_PUBLIC_KEY
-Endpoint = YOUR_SERVER_PUBLIC_IP_OR_DNS:51820
-AllowedIPs = 10.77.0.1/32, 10.88.0.0/16
-PersistentKeepalive = 25
-```
-
-The server public key is derived from `/etc/firedoze/wg.key`. On the server, print it with:
+Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:
 
 ```sh
-sudo firedozed -config /etc/firedoze/firedoze.toml -wg-server-public-key
+sudo firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
 ```
 
-Bring the tunnel up on your laptop with `wg-quick` or your WireGuard client.
-
-## 10. Use the API
+## 8. Use firedoze
 
 The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1` or your API port is not `8081`, set `FIREDOZE_API`:
 
@@ -358,7 +285,64 @@ firedoze vm inspect demo
 firedoze snapshot inspect demo-snap
 ```
 
-## 11. Upgrade or Uninstall
+## Reference Config
+
+The installed config starts from this shape:
+
+```toml
+base_domain = "dev.example.com"
+default_http_port = 8080
+state_dir = "/var/lib/firedoze"
+
+[api]
+port = 8081
+
+[wireguard]
+interface = "fdwg0"
+listen_port = 51820
+address = "10.77.0.1/24"
+endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
+private_key_file = "/etc/firedoze/wg.key"
+
+[[wireguard.peers]]
+name = "alice-laptop"
+public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
+allowed_ips = ["10.77.0.2/32"]
+
+[vm_network]
+subnet = "10.88.0.0/16"
+
+[caddy]
+http_port = 80
+https_port = 443
+internal_proxy_port = 18082
+
+[dns]
+port = 53
+
+[metadata]
+path = "/var/lib/firedoze/firedoze.db"
+
+[ssh]
+user = "ubuntu"
+authorized_key_files = ["/etc/firedoze/authorized_keys"]
+wake_proxy_port = 18022
+
+[idle]
+check_interval_seconds = 30
+default_sleep_after_seconds = 1800
+
+[firecracker]
+binary_path = "/usr/local/bin/firecracker"
+base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
+base_initrd_path = "/var/lib/firedoze/images/initrd.img"
+base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
+default_vcpus = 1
+default_memory_mib = 512
+default_disk_bytes = 4294967296
+```
+
+## Upgrade or Uninstall
 
 To upgrade from a newer checkout, run the installer again:
 

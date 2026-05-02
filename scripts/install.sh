@@ -85,10 +85,15 @@ firedoze is installed.
 
 Next steps:
   1. Build the base image with: firedoze-image build
-     Then install the generated files into $statedir/images.
-  2. Add your SSH public key to $sysconfdir/authorized_keys.
-  3. Edit $config_dst.
-  4. Start the daemon:
+  2. Install the generated image files with:
+       ~/.local/bin/mise exec -- task image:install
+  3. Add your SSH public key:
+       cat ~/.ssh/id_ed25519.pub | sudo tee $sysconfdir/authorized_keys
+  4. Edit $config_dst:
+       sudoedit $config_dst
+  5. Generate a WireGuard peer bundle:
+       sudo firedozed -config $config_dst -wg-new-peer alice-laptop 10.77.0.2/32
+  6. Start the daemon:
        sudo systemctl enable --now firedozed
 
 EOF

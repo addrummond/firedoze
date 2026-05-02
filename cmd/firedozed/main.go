@@ -36,6 +36,7 @@ func run() int {
 	var wgGenClientKey bool
 	var wgServerPublicKey bool
 	var wgPeerConfig string
+	var wgNewPeer string
 
 	flag.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
 	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
@@ -44,6 +45,7 @@ func run() int {
 	flag.BoolVar(&wgGenClientKey, "wg-gen-client-key", false, "generate a WireGuard client key pair")
 	flag.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
 	flag.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a wg-quick config for the configured peer name")
+	flag.StringVar(&wgNewPeer, "wg-new-peer", "", "print server TOML and client WireGuard config for a new peer name; requires allowed IP as positional argument")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -94,6 +96,19 @@ func run() int {
 		}
 		logger.Error("wireguard peer not found", "peer", wgPeerConfig)
 		return 1
+	}
+	if wgNewPeer != "" {
+		if flag.NArg() != 1 {
+			logger.Error("usage: firedozed -wg-new-peer <peer-name> <client-wireguard-address-cidr>")
+			return 1
+		}
+		setup, err := wgconfig.NewPeerSetup(cfg, wgNewPeer, flag.Arg(0))
+		if err != nil {
+			logger.Error("render new wireguard peer setup", "peer", wgNewPeer, "error", err)
+			return 1
+		}
+		fmt.Print(setup)
+		return 0
 	}
 
 	ctx := context.Background()
