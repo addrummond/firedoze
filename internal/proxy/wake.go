@@ -71,7 +71,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "firedoze route not found", http.StatusNotFound)
 		return
 	}
-	if vm.State == "sleeping" {
+	if vm.State != "running" {
 		started, err := p.manager.StartVM(r.Context(), vm.Name)
 		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
 			p.logger.Warn("wake vm for http route", "vm", vm.Name, "host", r.Host, "error", err)

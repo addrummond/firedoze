@@ -95,11 +95,11 @@ func (m *Manager) ReconcileStartup(ctx context.Context) error {
 		if vm.State != "running" {
 			continue
 		}
-		if err := m.store.SetVMState(ctx, vm.Name, "stopped"); err != nil {
-			errs = append(errs, fmt.Errorf("mark %s stopped: %w", vm.Name, err))
+		if err := m.store.SetVMState(ctx, vm.Name, "lost"); err != nil {
+			errs = append(errs, fmt.Errorf("mark %s lost: %w", vm.Name, err))
 			continue
 		}
-		m.logger.Warn("marked stale running vm stopped after daemon restart", "vm", vm.Name)
+		m.logger.Warn("marked stale running vm lost after daemon restart", "vm", vm.Name)
 	}
 	return errors.Join(errs...)
 }

@@ -58,3 +58,28 @@ func TestListVMsMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestSetVMStateAllowsLost(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "firedoze.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(ctx, "demo", "lost"); err != nil {
+		t.Fatal(err)
+	}
+	vm, err := st.GetVM(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.State != "lost" {
+		t.Fatalf("state = %q, want lost", vm.State)
+	}
+}
