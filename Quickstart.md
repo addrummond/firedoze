@@ -127,10 +127,12 @@ sudo /usr/local/bin/firedozed -print-config | sudo tee /etc/firedoze/firedoze.to
 
 Edit `/etc/firedoze/firedoze.toml`.
 
-The addresses below use one example WireGuard subnet:
+The addresses below use one example WireGuard subnet.
 
-- `10.77.0.1` is the firedoze host's WireGuard address.
-- `10.77.0.2` is Alice's laptop WireGuard address. Give each peer a unique `/32` address in the WireGuard subnet.
+- `10.77.0.1/24` is the firedoze host's WireGuard address.
+- `10.77.0.2/32` is Alice's laptop WireGuard address.
+
+Each laptop needs one unique `/32` address inside the WireGuard subnet. You choose that address when you add the peer to `firedoze.toml`; the generated client config will then use it automatically.
 
 Minimal fields to change:
 
@@ -149,7 +151,7 @@ private_key_file = "/etc/firedoze/wg.key"
 [[wireguard.peers]]
 name = "alice-laptop"
 public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
-# This is Alice's WireGuard client address. Use a different /32 for each peer.
+# This is Alice's WireGuard client address. Use a different /32 for each laptop.
 allowed_ips = ["10.77.0.2/32"]
 
 [vm_network]
@@ -221,14 +223,20 @@ Once firedozed is running, fetch a client config template:
 firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
 ```
 
-Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client.
+The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. For the example above, Alice's generated config will contain:
 
-If you need to create the client config manually, use these values:
+```ini
+Address = 10.77.0.2/32
+```
+
+Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client. Do not invent a different client address at this point; change `allowed_ips` in the server config first, then regenerate the client config.
+
+If you need to create the client config manually, use the same values:
 
 ```ini
 [Interface]
 PrivateKey = PASTE_CLIENT_PRIVATE_KEY_HERE
-# This must match the peer's allowed_ips entry in firedoze.toml.
+# This must match the peer's allowed_ips entry in /etc/firedoze/firedoze.toml.
 Address = 10.77.0.2/32
 DNS = 10.77.0.1
 
