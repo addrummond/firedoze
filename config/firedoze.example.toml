@@ -1,0 +1,58 @@
+# Example firedoze host configuration.
+#
+# Copy this file to /etc/firedoze/firedoze.toml, then edit the placeholder
+# values before starting firedozed.
+
+base_domain = "dev.example.com"
+default_http_port = 8080
+state_dir = "/var/lib/firedoze"
+
+[api]
+port = 8081
+
+[caddy]
+http_port = 80
+https_port = 443
+internal_proxy_port = 18082
+
+[dns]
+port = 53
+
+[metadata]
+path = "/var/lib/firedoze/firedoze.db"
+
+[wireguard]
+interface = "fdwg0"
+listen_port = 51820
+address = "10.77.0.1/24"
+endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
+private_key_file = "/etc/firedoze/wg.key"
+
+# Add one peer for each laptop that should administer firedoze.
+# Each peer needs a unique /32 address inside the WireGuard subnet.
+#
+# [[wireguard.peers]]
+# name = "alice-laptop"
+# public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
+# allowed_ips = ["10.77.0.2/32"]
+
+[vm_network]
+subnet = "10.88.0.0/16"
+
+[ssh]
+user = "ubuntu"
+authorized_key_files = ["/etc/firedoze/authorized_keys"]
+wake_proxy_port = 18022
+
+[idle]
+check_interval_seconds = 30
+default_sleep_after_seconds = 1800
+
+[firecracker]
+binary_path = "/usr/local/bin/firecracker"
+base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
+base_initrd_path = "/var/lib/firedoze/images/initrd.img"
+base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
+default_vcpus = 1
+default_memory_mib = 512
+default_disk_bytes = 4294967296

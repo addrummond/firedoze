@@ -10,7 +10,7 @@ Use an x86_64 Linux box with:
 
 - KVM available at `/dev/kvm`.
 - Kernel WireGuard support.
-- `iptables`, `debugfs`, and `ssh-keygen`.
+- `iptables`, `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`.
 - A Firecracker-compatible kernel image.
 - A Firecracker-compatible initrd image if your kernel needs one.
@@ -21,55 +21,40 @@ On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential git iptables wireguard-tools e2fsprogs openssh-client
+sudo apt-get install -y build-essential ca-certificates git iptables wireguard-tools e2fsprogs openssh-client
 ```
 
 ## 2. Build and Install
 
-If you use mise, install the pinned project tools first:
+Clone the private repo on the Linux host, then run the installer from the repo root:
 
 ```sh
-mise install
+git clone REPO_URL firedoze
+cd firedoze
+./scripts/install.sh
 ```
 
-On the host, build and install the daemon:
+The installer:
 
-```sh
-task build:daemon
-sudo install -m 0755 firedozed /usr/local/bin/firedozed
-```
+- Builds `firedoze`, `firedozed`, and `firedoze-image` from the checked-out source.
+- Installs them to `/usr/local/bin`.
+- Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
+- Installs an example config at `/etc/firedoze/firedoze.toml` if that file does not already exist.
+- Installs the systemd unit and reloads systemd.
 
-On your laptop, build and install the client command:
-
-```sh
-task build:client
-sudo install -m 0755 firedoze /usr/local/bin/firedoze
-```
-
-Create the config and state directories:
-
-```sh
-sudo mkdir -p /etc/firedoze /var/lib/firedoze/images
-```
-
-Install the systemd unit:
-
-```sh
-sudo mkdir -p /usr/local/share/doc/firedoze
-sudo install -m 0644 Quickstart.md /usr/local/share/doc/firedoze/Quickstart.md
-sudo install -m 0644 contrib/systemd/firedozed.service /etc/systemd/system/firedozed.service
-sudo systemctl daemon-reload
-```
+Existing config and VM state are left alone when you reinstall.
 
 ## 3. Build and Install Base Images
 
 The easiest path is to build a firedoze Ubuntu base image on your laptop, then copy the artifacts to the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
 
-On your laptop, run:
+On your laptop or on the Linux host, run:
 
 ```sh
-task image:build
+firedoze-image build
 ```
+
+From a source checkout, `task image:build` does the same thing.
 
 The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
@@ -119,13 +104,7 @@ Save the private key somewhere safe. Copy the public key into the server config.
 
 ## 6. Configure firedoze
 
-Start from the resolved default config:
-
-```sh
-sudo /usr/local/bin/firedozed -print-config | sudo tee /etc/firedoze/firedoze.toml
-```
-
-Edit `/etc/firedoze/firedoze.toml`.
+Edit the installed config:
 
 The addresses below use one example WireGuard subnet.
 
@@ -140,6 +119,9 @@ Minimal fields to change:
 base_domain = "dev.example.com"
 default_http_port = 8080
 state_dir = "/var/lib/firedoze"
+
+[api]
+port = 8081
 
 [wireguard]
 interface = "fdwg0"
@@ -162,10 +144,20 @@ http_port = 80
 https_port = 443
 internal_proxy_port = 18082
 
+[dns]
+port = 53
+
+[metadata]
+path = "/var/lib/firedoze/firedoze.db"
+
 [ssh]
 user = "ubuntu"
 authorized_key_files = ["/etc/firedoze/authorized_keys"]
 wake_proxy_port = 18022
+
+[idle]
+check_interval_seconds = 30
+default_sleep_after_seconds = 1800
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"
@@ -366,4 +358,28 @@ For scripts that need exact API response bodies from table-oriented commands, ad
 firedoze --json vm list
 firedoze vm inspect demo
 firedoze snapshot inspect demo-snap
+```
+
+## 11. Upgrade or Uninstall
+
+To upgrade from a newer checkout, run the installer again:
+
+```sh
+git pull
+./scripts/install.sh
+sudo systemctl restart firedozed
+```
+
+The installer leaves existing config and VM state untouched.
+
+To remove installed binaries and the systemd unit while keeping config, images, VMs, snapshots, and logs:
+
+```sh
+sudo ./scripts/uninstall.sh
+```
+
+To remove everything, including config and all VM state:
+
+```sh
+sudo ./scripts/uninstall.sh --purge
 ```
