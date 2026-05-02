@@ -71,122 +71,15 @@ func (s *Server) routes() {
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"service": "firedoze",
-		"commands": []map[string]string{
-			{
-				"method":      "GET",
-				"path":        "/",
-				"description": "show this help response",
-				"curl":        "curl http://" + r.Host + "/",
-			},
-			{
-				"method":      "GET",
-				"path":        "/health",
-				"description": "check daemon health",
-				"curl":        "curl http://" + r.Host + "/health",
-			},
-			{
-				"method":      "GET",
-				"path":        "/config",
-				"description": "show non-secret runtime configuration",
-				"curl":        "curl http://" + r.Host + "/config",
-			},
-			{
-				"method":      "GET",
-				"path":        "/vms",
-				"description": "list VMs",
-				"curl":        "curl http://" + r.Host + "/vms",
-			},
-			{
-				"method":      "POST",
-				"path":        "/vms",
-				"description": "create a VM record",
-				"curl":        "curl -X POST http://" + r.Host + `/vms -d '{"name":"demo"}'`,
-			},
-			{
-				"method":      "POST",
-				"path":        "/vms/{name}/start",
-				"description": "start a VM",
-				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/start",
-			},
-			{
-				"method":      "PATCH",
-				"path":        "/vms/{name}/settings",
-				"description": "update VM settings",
-				"curl":        "curl -X PATCH http://" + r.Host + `/vms/demo/settings -d '{"default_http_port":3000}'`,
-			},
-			{
-				"method":      "DELETE",
-				"path":        "/vms/{name}",
-				"description": "delete a VM and its state directory",
-				"curl":        "curl -X DELETE http://" + r.Host + "/vms/demo",
-			},
-			{
-				"method":      "POST",
-				"path":        "/vms/{name}/stop",
-				"description": "stop a VM",
-				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/stop",
-			},
-			{
-				"method":      "POST",
-				"path":        "/vms/{name}/sleep",
-				"description": "sleep a VM by saving exact Firecracker state",
-				"curl":        "curl -X POST http://" + r.Host + "/vms/demo/sleep",
-			},
-			{
-				"method":      "GET",
-				"path":        "/routes",
-				"description": "list public web routes",
-				"curl":        "curl http://" + r.Host + "/routes",
-			},
-			{
-				"method":      "POST",
-				"path":        "/routes",
-				"description": "create a public web route alias",
-				"curl":        "curl -X POST http://" + r.Host + `/routes -d '{"name":"app","vm":"demo","port":8080}'`,
-			},
-			{
-				"method":      "DELETE",
-				"path":        "/routes/{name}",
-				"description": "delete a public web route alias",
-				"curl":        "curl -X DELETE http://" + r.Host + "/routes/app",
-			},
-			{
-				"method":      "GET",
-				"path":        "/snapshots",
-				"description": "list named VM snapshots",
-				"curl":        "curl http://" + r.Host + "/snapshots",
-			},
-			{
-				"method":      "POST",
-				"path":        "/snapshots",
-				"description": "save a running VM as a named snapshot",
-				"curl":        "curl -X POST http://" + r.Host + `/snapshots -d '{"name":"base-node-app","vm":"demo"}'`,
-			},
-			{
-				"method":      "POST",
-				"path":        "/snapshots/{name}/restore",
-				"description": "restore a snapshot as a new stopped VM",
-				"curl":        "curl -X POST http://" + r.Host + `/snapshots/base-node-app/restore -d '{"vm":"demo-clone"}'`,
-			},
-			{
-				"method":      "DELETE",
-				"path":        "/snapshots/{name}",
-				"description": "delete a named snapshot and its files",
-				"curl":        "curl -X DELETE http://" + r.Host + "/snapshots/base-node-app",
-			},
-			{
-				"method":      "GET",
-				"path":        "/wireguard/peers",
-				"description": "list configured WireGuard peers",
-				"curl":        "curl http://" + r.Host + "/wireguard/peers",
-			},
-			{
-				"method":      "GET",
-				"path":        "/wireguard/peers/{name}/config",
-				"description": "generate a wg-quick config for a configured peer",
-				"curl":        "curl http://" + r.Host + "/wireguard/peers/alice-laptop/config",
-			},
+		"service":     "firedoze",
+		"api_version": 1,
+		"resources": map[string][]string{
+			"health":          {"GET /health"},
+			"config":          {"GET /config"},
+			"vms":             {"GET /vms", "POST /vms", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep"},
+			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
+			"snapshots":       {"GET /snapshots", "POST /snapshots", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
+			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
 		},
 	})
 }
@@ -247,7 +140,7 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vms": s.vmInfos(vms, r.Host)})
+	writeJSON(w, http.StatusOK, map[string]any{"vms": s.vmInfos(vms)})
 }
 
 func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +176,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
@@ -303,7 +196,7 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) {
@@ -334,7 +227,7 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
@@ -388,7 +281,7 @@ func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
@@ -514,9 +407,6 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"snapshot": snapshot,
-		"commands": map[string]string{
-			"restore": "curl -X POST http://" + r.Host + "/snapshots/" + snapshot.Name + `/restore -d '{"vm":"demo-clone"}'`,
-		},
 	})
 }
 
@@ -568,7 +458,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm, r.Host)})
+	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -594,9 +484,6 @@ func (s *Server) handleListWireGuardPeers(w http.ResponseWriter, r *http.Request
 		peers = append(peers, map[string]any{
 			"name":        peer.Name,
 			"allowed_ips": peer.AllowedIPs,
-			"commands": map[string]string{
-				"config": "curl http://" + r.Host + "/wireguard/peers/" + peer.Name + "/config",
-			},
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"peers": peers})
@@ -613,7 +500,7 @@ func (s *Server) handleWireGuardPeerConfig(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		writeText(w, http.StatusOK, cfg)
+		writeJSON(w, http.StatusOK, map[string]string{"config": cfg})
 		return
 	}
 	writeError(w, http.StatusNotFound, fmt.Errorf("%w: wireguard peer %q", store.ErrNotFound, name))
@@ -631,7 +518,6 @@ type vmInfo struct {
 	Hostname string            `json:"hostname"`
 	SSH      string            `json:"ssh"`
 	URLs     map[string]string `json:"urls"`
-	Commands map[string]string `json:"commands"`
 }
 
 type routeInfo struct {
@@ -640,15 +526,15 @@ type routeInfo struct {
 	URL      string `json:"url"`
 }
 
-func (s *Server) vmInfos(vms []store.VM, apiHost string) []vmInfo {
+func (s *Server) vmInfos(vms []store.VM) []vmInfo {
 	infos := make([]vmInfo, 0, len(vms))
 	for _, vm := range vms {
-		infos = append(infos, s.vmInfo(vm, apiHost))
+		infos = append(infos, s.vmInfo(vm))
 	}
 	return infos
 }
 
-func (s *Server) vmInfo(vm store.VM, apiHost string) vmInfo {
+func (s *Server) vmInfo(vm store.VM) vmInfo {
 	hostname := s.defaultHostname(vm.Name)
 	return vmInfo{
 		VM:       vm,
@@ -656,14 +542,6 @@ func (s *Server) vmInfo(vm store.VM, apiHost string) vmInfo {
 		SSH:      "ssh " + s.cfg.SSH.User + "@" + hostname,
 		URLs: map[string]string{
 			"default": s.publicURL(hostname),
-		},
-		Commands: map[string]string{
-			"start":    "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/start",
-			"stop":     "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/stop",
-			"sleep":    "curl -X POST http://" + apiHost + "/vms/" + vm.Name + "/sleep",
-			"settings": "curl -X PATCH http://" + apiHost + "/vms/" + vm.Name + `/settings -d '{"default_http_port":3000}'`,
-			"delete":   "curl -X DELETE http://" + apiHost + "/vms/" + vm.Name,
-			"ssh":      "ssh " + s.cfg.SSH.User + "@" + hostname,
 		},
 	}
 }
@@ -702,12 +580,6 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	_ = encoder.Encode(value)
-}
-
-func writeText(w http.ResponseWriter, status int, value string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(value))
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {

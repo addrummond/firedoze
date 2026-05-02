@@ -223,12 +223,6 @@ firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
 
 Replace `<client-private-key>` with the private key from `firedozed -wg-gen-client-key`, then save the config in your WireGuard client.
 
-You can also fetch the same template over the WireGuard-only API after your tunnel is already working. In these examples, `10.77.0.1` is the firedoze host's WireGuard address from `[wireguard].address`.
-
-```sh
-curl http://10.77.0.1:8081/wireguard/peers/alice-laptop/config
-```
-
 If you need to create the client config manually, use these values:
 
 ```ini
@@ -349,15 +343,8 @@ Delete the route alias:
 firedoze route delete app
 ```
 
-For scripts that need exact response bodies, add `--json`:
+For scripts that need exact API response bodies, add `--json`:
 
 ```sh
 firedoze --json vm list
-```
-
-The raw HTTP API is still available. This is useful for debugging or for commands the client has not wrapped yet:
-
-```sh
-curl "$FIREDOZE_API/health"
-curl -X POST "$FIREDOZE_API/vms/demo/start"
 ```
