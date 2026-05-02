@@ -12,10 +12,7 @@ Use an x86_64 Linux box with:
 - Kernel WireGuard support.
 - `iptables`, `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`.
-- A Firecracker-compatible kernel image.
-- A Firecracker-compatible initrd image if your kernel needs one.
-- A Firecracker-compatible ext4 root filesystem image with SSH enabled.
-- Go and a C compiler if building from source.
+- Enough disk space to build and store base images, VM disks, and snapshots.
 
 On Ubuntu, the host packages are roughly:
 
@@ -26,12 +23,19 @@ sudo apt-get install -y build-essential ca-certificates git iptables wireguard-t
 
 ## 2. Build and Install
 
-Clone the private repo on the Linux host, then run the installer from the repo root:
+Install `mise` on the Linux host. The project uses `.tool-versions` to pin the Go toolchain and Task version.
+
+```sh
+curl https://mise.run | sh
+```
+
+Clone the private repo on the Linux host, install the pinned tools, then run the installer from the repo root:
 
 ```sh
 git clone REPO_URL firedoze
 cd firedoze
-./scripts/install.sh
+~/.local/bin/mise install
+~/.local/bin/mise exec -- ./scripts/install.sh
 ```
 
 The installer:
@@ -46,9 +50,9 @@ Existing config and VM state are left alone when you reinstall.
 
 ## 3. Build and Install Base Images
 
-The easiest path is to build a firedoze Ubuntu base image on your laptop, then copy the artifacts to the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
+Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
 
-On your laptop or on the Linux host, run:
+From the repo checkout, run:
 
 ```sh
 firedoze-image build
@@ -58,13 +62,7 @@ From a source checkout, `task image:build` does the same thing.
 
 The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
-Copy the generated files to the host:
-
-```sh
-rsync -aSv dist/base-image/rootfs.ext4 dist/base-image/vmlinux.bin dist/base-image/initrd.img HOST:/tmp/firedoze-base-image/
-```
-
-On the host, install them here:
+Install the generated files here:
 
 ```text
 /var/lib/firedoze/images/vmlinux.bin
@@ -76,9 +74,9 @@ For example:
 
 ```sh
 sudo mkdir -p /var/lib/firedoze/images
-sudo install -m 0644 /tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
-sudo install -m 0644 /tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
-sudo install -m 0644 /tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+sudo install -m 0644 dist/base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
+sudo install -m 0644 dist/base-image/initrd.img /var/lib/firedoze/images/initrd.img
+sudo install -m 0644 dist/base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
 ```
 
 The generated image uses the normal Ubuntu `ubuntu` user for SSH.
@@ -366,7 +364,8 @@ To upgrade from a newer checkout, run the installer again:
 
 ```sh
 git pull
-./scripts/install.sh
+~/.local/bin/mise install
+~/.local/bin/mise exec -- ./scripts/install.sh
 sudo systemctl restart firedozed
 ```
 

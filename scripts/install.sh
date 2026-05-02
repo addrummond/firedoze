@@ -84,7 +84,8 @@ cat <<EOF
 firedoze is installed.
 
 Next steps:
-  1. Build or copy base images into $statedir/images.
+  1. Build the base image with: firedoze-image build
+     Then install the generated files into $statedir/images.
   2. Add your SSH public key to $sysconfdir/authorized_keys.
   3. Edit $config_dst.
   4. Start the daemon:
