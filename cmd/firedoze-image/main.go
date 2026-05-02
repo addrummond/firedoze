@@ -184,13 +184,14 @@ func build(args []string) error {
 		return fmt.Errorf("open xz stream: %w", err)
 	}
 
-	artifacts, err := populateRootfs(efs, tar.NewReader(xzr))
+	overlay := newGuestOverlay()
+	artifacts, err := populateRootfs(efs, tar.NewReader(xzr), overlay)
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	if err := customizeGuest(efs); err != nil {
+	if err := customizeGuest(efs, overlay); err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -489,7 +490,113 @@ type pendingHardlink struct {
 	header *tar.Header
 }
 
-func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader) (bootArtifacts, error) {
+type fileOverlay struct {
+	mode      os.FileMode
+	uid       int
+	gid       int
+	transform func([]byte) []byte
+	data      []byte
+}
+
+type guestOverlay struct {
+	files    map[string]fileOverlay
+	symlinks map[string]string
+}
+
+func newGuestOverlay() *guestOverlay {
+	return &guestOverlay{
+		files: map[string]fileOverlay{
+			"etc/passwd": {
+				mode: 0o644, uid: 0, gid: 0,
+				transform: func(data []byte) []byte {
+					return []byte(ensureNamedLineText(string(data), "ubuntu", "ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash"))
+				},
+			},
+			"etc/shadow": {
+				mode: 0o640, uid: 0, gid: 42,
+				transform: func(data []byte) []byte {
+					return []byte(ensureNamedLineText(string(data), "ubuntu", "ubuntu::19723:0:99999:7:::"))
+				},
+			},
+			"etc/group": {
+				mode: 0o644, uid: 0, gid: 0,
+				transform: func(data []byte) []byte {
+					text := ensureGroupMemberText(string(data), "ubuntu", "x", "1000", "ubuntu")
+					text = ensureGroupMemberText(text, "sudo", "x", "27", "ubuntu")
+					return []byte(text)
+				},
+			},
+			"etc/gshadow": {
+				mode: 0o640, uid: 0, gid: 42,
+				transform: func(data []byte) []byte {
+					text := ensureGroupMemberText(string(data), "ubuntu", "!", "", "ubuntu")
+					text = ensureGroupMemberText(text, "sudo", "*", "", "ubuntu")
+					return []byte(text)
+				},
+			},
+			"etc/fstab": {
+				mode: 0o644, uid: 0, gid: 0,
+				transform: func([]byte) []byte {
+					return []byte("/dev/vda / ext4 defaults,errors=remount-ro 0 1\n")
+				},
+			},
+		},
+		symlinks: map[string]string{
+			"etc/systemd/system/ssh.socket":                                       "/dev/null",
+			"etc/systemd/system/cloud-init.service":                               "/dev/null",
+			"etc/systemd/system/cloud-init-local.service":                         "/dev/null",
+			"etc/systemd/system/cloud-config.service":                             "/dev/null",
+			"etc/systemd/system/cloud-final.service":                              "/dev/null",
+			"etc/systemd/system/systemd-networkd-wait-online.service":             "/dev/null",
+			"etc/systemd/system/multipathd.service":                               "/dev/null",
+			"etc/systemd/system/multipathd.socket":                                "/dev/null",
+			"etc/systemd/system/sockets.target.wants/ssh.socket":                  "",
+			"etc/systemd/system/multi-user.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
+		},
+	}
+}
+
+func (o *guestOverlay) shouldSkip(p string) bool {
+	if _, ok := o.files[p]; ok {
+		return true
+	}
+	_, ok := o.symlinks[p]
+	return ok
+}
+
+func (o *guestOverlay) captureFile(p string, data []byte) bool {
+	file, ok := o.files[p]
+	if !ok {
+		return false
+	}
+	file.data = file.transform(data)
+	o.files[p] = file
+	return true
+}
+
+func (o *guestOverlay) apply(efs *ext4.FileSystem, modTime time.Time) error {
+	for p, file := range o.files {
+		data := file.data
+		if data == nil {
+			data = file.transform(nil)
+		}
+		if err := writeFile(efs, p, data, file.mode, file.uid, file.gid, modTime); err != nil {
+			return fmt.Errorf("write overlay /%s: %w", p, err)
+		}
+	}
+	for p, target := range o.symlinks {
+		if target == "" {
+			continue
+		}
+		if err := symlink(efs, target, p, modTime); err != nil {
+			return fmt.Errorf("symlink overlay /%s: %w", p, err)
+		}
+	}
+	return nil
+}
+
+func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader, overlay *guestOverlay) (bootArtifacts, error) {
 	var artifacts bootArtifacts
 	var hardlinks []pendingHardlink
 
@@ -519,6 +626,13 @@ func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader) (bootArtifacts, error)
 			if err != nil {
 				return artifacts, fmt.Errorf("read /%s: %w", clean, err)
 			}
+			if overlay.captureFile(clean, data) {
+				artifacts.remember(clean, data)
+				continue
+			}
+			if overlay.shouldSkip(clean) {
+				continue
+			}
 			if err := writeFile(efs, clean, data, mode, hdr.Uid, hdr.Gid, hdr.ModTime); err != nil {
 				return artifacts, fmt.Errorf("write /%s: %w", clean, err)
 			}
@@ -528,12 +642,18 @@ func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader) (bootArtifacts, error)
 				return artifacts, fmt.Errorf("create dir /%s: %w", clean, err)
 			}
 		case tar.TypeSymlink:
+			if overlay.shouldSkip(clean) {
+				continue
+			}
 			if err := symlink(efs, hdr.Linkname, clean, hdr.ModTime); err != nil {
 				return artifacts, fmt.Errorf("symlink /%s: %w", clean, err)
 			}
 		case tar.TypeLink:
 			target, ok := cleanTarPath(hdr.Linkname)
 			if !ok {
+				continue
+			}
+			if overlay.shouldSkip(clean) {
 				continue
 			}
 			hcopy := *hdr
@@ -591,7 +711,7 @@ func cleanTarPath(name string) (string, bool) {
 	return clean, true
 }
 
-func customizeGuest(efs *ext4.FileSystem) error {
+func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay) error {
 	now := time.Now()
 	files := []struct {
 		path string
@@ -780,11 +900,6 @@ WantedBy=multi-user.target
 			mode: 0o644,
 			data: "datasource_list: [ None ]\npreserve_hostname: true\nmanage_etc_hosts: false\nssh_pwauth: true\ndisable_root: false\n",
 		},
-		{
-			path: "etc/fstab",
-			mode: 0o644,
-			data: "/dev/vda / ext4 defaults,errors=remount-ro 0 1\n",
-		},
 	}
 
 	for _, dir := range []string{
@@ -807,22 +922,7 @@ WantedBy=multi-user.target
 			return err
 		}
 	}
-	if err := ensureNamedLine(efs, "etc/passwd", "ubuntu", "ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash", 0o644, 0, 0, now); err != nil {
-		return err
-	}
-	if err := ensureNamedLine(efs, "etc/shadow", "ubuntu", "ubuntu::19723:0:99999:7:::", 0o640, 0, 42, now); err != nil {
-		return err
-	}
-	if err := ensureGroupMember(efs, "etc/group", "ubuntu", "x", "1000", "ubuntu", 0o644, 0, 0, now); err != nil {
-		return err
-	}
-	if err := ensureGroupMember(efs, "etc/group", "sudo", "x", "27", "ubuntu", 0o644, 0, 0, now); err != nil {
-		return err
-	}
-	if err := ensureGroupMember(efs, "etc/gshadow", "ubuntu", "!", "", "ubuntu", 0o640, 0, 42, now); err != nil {
-		return err
-	}
-	if err := ensureGroupMember(efs, "etc/gshadow", "sudo", "*", "", "ubuntu", 0o640, 0, 42, now); err != nil {
+	if err := overlay.apply(efs, now); err != nil {
 		return err
 	}
 	if err := writeFile(efs, "etc/sudoers.d/90-firedoze-ubuntu", []byte("ubuntu ALL=(ALL) NOPASSWD:ALL\n"), 0o440, 0, 0, now); err != nil {
@@ -843,46 +943,11 @@ WantedBy=multi-user.target
 		chmodIfExists(efs, p, os.ModeSetuid|0o755)
 	}
 
-	if err := symlink(efs, "/etc/systemd/system/firedoze-network.service", "etc/systemd/system/multi-user.target.wants/firedoze-network.service", now); err != nil {
-		return err
-	}
-	_ = removeIfExists(efs, "etc/systemd/system/sockets.target.wants/ssh.socket")
-	if err := symlink(efs, "/dev/null", "etc/systemd/system/ssh.socket", now); err != nil {
-		return err
-	}
-	if err := symlink(efs, "/etc/systemd/system/firedoze-sshd.service", "etc/systemd/system/multi-user.target.wants/firedoze-sshd.service", now); err != nil {
-		return err
-	}
-	for _, unit := range []string{"cloud-init.service", "cloud-init-local.service", "cloud-config.service", "cloud-final.service", "systemd-networkd-wait-online.service", "multipathd.service", "multipathd.socket"} {
-		if err := symlink(efs, "/dev/null", "etc/systemd/system/"+unit, now); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
-func ensureLine(efs *ext4.FileSystem, p string, line string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
-	data, err := efs.ReadFile(p)
-	if err != nil {
-		return fmt.Errorf("read /%s: %w", p, err)
-	}
-	if hasLine(string(data), line) {
-		return nil
-	}
-	text := string(data)
-	if text != "" && !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	text += line + "\n"
-	return writeFile(efs, p, []byte(text), mode, uid, gid, modTime)
-}
-
-func ensureNamedLine(efs *ext4.FileSystem, p string, name string, line string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
-	data, err := efs.ReadFile(p)
-	if err != nil {
-		return fmt.Errorf("read /%s: %w", p, err)
-	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+func ensureNamedLineText(text string, name string, line string) string {
+	lines := nonemptyLines(text)
 	found := false
 	for i, current := range lines {
 		if strings.HasPrefix(current, name+":") {
@@ -893,15 +958,11 @@ func ensureNamedLine(efs *ext4.FileSystem, p string, name string, line string, m
 	if !found {
 		lines = append(lines, line)
 	}
-	return writeFile(efs, p, []byte(strings.Join(lines, "\n")+"\n"), mode, uid, gid, modTime)
+	return strings.Join(lines, "\n") + "\n"
 }
 
-func ensureGroupMember(efs *ext4.FileSystem, p string, name string, password string, gid string, member string, mode os.FileMode, uid int, fileGID int, modTime time.Time) error {
-	data, err := efs.ReadFile(p)
-	if err != nil {
-		return fmt.Errorf("read /%s: %w", p, err)
-	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+func ensureGroupMemberText(text string, name string, password string, gid string, member string) string {
+	lines := nonemptyLines(text)
 	found := false
 	for i, line := range lines {
 		fields := strings.Split(line, ":")
@@ -918,16 +979,15 @@ func ensureGroupMember(efs *ext4.FileSystem, p string, name string, password str
 	if !found {
 		lines = append(lines, strings.Join([]string{name, password, gid, member}, ":"))
 	}
-	return writeFile(efs, p, []byte(strings.Join(lines, "\n")+"\n"), mode, uid, fileGID, modTime)
+	return strings.Join(lines, "\n") + "\n"
 }
 
-func hasLine(text string, want string) bool {
-	for _, line := range strings.Split(text, "\n") {
-		if line == want {
-			return true
-		}
+func nonemptyLines(text string) []string {
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return nil
 	}
-	return false
+	return strings.Split(text, "\n")
 }
 
 func splitCSV(value string) []string {
@@ -963,6 +1023,12 @@ func mkdirAll(efs *ext4.FileSystem, p string, mode os.FileMode, uid int, gid int
 			continue
 		}
 		current = path.Join(current, part)
+		if info, err := efs.Stat(current); err == nil {
+			if !info.IsDir() {
+				return fmt.Errorf("/%s exists and is not a directory", current)
+			}
+			continue
+		}
 		if err := efs.Mkdir(current); err != nil {
 			return err
 		}
@@ -979,8 +1045,13 @@ func writeFile(efs *ext4.FileSystem, p string, data []byte, mode os.FileMode, ui
 		return err
 	}
 	full := p
-	_ = removeIfExists(efs, full)
-	f, err := efs.OpenFile(full, os.O_CREATE|os.O_RDWR)
+	flags := os.O_RDWR
+	if _, err := efs.Stat(full); err != nil {
+		flags |= os.O_CREATE
+	} else if err := efs.Truncate(full, 0); err != nil {
+		return err
+	}
+	f, err := efs.OpenFile(full, flags)
 	if err != nil {
 		return err
 	}
@@ -1002,20 +1073,17 @@ func symlink(efs *ext4.FileSystem, target string, p string, modTime time.Time) e
 		return err
 	}
 	full := p
-	_ = removeIfExists(efs, full)
-	return efs.Symlink(target, full)
-}
-
-func removeIfExists(efs *ext4.FileSystem, p string) (err error) {
-	if _, statErr := efs.Stat(p); statErr != nil {
+	if current, err := efs.ReadLink(full); err == nil {
+		if current != target {
+			return fmt.Errorf("/%s already points to %q, not %q", full, current, target)
+		}
+		_ = efs.Chtimes(full, modTime, modTime, modTime)
 		return nil
 	}
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("remove /%s: %v", p, recovered)
-		}
-	}()
-	return efs.Remove(p)
+	if _, err := efs.Stat(full); err == nil {
+		return fmt.Errorf("/%s already exists and is not a symlink", full)
+	}
+	return efs.Symlink(target, full)
 }
 
 func replaceFile(p string, data []byte, mode os.FileMode) error {
