@@ -123,9 +123,10 @@ The primary human interface is a separate `firedoze` client command that runs on
 The client should provide the friendly operational surface:
 
 - `firedoze vm list`
+- `firedoze vm inspect <vm>`
 - `firedoze vm create/start/sleep/stop/delete/settings`
 - `firedoze ssh <vm>`
-- `firedoze snapshot ...`
+- `firedoze snapshot list/inspect/save/restore/delete`
 - `firedoze route ...`
 
 For scripts that need exact API responses, the client supports `--json`. Human-readable client output can include convenience commands such as `firedoze ssh <vm>`, public URLs, and runtime/status columns, but those are client presentation choices rather than command strings embedded in the API.

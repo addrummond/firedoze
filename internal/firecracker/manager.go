@@ -183,8 +183,16 @@ func (m *Manager) ListVMs(ctx context.Context) ([]store.VM, error) {
 	return m.store.ListVMs(ctx)
 }
 
+func (m *Manager) GetVM(ctx context.Context, name string) (store.VM, error) {
+	return m.store.GetVM(ctx, name)
+}
+
 func (m *Manager) ListSnapshots(ctx context.Context) ([]store.Snapshot, error) {
 	return m.store.ListSnapshots(ctx)
+}
+
+func (m *Manager) GetSnapshot(ctx context.Context, name string) (store.Snapshot, error) {
+	return m.store.GetSnapshot(ctx, name)
 }
 
 func (m *Manager) UpdateVM(ctx context.Context, name string, params store.UpdateVMParams) (store.VM, error) {

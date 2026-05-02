@@ -280,6 +280,7 @@ List VMs and SSH to one:
 
 ```sh
 firedoze vm list
+firedoze vm inspect demo
 firedoze ssh demo
 ```
 
@@ -343,8 +344,10 @@ Delete the route alias:
 firedoze route delete app
 ```
 
-For scripts that need exact API response bodies, add `--json`:
+For scripts that need exact API response bodies from table-oriented commands, add `--json`. Inspect commands already print the single resource as JSON:
 
 ```sh
 firedoze --json vm list
+firedoze vm inspect demo
+firedoze snapshot inspect demo-snap
 ```

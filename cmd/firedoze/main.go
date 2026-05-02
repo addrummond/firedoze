@@ -145,7 +145,7 @@ func (a app) dispatch(args []string) error {
 
 func (a app) vm(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze vm <list|create|start|sleep|stop|delete|settings>")
+		return errors.New("usage: firedoze vm <list|inspect|create|start|sleep|stop|delete|settings>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -159,11 +159,22 @@ func (a app) vm(args []string) error {
 			return printJSON(out)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATE\tRUNTIME\tIP\tSSH\tURL")
+		fmt.Fprintln(w, "NAME\tSTATE\tRUNTIME\tIP\tURL")
 		for _, vm := range out.VMs {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\tfiredoze ssh %s\t%s\n", vm.Name, vm.State, runtimeSinceStart(vm), vm.PrivateIP, vm.Name, vm.URLs["default"])
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", vm.Name, vm.State, runtimeSinceStart(vm), vm.PrivateIP, vm.URLs["default"])
 		}
 		return w.Flush()
+	case "inspect", "show":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze vm inspect <name>")
+		}
+		var out struct {
+			VM vmInfo `json:"vm"`
+		}
+		if err := a.client.do(context.Background(), http.MethodGet, "/vms/"+url.PathEscape(args[1]), nil, &out); err != nil {
+			return err
+		}
+		return printJSON(out)
 	case "create":
 		return a.vmCreate(args[1:])
 	case "start", "sleep", "stop":
@@ -245,7 +256,7 @@ func (a app) vmSettings(args []string) error {
 
 func (a app) snapshot(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze snapshot <list|save|restore|delete>")
+		return errors.New("usage: firedoze snapshot <list|inspect|save|restore|delete>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -264,6 +275,17 @@ func (a app) snapshot(args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", snap.Name, snap.SourceVM, snap.CreatedAt)
 		}
 		return w.Flush()
+	case "inspect", "show":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze snapshot inspect <snapshot>")
+		}
+		var out struct {
+			Snapshot snapshotInfo `json:"snapshot"`
+		}
+		if err := a.client.do(context.Background(), http.MethodGet, "/snapshots/"+url.PathEscape(args[1]), nil, &out); err != nil {
+			return err
+		}
+		return printJSON(out)
 	case "save":
 		if len(args) != 3 {
 			return errors.New("usage: firedoze snapshot save <snapshot> <vm>")
@@ -530,6 +552,7 @@ Commands:
   health
   config
   vm list
+  vm inspect <name>
   vm create <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
   vm start <name>
   vm sleep <name>
@@ -537,6 +560,7 @@ Commands:
   vm delete <name>
   vm settings <name> [--http-port N] [--idle-sleep-after N]
   snapshot list
+  snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
   snapshot restore <snapshot> <vm>
   snapshot delete <snapshot>

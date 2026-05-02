@@ -53,6 +53,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /config", s.handleConfig)
 	s.mux.HandleFunc("GET /vms", s.handleListVMs)
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
+	s.mux.HandleFunc("GET /vms/{name}", s.handleGetVM)
 	s.mux.HandleFunc("PATCH /vms/{name}/settings", s.handleUpdateVMSettings)
 	s.mux.HandleFunc("DELETE /vms/{name}", s.handleDeleteVM)
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
@@ -63,6 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
 	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
 	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
+	s.mux.HandleFunc("GET /snapshots/{name}", s.handleGetSnapshot)
 	s.mux.HandleFunc("DELETE /snapshots/{name}", s.handleDeleteSnapshot)
 	s.mux.HandleFunc("POST /snapshots/{name}/restore", s.handleRestoreSnapshot)
 	s.mux.HandleFunc("GET /wireguard/peers", s.handleListWireGuardPeers)
@@ -76,9 +78,9 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		"resources": map[string][]string{
 			"health":          {"GET /health"},
 			"config":          {"GET /config"},
-			"vms":             {"GET /vms", "POST /vms", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep"},
+			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
-			"snapshots":       {"GET /snapshots", "POST /snapshots", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
+			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
 		},
 	})
@@ -141,6 +143,20 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vms": s.vmInfos(vms)})
+}
+
+func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	vm, err := s.manager.GetVM(r.Context(), name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
 }
 
 func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
@@ -368,6 +384,19 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"snapshots": snapshots})
+}
+
+func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapshot, err := s.manager.GetSnapshot(r.Context(), r.PathValue("name"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshot": snapshot})
 }
 
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
