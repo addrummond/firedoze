@@ -54,6 +54,30 @@ func TestParseNamesAndFlags(t *testing.T) {
 	}
 }
 
+func TestNewClientAddsDefaultPort(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "bare http host", raw: "http://10.77.0.1", want: "http://10.77.0.1:8081"},
+		{name: "explicit port", raw: "http://10.77.0.1:18081", want: "http://10.77.0.1:18081"},
+		{name: "ipv6 host", raw: "http://[fd00::1]", want: "http://[fd00::1]:8081"},
+		{name: "path", raw: "http://firedoze.example.com/api", want: "http://firedoze.example.com:8081/api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := newClient(tt.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.baseURL != tt.want {
+				t.Fatalf("baseURL = %q, want %q", c.baseURL, tt.want)
+			}
+		})
+	}
+}
+
 func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	got := sshCommand(vmInfo{
 		VM: store.VM{

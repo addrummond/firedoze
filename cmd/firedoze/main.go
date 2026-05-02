@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,7 +22,10 @@ import (
 	wgconfig "firedoze/internal/wireguard"
 )
 
-const defaultAPI = "http://10.77.0.1:8081"
+const (
+	defaultAPIPort = "8081"
+	defaultAPI     = "http://10.77.0.1:" + defaultAPIPort
+)
 
 type client struct {
 	baseURL string
@@ -105,6 +109,9 @@ func newClient(rawURL string) (*client, error) {
 	}
 	if u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("API URL must include scheme and host: %s", rawURL)
+	}
+	if u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), defaultAPIPort)
 	}
 	return &client{
 		baseURL: strings.TrimRight(u.String(), "/"),
@@ -663,6 +670,6 @@ Commands:
   ssh <vm> [ssh args...]
 
 Environment:
-  FIREDOZE_API  API URL (default http://10.77.0.1:8081)
+  FIREDOZE_API  API URL (default http://10.77.0.1:8081; port 8081 is added if omitted)
 `)
 }
