@@ -162,6 +162,10 @@ func run() int {
 			return 1
 		}
 		manager := firecracker.NewManager(cfg, db, logger)
+		if err := manager.ReconcileStartup(ctx); err != nil {
+			logger.Error("reconcile firecracker state", "error", err)
+			return 1
+		}
 		proxyManager := proxy.NewManager(cfg, db, logger)
 		wakeProxy := proxy.NewWakeProxy(cfg, db, manager, logger)
 		tcpWakeProxy := proxy.NewTCPWakeProxy(cfg, db, manager, logger)

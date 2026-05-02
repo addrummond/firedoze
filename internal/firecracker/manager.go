@@ -77,6 +77,33 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 	}
 }
 
+func (m *Manager) ReconcileStartup(ctx context.Context) error {
+	vms, err := m.store.ListVMs(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, vm := range vms {
+		proc := &Process{
+			Name:      vm.Name,
+			TapName:   tapName(vm.Name),
+			GuestCIDR: vm.PrivateIP + "/30",
+		}
+		if err := m.cleanupNetwork(proc); err != nil {
+			m.logger.Debug("cleanup stale vm network", "vm", vm.Name, "error", err)
+		}
+		if vm.State != "running" {
+			continue
+		}
+		if err := m.store.SetVMState(ctx, vm.Name, "stopped"); err != nil {
+			errs = append(errs, fmt.Errorf("mark %s stopped: %w", vm.Name, err))
+			continue
+		}
+		m.logger.Warn("marked stale running vm stopped after daemon restart", "vm", vm.Name)
+	}
+	return errors.Join(errs...)
+}
+
 func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (store.VM, error) {
 	if params.VCPUs == 0 {
 		params.VCPUs = m.cfg.Firecracker.DefaultVCPUs
