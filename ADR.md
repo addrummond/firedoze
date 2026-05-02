@@ -331,9 +331,9 @@ The base image is non-configurable in v1.
 
 Default guest OS should be Ubuntu LTS cloud image or equivalent. The VM should feel like a normal human-usable Linux computer, not a minimal appliance.
 
-The base image should be built from Ubuntu's official cloud root tarball rather than from the minimal Firecracker quickstart image. firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and extracts matching `vmlinux.bin` and `initrd.img` boot artifacts.
+The base image should be built from Ubuntu's official cloud root tarball rather than from the minimal Firecracker quickstart image. firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts.
 
-The image builder should be host-portable for development. v1 uses Docker or Podman so the same script can run on macOS or Linux without requiring the host to mount ext4 filesystems directly.
+The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
 The guest image carries a tiny firedoze network service. At boot, it reads the Firecracker MAC address in the `06:00:<guest-ip-octets>` convention and configures `eth0` with the derived `/30` guest IP and default route through `guest_ip - 1`.
 

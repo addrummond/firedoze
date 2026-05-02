@@ -7,11 +7,13 @@ toolchain go1.26.2
 require (
 	codeberg.org/miekg/dns v0.6.73
 	github.com/caddyserver/caddy/v2 v2.11.2
+	github.com/diskfs/go-diskfs v1.9.1
 	github.com/firecracker-microvm/firecracker-go-sdk v1.0.0
 	github.com/go-openapi/runtime v0.24.0
 	github.com/go-openapi/strfmt v0.21.2
 	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/ulikunitz/xz v0.5.15
 	github.com/vishvananda/netlink v1.3.1
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 )

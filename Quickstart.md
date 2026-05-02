@@ -57,15 +57,15 @@ sudo systemctl daemon-reload
 
 ## 3. Build and Install Base Images
 
-The easiest path is to build a firedoze Ubuntu base image on your laptop, then copy the artifacts to the Linux host.
+The easiest path is to build a firedoze Ubuntu base image on your laptop, then copy the artifacts to the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
 
-On your laptop, install Docker Desktop or Podman, then run:
+On your laptop, run:
 
 ```sh
 scripts/build-base-image.sh --out dist/base-image
 ```
 
-The script downloads Ubuntu's official cloud root tarball, turns it into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+The script downloads Ubuntu's official cloud root tarball and published kernel/initrd artifacts, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
 Copy the generated files to the host:
 
