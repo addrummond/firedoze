@@ -47,7 +47,7 @@ firedoze-image build
 mise exec -- task image:install
 cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
 sudoedit /etc/firedoze/firedoze.toml
-sudo firedozed -config /etc/firedoze/firedoze.toml -wg-new-peer alice-laptop 10.77.0.2/32
+sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
 # paste the printed [[wireguard.peers]] block into /etc/firedoze/firedoze.toml
 sudo systemctl enable --now firedozed
 ```
@@ -109,7 +109,7 @@ The main fields to set are:
 To add a laptop, generate a peer setup bundle on the host:
 
 ```sh
-sudo firedozed -config /etc/firedoze/firedoze.toml -wg-new-peer alice-laptop 10.77.0.2/32
+sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
 ```
 
 The command prints:
@@ -170,7 +170,7 @@ Address = 10.77.0.2/32
 Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:
 
 ```sh
-sudo firedozed -config /etc/firedoze/firedoze.toml -wg-peer-config alice-laptop
+sudo firedozed -wg-peer-config alice-laptop
 ```
 
 ## 8. Use firedoze

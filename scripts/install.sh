@@ -92,7 +92,7 @@ Next steps:
   4. Edit $config_dst:
        sudoedit $config_dst
   5. Generate a WireGuard peer bundle:
-       sudo firedozed -config $config_dst -wg-new-peer alice-laptop 10.77.0.2/32
+       sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
   6. Start the daemon:
        sudo systemctl enable --now firedozed
 
