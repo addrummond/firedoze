@@ -200,6 +200,8 @@ The provided unit uses systemd readiness notification and a watchdog. If the dae
 
 Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
+The generated config includes a commented `FIREDOZE_API` export line. Use that value after connecting WireGuard.
+
 The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/32` address from the generated WireGuard subnet:
 
 ```ini
@@ -214,10 +216,10 @@ sudo firedozed -wg-peer-config alice-laptop
 
 ## 3. Use firedoze
 
-The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1`, set `FIREDOZE_API`:
+The `firedoze` client runs on your laptop and talks to the WireGuard-only API. Set `FIREDOZE_API` to the value shown in the generated WireGuard client config:
 
 ```sh
-export FIREDOZE_API=http://10.77.0.1
+export FIREDOZE_API=http://10.X.0.1
 ```
 
 The client adds the default API port, `8081`, when the URL has no port. If your server uses a different API port, include it explicitly.
