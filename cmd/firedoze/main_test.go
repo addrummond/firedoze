@@ -3,7 +3,10 @@ package main
 import (
 	"flag"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +97,34 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("sshCommand = %#v, want %#v", got, want)
+	}
+}
+
+func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","private_ip":"10.88.0.2"}]}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "env")
+	err = (app{client: c}).withVMIP([]string{"demo", "sh", "-c", "printf %s \"$FIREDOZE_VM_IP\" > \"$1\"", "sh", outputPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "10.88.0.2" {
+		t.Fatalf("FIREDOZE_VM_IP = %q, want 10.88.0.2", string(data))
 	}
 }
 

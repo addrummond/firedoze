@@ -148,6 +148,8 @@ func (a app) dispatch(args []string) error {
 		return a.wg(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
+	case "with-vm-ip":
+		return a.withVMIP(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -426,25 +428,51 @@ func (a app) ssh(args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: firedoze ssh <vm> [ssh args...]")
 	}
+	vm, err := a.lookupVM(args[0])
+	if err != nil {
+		return err
+	}
+	sshArgs := sshCommand(vm)
+	sshArgs = append(sshArgs, args[1:]...)
+	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (a app) withVMIP(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: firedoze with-vm-ip <vm> <command> [args...]")
+	}
+	vm, err := a.lookupVM(args[0])
+	if err != nil {
+		return err
+	}
+	if vm.PrivateIP == "" {
+		return fmt.Errorf("VM %s has no private IP", args[0])
+	}
+	cmd := exec.Command(args[1], args[2:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "FIREDOZE_VM_IP="+vm.PrivateIP)
+	return cmd.Run()
+}
+
+func (a app) lookupVM(name string) (vmInfo, error) {
 	var out struct {
 		VMs []vmInfo `json:"vms"`
 	}
 	if err := a.client.do(context.Background(), http.MethodGet, "/vms", nil, &out); err != nil {
-		return err
+		return vmInfo{}, err
 	}
 	for _, vm := range out.VMs {
-		if vm.Name != args[0] {
-			continue
+		if vm.Name == name {
+			return vm, nil
 		}
-		sshArgs := sshCommand(vm)
-		sshArgs = append(sshArgs, args[1:]...)
-		cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
 	}
-	return fmt.Errorf("VM not found: %s", args[0])
+	return vmInfo{}, fmt.Errorf("VM not found: %s", name)
 }
 
 func sshCommand(vm vmInfo) []string {
@@ -668,6 +696,7 @@ Commands:
   route delete <route>
   wg keygen
   ssh <vm> [ssh args...]
+  with-vm-ip <vm> <command> [args...]
 
 Environment:
   FIREDOZE_API  API URL (default http://10.77.0.1:8081; port 8081 is added if omitted)

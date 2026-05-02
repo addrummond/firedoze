@@ -257,6 +257,12 @@ firedoze vm inspect demo
 firedoze ssh demo
 ```
 
+Run another local tool with the VM private IP in `FIREDOZE_VM_IP`:
+
+```sh
+firedoze with-vm-ip demo sh -c 'rsync ./app/ "ubuntu@$FIREDOZE_VM_IP:/home/ubuntu/app/"'
+```
+
 Run the built-in hello web server inside the VM:
 
 ```sh
