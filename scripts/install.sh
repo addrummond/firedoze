@@ -88,10 +88,9 @@ Next steps:
   2. Install the generated image files with:
        task image:install
   3. Add your SSH public key:
-       cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> $sysconfdir/authorized_keys'
-  4. Create and edit $config_dst:
-       sudo firedozed -init-config -init-sslip-host HOST
-       sudoedit $config_dst
+       cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> $sysconfdir/authorized_keys'
+  4. Create $config_dst:
+       sudo firedozed -init-config -init-sslip-host PUBLIC_IP
   5. Add a WireGuard peer and send the printed client config securely:
        sudo firedozed -wg-new-peer alice-laptop
   6. Start the daemon:

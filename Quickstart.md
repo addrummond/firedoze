@@ -46,9 +46,8 @@ The setup shape is:
 ./firedoze-image build
 task image:install
 # on each client laptop:
-cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
-sudo firedozed -init-config -init-sslip-host HOST
-sudoedit /etc/firedoze/firedoze.toml
+cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> /etc/firedoze/authorized_keys'
+sudo firedozed -init-config -init-sslip-host PUBLIC_IP
 sudo firedozed -wg-new-peer alice-laptop
 # send the printed client config to Alice securely
 sudo systemctl enable --now firedozed
@@ -98,18 +97,18 @@ firedoze injects a shared authorized keys file into new VM disks. Every client w
 From each client laptop, copy that laptop's public key to the firedoze host:
 
 ```sh
-cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
+cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> /etc/firedoze/authorized_keys'
 ```
 
-Replace `HOST` with the firedoze host's public SSH name. If a client uses a different key path, use that `.pub` file instead.
+Replace `PUBLIC_IP` with the firedoze host's public IP address. If a client uses a different key path, use that `.pub` file instead.
 
 Create the host config:
 
 ```sh
-sudo firedozed -init-config -init-sslip-host HOST
+sudo firedozed -init-config -init-sslip-host PUBLIC_IP
 ```
 
-Replace `HOST` with the public DNS name or IP address that client laptops should use for WireGuard. `-init-sslip-host` also sets `base_domain` to `HOST.sslip.io`, which is useful when the host has a public IP but no real domain yet.
+Replace `PUBLIC_IP` with the public IP address that client laptops should use for WireGuard. `-init-sslip-host` also sets `base_domain` to `PUBLIC_IP.sslip.io`, which is useful when the host has no real domain yet.
 
 If you already have DNS, use `-init-host` with `-init-base-domain` instead:
 
@@ -124,7 +123,7 @@ sudo firedozed -init-config -init-host firedoze.example.com -init-base-domain de
 
 Those randomized ranges make it less likely that one laptop will see route conflicts when connecting to multiple firedoze servers.
 
-Review the generated config:
+Reviewing the generated config is optional. If you do edit it, look for any `# EDIT PLACEHOLDER` comments:
 
 ```sh
 sudoedit /etc/firedoze/firedoze.toml
@@ -322,7 +321,7 @@ firedoze snapshot inspect demo-snap
 
 ## Reference Config
 
-The installed config starts from this shape:
+The generated config starts from this shape:
 
 ```toml
 base_domain = "dev.example.com"
