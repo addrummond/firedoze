@@ -846,7 +846,7 @@ WantedBy=multi-user.target
 	if err := symlink(efs, "/etc/systemd/system/firedoze-network.service", "etc/systemd/system/multi-user.target.wants/firedoze-network.service", now); err != nil {
 		return err
 	}
-	_ = efs.Remove("etc/systemd/system/sockets.target.wants/ssh.socket")
+	_ = removeIfExists(efs, "etc/systemd/system/sockets.target.wants/ssh.socket")
 	if err := symlink(efs, "/dev/null", "etc/systemd/system/ssh.socket", now); err != nil {
 		return err
 	}
@@ -960,7 +960,7 @@ func writeFile(efs *ext4.FileSystem, p string, data []byte, mode os.FileMode, ui
 		return err
 	}
 	full := p
-	_ = efs.Remove(full)
+	_ = removeIfExists(efs, full)
 	f, err := efs.OpenFile(full, os.O_CREATE|os.O_RDWR)
 	if err != nil {
 		return err
@@ -983,8 +983,20 @@ func symlink(efs *ext4.FileSystem, target string, p string, modTime time.Time) e
 		return err
 	}
 	full := p
-	_ = efs.Remove(full)
+	_ = removeIfExists(efs, full)
 	return efs.Symlink(target, full)
+}
+
+func removeIfExists(efs *ext4.FileSystem, p string) (err error) {
+	if _, statErr := efs.Stat(p); statErr != nil {
+		return nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("remove /%s: %v", p, recovered)
+		}
+	}()
+	return efs.Remove(p)
 }
 
 func replaceFile(p string, data []byte, mode os.FileMode) error {
