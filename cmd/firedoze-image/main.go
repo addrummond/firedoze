@@ -697,23 +697,43 @@ fi
 echo "firedoze-hello listening on 0.0.0.0:$port" >&2
 while :; do
   {
+    uptime_seconds="$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || true)"
+    if [ -n "$uptime_seconds" ]; then
+      days=$((uptime_seconds / 86400))
+      hours=$(((uptime_seconds % 86400) / 3600))
+      minutes=$(((uptime_seconds % 3600) / 60))
+      if [ "$days" -gt 0 ]; then
+        uptime_text="${days}d ${hours}h ${minutes}m"
+      elif [ "$hours" -gt 0 ]; then
+        uptime_text="${hours}h ${minutes}m"
+      else
+        uptime_text="${minutes}m"
+      fi
+    else
+      uptime_text="unknown"
+    fi
+    load_text="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || printf 'unknown')"
+
     printf 'HTTP/1.1 200 OK\r\n'
     printf 'Content-Type: text/plain; charset=utf-8\r\n'
     printf 'Connection: close\r\n'
     printf '\r\n'
     printf 'firedoze hello\n'
+    printf '==============\n'
     printf '\n'
-    printf 'time: %s\n' "$(date -Iseconds 2>/dev/null || date)"
-    printf 'hostname: %s\n' "$(hostname)"
-    printf 'user: %s\n' "$(id)"
-    printf 'kernel: %s\n' "$(uname -a)"
-    printf 'uptime: %s\n' "$(uptime 2>/dev/null || true)"
+    printf 'Host\n'
+    printf '  time:     %s\n' "$(date -Iseconds 2>/dev/null || date)"
+    printf '  hostname: %s\n' "$(hostname)"
+    printf '  user:     %s (uid %s)\n' "$(id -un)" "$(id -u)"
+    printf '  kernel:   %s %s\n' "$(uname -s)" "$(uname -r)"
+    printf '  uptime:   %s\n' "$uptime_text"
+    printf '  load:     %s\n' "$load_text"
     printf '\n'
-    printf 'addresses:\n'
-    ip -brief addr show scope global 2>/dev/null || ip addr show scope global 2>/dev/null || true
+    printf 'Network\n'
+    ip -brief -4 addr show scope global 2>/dev/null | awk '{printf "  %-8s %s\n", $1, $3}' || true
     printf '\n'
-    printf 'routes:\n'
-    ip route 2>/dev/null || true
+    printf 'Routes\n'
+    ip route 2>/dev/null | awk '/^default / {print "  default via " $3 " dev " $5; next} {print "  " $0}' || true
   } | nc -l -p "$port" -q 1
 done
 `,
