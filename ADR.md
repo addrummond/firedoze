@@ -129,7 +129,7 @@ The client should provide the friendly operational surface:
 - `firedoze snapshot list/inspect/save/restore/delete`
 - `firedoze route ...`
 
-For scripts that need exact API responses, the client supports `--json`. Human-readable client output can include convenience commands such as `firedoze ssh <vm>`, public URLs, and runtime/status columns, but those are client presentation choices rather than command strings embedded in the API.
+For scripts that need exact API responses, the client supports `-json`. Human-readable client output can include convenience commands such as `firedoze ssh <vm>`, public URLs, and runtime/status columns, but those are client presentation choices rather than command strings embedded in the API.
 
 The API may still expose useful derived fields, such as default hostnames, public URLs, private IPs, and SSH targets, when those fields are part of the resource model rather than follow-up command guidance.
 

@@ -2,10 +2,10 @@
 set -eu
 
 purge=0
-if [ "${1:-}" = "--purge" ]; then
+if [ "${1:-}" = "-purge" ] || [ "${1:-}" = "--purge" ]; then
   purge=1
 elif [ "${1:-}" != "" ]; then
-  echo "usage: sudo ./scripts/uninstall.sh [--purge]" >&2
+  echo "usage: sudo ./scripts/uninstall.sh [-purge]" >&2
   exit 1
 fi
 
@@ -36,5 +36,5 @@ if [ "$purge" -eq 1 ]; then
 else
   echo "firedoze binaries and service removed"
   echo "kept /etc/firedoze, /var/lib/firedoze, and /var/log/firedoze"
-  echo "run with --purge to remove config, VM state, snapshots, images, and logs"
+  echo "run with -purge to remove config, VM state, snapshots, images, and logs"
 fi

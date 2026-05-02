@@ -66,22 +66,22 @@ func usage() {
 Build a Firecracker-ready Ubuntu root filesystem and matching boot artifacts.
 
 Options:
-  --out DIR        Output directory. Default: dist/base-image
-  --release NAME   Ubuntu cloud image release. Default: noble
-  --arch ARCH      Ubuntu architecture. Default: amd64
-  --size SIZE      Root filesystem image size. Default: 4G
-  --url URL        Override the Ubuntu root tarball URL
-  --tar PATH       Use a local Ubuntu root tarball instead of downloading one
-  --kernel PATH    Use a local kernel image instead of downloading one
-  --initrd PATH    Use a local initrd image instead of downloading one
-  --kernel-url URL Override the kernel image URL
-  --initrd-url URL Override the initrd image URL
-  --root-sha256 SUM   Expected SHA-256 for the root tarball
-  --kernel-sha256 SUM Expected SHA-256 for the kernel image
-  --initrd-sha256 SUM Expected SHA-256 for the initrd image
-  --insecure-skip-checksums
+  -out DIR        Output directory. Default: dist/base-image
+  -release NAME   Ubuntu cloud image release. Default: noble
+  -arch ARCH      Ubuntu architecture. Default: amd64
+  -size SIZE      Root filesystem image size. Default: 4G
+  -url URL        Override the Ubuntu root tarball URL
+  -tar PATH       Use a local Ubuntu root tarball instead of downloading one
+  -kernel PATH    Use a local kernel image instead of downloading one
+  -initrd PATH    Use a local initrd image instead of downloading one
+  -kernel-url URL Override the kernel image URL
+  -initrd-url URL Override the initrd image URL
+  -root-sha256 SUM   Expected SHA-256 for the root tarball
+  -kernel-sha256 SUM Expected SHA-256 for the kernel image
+  -initrd-sha256 SUM Expected SHA-256 for the initrd image
+  -insecure-skip-checksums
                     Allow unverified artifact overrides
-  -h, --help       Show this help
+  -h               Show this help
 
 The builder is native Go. It does not require Docker, Podman, root, mounting,
 or host ext4 support. Default Ubuntu artifacts are pinned and SHA-256 verified.
@@ -307,13 +307,13 @@ func applyDefaultChecksums(release string, rootURLSet bool, kernelURLSet bool, i
 		return nil
 	}
 	if *rootSHA256 == "" {
-		return errors.New("root artifact checksum is required for overrides; pass --root-sha256 or --insecure-skip-checksums")
+		return errors.New("root artifact checksum is required for overrides; pass -root-sha256 or -insecure-skip-checksums")
 	}
 	if *kernelSHA256 == "" && (kernelPath != "" || kernelURLSet) {
-		return errors.New("kernel artifact checksum is required for overrides; pass --kernel-sha256 or --insecure-skip-checksums")
+		return errors.New("kernel artifact checksum is required for overrides; pass -kernel-sha256 or -insecure-skip-checksums")
 	}
 	if *initrdSHA256 == "" && (initrdPath != "" || initrdURLSet) {
-		return errors.New("initrd artifact checksum is required for overrides; pass --initrd-sha256 or --insecure-skip-checksums")
+		return errors.New("initrd artifact checksum is required for overrides; pass -initrd-sha256 or -insecure-skip-checksums")
 	}
 	return nil
 }

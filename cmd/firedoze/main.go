@@ -88,7 +88,7 @@ func run(args []string) int {
 	var c *client
 	if commandNeedsAPI(flags.Args()) {
 		if apiURL == "" {
-			fmt.Fprintln(os.Stderr, "missing API URL: set FIREDOZE_API or pass --api")
+			fmt.Fprintln(os.Stderr, "missing API URL: set FIREDOZE_API or pass -api")
 			return 2
 		}
 		var err error
@@ -261,7 +261,7 @@ func (a app) vm(args []string) error {
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--no-auto-wake] [--public]", err)
+			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]", err)
 		}
 		return a.createVMs(params, names)
 	case "start", "stop":
@@ -359,7 +359,7 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 		return vmCreateParams{}, nil, err
 	}
 	if *autoWake && *noAutoWake {
-		return vmCreateParams{}, nil, errors.New("--auto-wake and --no-auto-wake cannot both be set")
+		return vmCreateParams{}, nil, errors.New("-auto-wake and -no-auto-wake cannot both be set")
 	}
 	return vmCreateParams{
 		VCPUs:                 *vcpus,
@@ -435,7 +435,7 @@ func (a app) vmSettings(args []string) error {
 	publicHTTP := optionalBoolFlag(flags, "public-http")
 	name, err := parseNameAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [--http-port N] [--idle-sleep-after N] [--auto-wake true|false] [--public-http true|false]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-public-http true|false]", err)
 	}
 	body := map[string]any{}
 	if *httpPort >= 0 {
@@ -600,15 +600,15 @@ func (a app) route(args []string) error {
 
 func (a app) up(args []string) error {
 	if a.json {
-		return errors.New("firedoze up does not support --json")
+		return errors.New("firedoze up does not support -json")
 	}
 	createArgs, sshArgs := splitUpArgs(args)
 	params, names, err := parseVMCreateArgs("firedoze up", createArgs)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--no-auto-wake] [--public=false] [-- ssh args...]", err)
+		return fmt.Errorf("%w\nusage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]", err)
 	}
 	if len(names) != 1 {
-		return errors.New("usage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--no-auto-wake] [--public=false] [-- ssh args...]")
+		return errors.New("usage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]")
 	}
 	name := names[0]
 	publishOnUp := true
@@ -1090,7 +1090,8 @@ func flagConsumesValue(flags *flag.FlagSet, arg string) bool {
 
 func foundFlag(args []string, name string) bool {
 	for _, arg := range args {
-		if arg == "--"+name || strings.HasPrefix(arg, "--"+name+"=") {
+		trimmed := strings.TrimLeft(arg, "-")
+		if trimmed == name || strings.HasPrefix(trimmed, name+"=") {
 			return true
 		}
 	}
@@ -1111,7 +1112,7 @@ func pastTense(verb string) string {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage: firedoze [--api URL] [--json] <command>
+	fmt.Fprint(os.Stderr, `usage: firedoze [-api URL] [-json] <command>
 
 Commands:
   health
@@ -1121,12 +1122,12 @@ Commands:
   hide <vm>
   vm list [name-glob...]
   vm inspect <name>
-  vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--no-auto-wake] [--public]
+  vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]
   vm start <name>
   vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
-  vm settings <name> [--http-port N] [--idle-sleep-after N] [--auto-wake true|false] [--public-http true|false]
+  vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-public-http true|false]
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
@@ -1138,11 +1139,11 @@ Commands:
   wg keygen
   ssh <vm> [ssh args...]
   exec <vm> -- <command> [args...]
-  up <vm> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--no-auto-wake] [--public=false] [-- ssh args...]
+  up <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 
 Environment:
-  FIREDOZE_API  API URL. Required for daemon commands unless --api is passed.
+  FIREDOZE_API  API URL. Required for daemon commands unless -api is passed.
                 Port 8081 is added if omitted.
 `)
 }

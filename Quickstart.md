@@ -259,7 +259,7 @@ firedoze up demo
 Create several VMs with the same settings:
 
 ```sh
-firedoze vm create alice bob charlie --memory-mib 512 --disk-bytes 8589934592
+firedoze vm create alice bob charlie -memory-mib 512 -disk-bytes 8589934592
 ```
 
 Toggle public HTTPS access:
@@ -276,13 +276,13 @@ Prefer `firedoze start` when you mean to explicitly wake an existing VM; `firedo
 To disable passive wake for a VM:
 
 ```sh
-firedoze vm create demo-public --public --no-auto-wake
+firedoze vm create demo-public -public -no-auto-wake
 ```
 
 Update a VM's firedoze settings, such as default HTTP port, idle timeout, public HTTPS visibility, or passive network wake:
 
 ```sh
-firedoze vm settings demo --http-port 3000 --idle-sleep-after 900 --public-http true --auto-wake false
+firedoze vm settings demo -http-port 3000 -idle-sleep-after 900 -public-http true -auto-wake false
 ```
 
 This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.
@@ -385,10 +385,10 @@ Delete the route alias:
 firedoze route delete app
 ```
 
-For scripts that need exact API response bodies from table-oriented commands, add `--json`. Inspect commands already print the single resource as JSON:
+For scripts that need exact API response bodies from table-oriented commands, add `-json`. Inspect commands already print the single resource as JSON:
 
 ```sh
-firedoze --json vm list
+firedoze -json vm list
 firedoze vm inspect demo
 firedoze snapshot inspect demo-snap
 ```
@@ -468,5 +468,5 @@ sudo ./scripts/uninstall.sh
 To remove everything, including config and all VM state:
 
 ```sh
-sudo ./scripts/uninstall.sh --purge
+sudo ./scripts/uninstall.sh -purge
 ```

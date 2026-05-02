@@ -39,7 +39,7 @@ func TestParseNamesAndFlags(t *testing.T) {
 	memoryMiB := flags.Int("memory-mib", 0, "")
 	diskBytes := flags.Int64("disk-bytes", 0, "")
 
-	names, err := parseNamesAndFlags(flags, []string{"alice", "bob", "--memory-mib", "512", "--disk-bytes=1024"})
+	names, err := parseNamesAndFlags(flags, []string{"alice", "bob", "-memory-mib", "512", "-disk-bytes=1024"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,8 +58,8 @@ func TestParseNamesAndFlags(t *testing.T) {
 }
 
 func TestSplitUpArgs(t *testing.T) {
-	createArgs, sshArgs := splitUpArgs([]string{"demo", "--memory-mib", "1024", "--", "-L", "8080:localhost:8080"})
-	if got, want := strings.Join(createArgs, "\x00"), strings.Join([]string{"demo", "--memory-mib", "1024"}, "\x00"); got != want {
+	createArgs, sshArgs := splitUpArgs([]string{"demo", "-memory-mib", "1024", "--", "-L", "8080:localhost:8080"})
+	if got, want := strings.Join(createArgs, "\x00"), strings.Join([]string{"demo", "-memory-mib", "1024"}, "\x00"); got != want {
 		t.Fatalf("createArgs = %#v", createArgs)
 	}
 	if got, want := strings.Join(sshArgs, "\x00"), strings.Join([]string{"-L", "8080:localhost:8080"}, "\x00"); got != want {
@@ -214,7 +214,7 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 }
 
 func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
-	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "--auto-wake"})
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "-auto-wake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 }
 
 func TestVMCreateNoAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
-	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "--no-auto-wake"})
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "-no-auto-wake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestVMCreateNoAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 }
 
 func TestVMCreatePublicFlag(t *testing.T) {
-	params, names, err := parseVMCreateArgs("test", []string{"alpha", "--public"})
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "-public"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +253,11 @@ func TestVMCreatePublicFlag(t *testing.T) {
 }
 
 func TestFoundFlag(t *testing.T) {
+	if !foundFlag([]string{"demo", "-public=false"}, "public") {
+		t.Fatal("foundFlag did not find -public=false")
+	}
 	if !foundFlag([]string{"demo", "--public=false"}, "public") {
-		t.Fatal("foundFlag did not find --public=false")
+		t.Fatal("foundFlag did not find accepted --public=false alias")
 	}
 	if foundFlag([]string{"demo", "--not-public"}, "public") {
 		t.Fatal("foundFlag matched unrelated flag")
