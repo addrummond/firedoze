@@ -26,7 +26,8 @@ sudo apt-get install -y build-essential ca-certificates git iptables wireguard-t
 Install `mise` on the Linux host. The project uses `.tool-versions` to pin the Go toolchain and Task version.
 
 ```sh
-curl https://mise.run | sh
+curl https://mise.run/bash | sh
+exec /bin/bash -l
 ```
 
 Clone the private repo on the Linux host, install the pinned tools, then run the installer from the repo root:
@@ -34,16 +35,16 @@ Clone the private repo on the Linux host, install the pinned tools, then run the
 ```sh
 git clone REPO_URL firedoze
 cd firedoze
-~/.local/bin/mise install
-~/.local/bin/mise exec -- ./scripts/install.sh
+mise install
+mise exec -- ./scripts/install.sh
 ```
 
 The setup shape is:
 
 ```sh
-~/.local/bin/mise exec -- ./scripts/install.sh
+mise exec -- ./scripts/install.sh
 firedoze-image build
-~/.local/bin/mise exec -- task image:install
+mise exec -- task image:install
 cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
 sudoedit /etc/firedoze/firedoze.toml
 sudo firedozed -config /etc/firedoze/firedoze.toml -wg-new-peer alice-laptop 10.77.0.2/32
@@ -69,7 +70,7 @@ From the repo checkout, run:
 
 ```sh
 firedoze-image build
-~/.local/bin/mise exec -- task image:install
+mise exec -- task image:install
 ```
 
 The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
@@ -348,8 +349,8 @@ To upgrade from a newer checkout, run the installer again:
 
 ```sh
 git pull
-~/.local/bin/mise install
-~/.local/bin/mise exec -- ./scripts/install.sh
+mise install
+mise exec -- ./scripts/install.sh
 sudo systemctl restart firedozed
 ```
 
