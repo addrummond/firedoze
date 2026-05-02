@@ -88,7 +88,7 @@ Next steps:
   2. Install the generated image files with:
        task image:install
   3. Add your SSH public key:
-       cat ~/.ssh/id_ed25519.pub | sudo tee $sysconfdir/authorized_keys
+       cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> $sysconfdir/authorized_keys'
   4. Edit $config_dst:
        sudoedit $config_dst
   5. Generate a WireGuard peer bundle:

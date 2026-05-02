@@ -45,7 +45,8 @@ The setup shape is:
 ./scripts/install.sh
 ./firedoze-image build
 task image:install
-cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
+# on each client laptop:
+cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
 sudoedit /etc/firedoze/firedoze.toml
 sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
 # paste the printed [[wireguard.peers]] block into /etc/firedoze/firedoze.toml
@@ -87,11 +88,15 @@ The generated image uses the normal Ubuntu `ubuntu` user for SSH.
 
 ## 4. Configure firedoze
 
-firedoze injects a shared authorized keys file into new VM disks.
+firedoze injects a shared authorized keys file into new VM disks. Every client who should be able to SSH into firedoze VMs needs to provide their public SSH key to the admin.
+
+From each client laptop, copy that laptop's public key to the firedoze host:
 
 ```sh
-cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
+cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
 ```
+
+Replace `HOST` with the firedoze host's public SSH name. If a client uses a different key path, use that `.pub` file instead.
 
 Edit the installed config:
 
