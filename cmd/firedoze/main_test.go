@@ -172,6 +172,34 @@ func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	}
 }
 
+func TestVMSleepAcceptsMultipleNames(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"slept"}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (app{client: c, json: true}).vm([]string{"sleep", "alpha", "beta"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"POST /vms/alpha/sleep",
+		"POST /vms/beta/sleep",
+	}
+	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+}
+
 func TestWGKeygen(t *testing.T) {
 	oldStdout := os.Stdout
 	read, write, err := os.Pipe()

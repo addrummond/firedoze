@@ -234,7 +234,7 @@ func (a app) vm(args []string) error {
 			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
 		}
 		return a.createVMs(params, names)
-	case "start", "sleep", "stop":
+	case "start", "stop":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: firedoze vm %s <name>", args[0])
 		}
@@ -257,6 +257,25 @@ func (a app) vm(args []string) error {
 			}
 		}
 		return a.printJSONOrLine(map[string]any{"status": pastTense(args[0])}, fmt.Sprintf("%s %s", args[1], pastTense(args[0])))
+	case "sleep":
+		if len(args) < 2 {
+			return errors.New("usage: firedoze vm sleep <name> [name...]")
+		}
+		slept := []map[string]string{}
+		for _, name := range args[1:] {
+			var out map[string]any
+			if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/sleep", nil, &out); err != nil {
+				return err
+			}
+			slept = append(slept, map[string]string{"name": name, "status": "slept"})
+		}
+		if a.json {
+			return printJSON(map[string]any{"vms": slept})
+		}
+		for _, vm := range slept {
+			fmt.Printf("%s slept\n", vm["name"])
+		}
+		return nil
 	case "delete", "rm":
 		if len(args) < 2 {
 			return errors.New("usage: firedoze vm delete <name> [name...]")
@@ -902,7 +921,7 @@ Commands:
   vm inspect <name>
   vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
   vm start <name>
-  vm sleep <name>
+  vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
   vm settings <name> [--http-port N] [--idle-sleep-after N]
