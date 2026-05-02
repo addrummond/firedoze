@@ -107,6 +107,10 @@ func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 		return
 	}
 	if vm.State != "running" {
+		if !vm.AutoWake {
+			p.logger.Info("ignored ssh wake because vm auto_wake is disabled", "vm", vm.Name, "ip", dst.IP)
+			return
+		}
 		started, err := p.manager.StartVM(ctx, vm.Name)
 		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
 			p.logger.Warn("wake vm for ssh", "vm", vm.Name, "ip", dst.IP, "error", err)

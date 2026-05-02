@@ -61,6 +61,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "vms", "base_image_metadata", "text not null default ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "vms", "auto_wake", "integer not null default 0"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "snapshots", "base_image_metadata", "text not null default ''"); err != nil {
 		return err
 	}
@@ -95,6 +98,7 @@ create table if not exists vms (
 	base_image_id text not null default '',
 	kernel_id text not null default '',
 	base_image_metadata text not null default '',
+	auto_wake integer not null default 0,
 	created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

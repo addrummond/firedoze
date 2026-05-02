@@ -16,6 +16,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vishvananda/netlink v1.3.1
+	github.com/x-way/crawlerdetect v0.2.30
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 )
 

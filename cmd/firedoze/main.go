@@ -240,7 +240,7 @@ func (a app) vm(args []string) error {
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]", err)
+			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake]", err)
 		}
 		return a.createVMs(params, names)
 	case "start", "stop":
@@ -317,6 +317,7 @@ type vmCreateParams struct {
 	DiskBytes             int64
 	DefaultHTTPPort       int
 	IdleSleepAfterSeconds int
+	AutoWake              bool
 }
 
 func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string, error) {
@@ -327,6 +328,7 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 	diskBytes := flags.Int64("disk-bytes", 0, "disk size in bytes")
 	httpPort := flags.Int("http-port", 0, "default guest HTTP port")
 	idle := flags.Int("idle-sleep-after", 0, "idle sleep timeout in seconds")
+	autoWake := flags.Bool("auto-wake", false, "allow passive network traffic to wake this VM")
 	names, err := parseNamesAndFlags(flags, args)
 	if err != nil {
 		return vmCreateParams{}, nil, err
@@ -337,6 +339,7 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 		DiskBytes:             *diskBytes,
 		DefaultHTTPPort:       *httpPort,
 		IdleSleepAfterSeconds: *idle,
+		AutoWake:              *autoWake,
 	}, names, nil
 }
 
@@ -365,6 +368,9 @@ func (a app) createVM(params vmCreateParams, name string) (vmInfo, error) {
 	addInt64(body, "disk_bytes", params.DiskBytes)
 	addInt(body, "default_http_port", params.DefaultHTTPPort)
 	addInt(body, "idle_sleep_after_seconds", params.IdleSleepAfterSeconds)
+	if params.AutoWake {
+		body["auto_wake"] = true
+	}
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
@@ -389,9 +395,10 @@ func (a app) vmSettings(args []string) error {
 	flags.SetOutput(io.Discard)
 	httpPort := flags.Int("http-port", -1, "default guest HTTP port")
 	idle := flags.Int("idle-sleep-after", -1, "idle sleep timeout in seconds")
+	autoWake := optionalBoolFlag(flags, "auto-wake")
 	name, err := parseNameAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [--http-port N] [--idle-sleep-after N]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [--http-port N] [--idle-sleep-after N] [--auto-wake true|false]", err)
 	}
 	body := map[string]any{}
 	if *httpPort >= 0 {
@@ -399,6 +406,9 @@ func (a app) vmSettings(args []string) error {
 	}
 	if *idle >= 0 {
 		body["idle_sleep_after_seconds"] = *idle
+	}
+	if autoWake.set {
+		body["auto_wake"] = autoWake.value
 	}
 	if len(body) == 0 {
 		return errors.New("no settings provided")
@@ -532,10 +542,10 @@ func (a app) up(args []string) error {
 	createArgs, sshArgs := splitUpArgs(args)
 	params, names, err := parseVMCreateArgs("firedoze up", createArgs)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]", err)
+		return fmt.Errorf("%w\nusage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake] [-- ssh args...]", err)
 	}
 	if len(names) != 1 {
-		return errors.New("usage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]")
+		return errors.New("usage: firedoze up <name> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake] [-- ssh args...]")
 	}
 	name := names[0]
 	var vm vmInfo
@@ -665,6 +675,15 @@ func (a app) ssh(args []string) error {
 	vm, err := a.lookupVM(args[0])
 	if err != nil {
 		return err
+	}
+	if vm.State != "running" {
+		vm, err = a.startVM(vm.Name)
+		if err != nil {
+			return err
+		}
+		if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
+			return err
+		}
 	}
 	sshArgs := sshCommand(vm)
 	sshArgs = append(sshArgs, args[1:]...)
@@ -852,6 +871,25 @@ func addInt64(body map[string]any, key string, value int64) {
 	}
 }
 
+type optionalBool struct {
+	value bool
+	set   bool
+}
+
+func optionalBoolFlag(flags *flag.FlagSet, name string) *optionalBool {
+	value := &optionalBool{}
+	flags.Func(name, "true or false", func(raw string) error {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return err
+		}
+		value.value = parsed
+		value.set = true
+		return nil
+	})
+	return value
+}
+
 func parseNameAndFlags(flags *flag.FlagSet, args []string) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("missing name")
@@ -887,7 +925,7 @@ func parseNamesAndFlags(flags *flag.FlagSet, args []string) ([]string, error) {
 			if strings.Contains(arg, "=") {
 				continue
 			}
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			if flagConsumesValue(flags, arg) && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flagArgs = append(flagArgs, args[i+1])
 				i++
 			}
@@ -905,6 +943,21 @@ func parseNamesAndFlags(flags *flag.FlagSet, args []string) ([]string, error) {
 		return nil, errors.New("missing name")
 	}
 	return names, nil
+}
+
+func flagConsumesValue(flags *flag.FlagSet, arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if name == "" {
+		return false
+	}
+	flagValue := flags.Lookup(name)
+	if flagValue == nil {
+		return true
+	}
+	if boolFlag, ok := flagValue.Value.(interface{ IsBoolFlag() bool }); ok && boolFlag.IsBoolFlag() {
+		return false
+	}
+	return true
 }
 
 func pastTense(verb string) string {
@@ -928,12 +981,12 @@ Commands:
   config
   vm list [name-glob...]
   vm inspect <name>
-  vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
+  vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake]
   vm start <name>
   vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
-  vm settings <name> [--http-port N] [--idle-sleep-after N]
+  vm settings <name> [--http-port N] [--idle-sleep-after N] [--auto-wake true|false]
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
@@ -944,7 +997,7 @@ Commands:
   route delete <route>
   wg keygen
   ssh <vm> [ssh args...]
-  up <vm> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [-- ssh args...]
+  up <vm> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 
 Environment:

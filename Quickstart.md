@@ -259,10 +259,16 @@ Create several VMs with the same settings:
 firedoze vm create alice bob charlie --memory-mib 512 --disk-bytes 8589934592
 ```
 
-Update a VM's firedoze settings, such as default HTTP port or idle timeout:
+By default, a sleeping VM only wakes when you explicitly start it, use `firedoze ssh`, or use `firedoze up`. To let public HTTPS or raw WireGuard SSH traffic wake a sleeping VM, opt in:
 
 ```sh
-firedoze vm settings demo --http-port 3000 --idle-sleep-after 900
+firedoze vm create demo-public --auto-wake
+```
+
+Update a VM's firedoze settings, such as default HTTP port, idle timeout, or passive network wake:
+
+```sh
+firedoze vm settings demo --http-port 3000 --idle-sleep-after 900 --auto-wake false
 ```
 
 This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.

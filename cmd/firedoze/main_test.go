@@ -200,6 +200,19 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	}
 }
 
+func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "--auto-wake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !params.AutoWake {
+		t.Fatal("AutoWake = false, want true")
+	}
+	if strings.Join(names, ",") != "alpha,beta" {
+		t.Fatalf("names = %#v, want alpha,beta", names)
+	}
+}
+
 func TestVMListPassesNameGlobs(t *testing.T) {
 	var gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

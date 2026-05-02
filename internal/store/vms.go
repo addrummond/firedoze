@@ -23,6 +23,7 @@ type VM struct {
 	BaseImageID           string   `json:"base_image_id,omitempty"`
 	KernelID              string   `json:"kernel_id,omitempty"`
 	BaseImageMetadata     JSONText `json:"base_image_metadata,omitempty"`
+	AutoWake              bool     `json:"auto_wake"`
 }
 
 type CreateVMParams struct {
@@ -36,18 +37,20 @@ type CreateVMParams struct {
 	BaseImageID           string
 	KernelID              string
 	BaseImageMetadata     string
+	AutoWake              bool
 }
 
 type UpdateVMParams struct {
 	DefaultHTTPPort       *int
 	IdleSleepAfterSeconds *int
+	AutoWake              *bool
 }
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
 	_, err := s.db.ExecContext(ctx, `
-		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, base_image_id, kernel_id, base_image_metadata)
-		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata)
+		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, base_image_id, kernel_id, base_image_metadata, auto_wake)
+		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake))
 	if err != nil {
 		return VM{}, err
 	}
@@ -60,7 +63,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 
 func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]VM, error) {
 	query := `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata, auto_wake
 		from vms
 	`
 	args := []any{}
@@ -84,9 +87,11 @@ func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]V
 	vms := []VM{}
 	for rows.Next() {
 		var vm VM
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata); err != nil {
+		var autoWake int
+		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake); err != nil {
 			return nil, err
 		}
+		vm.AutoWake = autoWake != 0
 		vms = append(vms, vm)
 	}
 	if err := rows.Err(); err != nil {
@@ -115,17 +120,19 @@ func GlobToLike(pattern string) string {
 
 func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 	var vm VM
+	var autoWake int
 	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata, auto_wake
 		from vms
 		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata)
+	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
 	if err != nil {
 		return VM{}, err
 	}
+	vm.AutoWake = autoWake != 0
 	return vm, nil
 }
 
@@ -173,11 +180,14 @@ func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams
 	if params.IdleSleepAfterSeconds != nil {
 		vm.IdleSleepAfterSeconds = *params.IdleSleepAfterSeconds
 	}
+	if params.AutoWake != nil {
+		vm.AutoWake = *params.AutoWake
+	}
 	result, err := s.db.ExecContext(ctx, `
 		update vms
-		set default_http_port = ?, idle_sleep_after_seconds = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		set default_http_port = ?, idle_sleep_after_seconds = ?, auto_wake = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		where name = ?
-	`, vm.DefaultHTTPPort, vm.IdleSleepAfterSeconds, name)
+	`, vm.DefaultHTTPPort, vm.IdleSleepAfterSeconds, boolToInt(vm.AutoWake), name)
 	if err != nil {
 		return VM{}, err
 	}
@@ -189,6 +199,13 @@ func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams
 		return VM{}, fmt.Errorf("%w: vm %q", ErrNotFound, name)
 	}
 	return s.GetVM(ctx, name)
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func (s *Store) DeleteVM(ctx context.Context, name string) error {

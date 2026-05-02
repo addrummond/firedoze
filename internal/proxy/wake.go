@@ -15,6 +15,8 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/store"
+
+	"github.com/x-way/crawlerdetect"
 )
 
 type VMStarter interface {
@@ -72,6 +74,32 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if vm.State != "running" {
+		if !vm.AutoWake {
+			p.logger.Info(
+				"ignored http wake because vm auto_wake is disabled",
+				"vm", vm.Name,
+				"host", r.Host,
+				"method", r.Method,
+				"path", r.URL.RequestURI(),
+				"remote_addr", r.RemoteAddr,
+				"user_agent", r.UserAgent(),
+			)
+			http.Error(w, "firedoze vm auto wake is disabled", http.StatusServiceUnavailable)
+			return
+		}
+		if isScannerRequest(r) {
+			p.logger.Info(
+				"ignored scanner http wake",
+				"vm", vm.Name,
+				"host", r.Host,
+				"method", r.Method,
+				"path", r.URL.RequestURI(),
+				"remote_addr", r.RemoteAddr,
+				"user_agent", r.UserAgent(),
+			)
+			http.Error(w, "firedoze wake ignored", http.StatusForbidden)
+			return
+		}
 		started, err := p.manager.StartVM(r.Context(), vm.Name)
 		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
 			p.logger.Warn("wake vm for http route", "vm", vm.Name, "host", r.Host, "error", err)
@@ -143,4 +171,27 @@ func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM
 		return store.VM{}, 0, false
 	}
 	return vm, route.Port, true
+}
+
+func isScannerRequest(r *http.Request) bool {
+	userAgent := r.UserAgent()
+	if crawlerdetect.IsCrawler(userAgent) {
+		return true
+	}
+	lower := strings.ToLower(userAgent)
+	for _, marker := range scannerUserAgentMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+var scannerUserAgentMarkers = []string{
+	"censys",
+	"leakix",
+	"l9scan",
+	"masscan",
+	"shodan",
+	"zgrab",
 }

@@ -172,6 +172,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
+		AutoWake              bool   `json:"auto_wake"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -188,6 +189,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
+		AutoWake:              req.AutoWake,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
@@ -223,8 +225,9 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var req struct {
-		DefaultHTTPPort       *int `json:"default_http_port"`
-		IdleSleepAfterSeconds *int `json:"idle_sleep_after_seconds"`
+		DefaultHTTPPort       *int  `json:"default_http_port"`
+		IdleSleepAfterSeconds *int  `json:"idle_sleep_after_seconds"`
+		AutoWake              *bool `json:"auto_wake"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -233,6 +236,7 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 	vm, err := s.manager.UpdateVM(r.Context(), name, store.UpdateVMParams{
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
+		AutoWake:              req.AutoWake,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -454,6 +458,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
+		AutoWake              bool   `json:"auto_wake"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -477,6 +482,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
+		AutoWake:              req.AutoWake,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
