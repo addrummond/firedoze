@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseSize(t *testing.T) {
 	tests := []struct {
@@ -53,5 +56,15 @@ func TestRememberBootArtifactsOnlyUsesBootDirectory(t *testing.T) {
 	}
 	if artifacts.initrd == nil || string(artifacts.initrd.data) != "initrd" {
 		t.Fatalf("initrd artifact = %#v, want /boot initrd", artifacts.initrd)
+	}
+}
+
+func TestVerifySHA256(t *testing.T) {
+	const sum = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	if err := verifySHA256("test", []byte("hello"), sum); err != nil {
+		t.Fatalf("verifySHA256 returned error: %v", err)
+	}
+	if err := verifySHA256("test", []byte("hello"), strings.Repeat("0", 64)); err == nil {
+		t.Fatal("verifySHA256 accepted a mismatched checksum")
 	}
 }

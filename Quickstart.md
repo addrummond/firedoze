@@ -65,7 +65,7 @@ On your laptop, run:
 scripts/build-base-image.sh --out dist/base-image
 ```
 
-The script downloads Ubuntu's official cloud root tarball and published kernel/initrd artifacts, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+The script downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
 
 Copy the generated files to the host:
 

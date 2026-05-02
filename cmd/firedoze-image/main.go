@@ -3,6 +3,8 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +28,10 @@ const (
 	defaultArch    = "amd64"
 	defaultSize    = "4G"
 	defaultOutDir  = "dist/base-image"
+
+	nobleRootSHA256   = "13dc3c9ed4e76688ce3efaee45551dd4b5d706c2579bd91fd0de5464e34dd777"
+	nobleKernelSHA256 = "5b2a4fe174dacb18281f8f7d72ae32ac4b92801f0b7b5cb43ea55dee29fb789d"
+	nobleInitrdSHA256 = "cd0b64a5498e583a820a5b842369df83d036b4200b33bc51cadc58176184aaca"
 )
 
 func main() {
@@ -68,10 +74,15 @@ Options:
   --initrd PATH    Use a local initrd image instead of downloading one
   --kernel-url URL Override the kernel image URL
   --initrd-url URL Override the initrd image URL
+  --root-sha256 SUM   Expected SHA-256 for the root tarball
+  --kernel-sha256 SUM Expected SHA-256 for the kernel image
+  --initrd-sha256 SUM Expected SHA-256 for the initrd image
+  --insecure-skip-checksums
+                    Allow unverified artifact overrides
   -h, --help       Show this help
 
 The builder is native Go. It does not require Docker, Podman, root, mounting,
-or host ext4 support.
+or host ext4 support. Default Ubuntu artifacts are pinned and SHA-256 verified.
 `)
 }
 
@@ -89,6 +100,10 @@ func build(args []string) error {
 	initrdPath := fs.String("initrd", "", "local initrd image")
 	kernelURL := fs.String("kernel-url", "", "kernel image URL")
 	initrdURL := fs.String("initrd-url", "", "initrd image URL")
+	rootSHA256 := fs.String("root-sha256", "", "expected root tarball SHA-256")
+	kernelSHA256 := fs.String("kernel-sha256", "", "expected kernel image SHA-256")
+	initrdSHA256 := fs.String("initrd-sha256", "", "expected initrd image SHA-256")
+	insecureSkipChecksums := fs.Bool("insecure-skip-checksums", false, "allow unverified artifact overrides")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -103,6 +118,7 @@ func build(args []string) error {
 	if *arch != "amd64" {
 		return errors.New("only amd64 is supported for now; firedoze currently targets x86_64 hosts")
 	}
+	rootURLSet := *imageURL != ""
 	if *imageURL == "" {
 		*imageURL = defaultImageURL(*release)
 	}
@@ -113,6 +129,9 @@ func build(args []string) error {
 	}
 	if *initrdURL == "" {
 		*initrdURL = defaultInitrdURL(*release)
+	}
+	if err := applyDefaultChecksums(*release, rootURLSet, kernelURLSet, initrdURLSet, *tarPath, *kernelPath, *initrdPath, rootSHA256, kernelSHA256, initrdSHA256, *insecureSkipChecksums); err != nil {
+		return err
 	}
 	size, err := parseSize(*sizeText)
 	if err != nil {
@@ -149,15 +168,14 @@ func build(args []string) error {
 		return err
 	}
 
-	source, err := openSource(*tarPath, *imageURL)
+	source, err := readArtifact(*tarPath, *imageURL, *rootSHA256, *insecureSkipChecksums)
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	defer source.Close()
 
-	xzr, err := xz.NewReader(source)
+	xzr, err := xz.NewReader(bytes.NewReader(source.data))
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
@@ -186,7 +204,7 @@ func build(args []string) error {
 	}
 
 	if artifacts.kernel == nil || *kernelPath != "" || kernelURLSet {
-		kernel, err := readBootArtifact(*kernelPath, *kernelURL)
+		kernel, err := readBootArtifact(*kernelPath, *kernelURL, *kernelSHA256, *insecureSkipChecksums)
 		if err != nil {
 			_ = os.Remove(tmpRootfsPath)
 			return fmt.Errorf("read kernel image: %w", err)
@@ -194,7 +212,7 @@ func build(args []string) error {
 		artifacts.kernel = kernel
 	}
 	if artifacts.initrd == nil || *initrdPath != "" || initrdURLSet {
-		initrd, err := readBootArtifact(*initrdPath, *initrdURL)
+		initrd, err := readBootArtifact(*initrdPath, *initrdURL, *initrdSHA256, *insecureSkipChecksums)
 		if err != nil {
 			_ = os.Remove(tmpRootfsPath)
 			return fmt.Errorf("read initrd image: %w", err)
@@ -214,15 +232,18 @@ func build(args []string) error {
 arch=%s
 source=%s
 rootfs=rootfs.ext4
+root_sha256=%s
 kernel=vmlinux.bin
 kernel_source=%s
+kernel_sha256=%s
 initrd=initrd.img
 initrd_source=%s
+initrd_sha256=%s
 size=%s
 ssh_authorized_keys=/etc/firedoze/authorized_keys
 network=06:00:<guest-ip-octets> with guest /30 and host at guest_ip-1
 builder=firedoze-image native-go
-`, *release, *arch, source.Name(), artifacts.kernel.path, artifacts.initrd.path, *sizeText)
+`, *release, *arch, source.name, *rootSHA256, artifacts.kernel.path, *kernelSHA256, artifacts.initrd.path, *initrdSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -261,6 +282,33 @@ func defaultInitrdURL(release string) string {
 	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/current/unpacked/%s-server-cloudimg-amd64-initrd-generic", release, release)
 }
 
+func applyDefaultChecksums(release string, rootURLSet bool, kernelURLSet bool, initrdURLSet bool, tarPath string, kernelPath string, initrdPath string, rootSHA256 *string, kernelSHA256 *string, initrdSHA256 *string, insecure bool) error {
+	if release == "noble" {
+		if !rootURLSet && tarPath == "" && *rootSHA256 == "" {
+			*rootSHA256 = nobleRootSHA256
+		}
+		if !kernelURLSet && kernelPath == "" && *kernelSHA256 == "" {
+			*kernelSHA256 = nobleKernelSHA256
+		}
+		if !initrdURLSet && initrdPath == "" && *initrdSHA256 == "" {
+			*initrdSHA256 = nobleInitrdSHA256
+		}
+	}
+	if insecure {
+		return nil
+	}
+	if *rootSHA256 == "" {
+		return errors.New("root artifact checksum is required for overrides; pass --root-sha256 or --insecure-skip-checksums")
+	}
+	if *kernelSHA256 == "" && (kernelPath != "" || kernelURLSet) {
+		return errors.New("kernel artifact checksum is required for overrides; pass --kernel-sha256 or --insecure-skip-checksums")
+	}
+	if *initrdSHA256 == "" && (initrdPath != "" || initrdURLSet) {
+		return errors.New("initrd artifact checksum is required for overrides; pass --initrd-sha256 or --insecure-skip-checksums")
+	}
+	return nil
+}
+
 func parseSize(value string) (int64, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -288,60 +336,66 @@ func parseSize(value string) (int64, error) {
 	return n * unit, nil
 }
 
-type namedReadCloser interface {
-	io.ReadCloser
-	Name() string
-}
-
-type sourceReader struct {
-	io.ReadCloser
+type artifactData struct {
 	name string
+	data []byte
 }
 
-func (s sourceReader) Name() string {
-	return s.name
-}
-
-func openSource(tarPath string, imageURL string) (namedReadCloser, error) {
-	if tarPath != "" {
-		f, err := os.Open(tarPath)
-		if err != nil {
-			return nil, err
-		}
-		return sourceReader{ReadCloser: f, name: tarPath}, nil
-	}
-	resp, err := http.Get(imageURL)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		_ = resp.Body.Close()
-		return nil, fmt.Errorf("download %s: %s", imageURL, resp.Status)
-	}
-	return sourceReader{ReadCloser: resp.Body, name: imageURL}, nil
-}
-
-func readBootArtifact(localPath string, url string) (*bootArtifact, error) {
+func readArtifact(localPath string, url string, expectedSHA256 string, insecure bool) (artifactData, error) {
+	name := url
+	var data []byte
 	if localPath != "" {
-		data, err := os.ReadFile(localPath)
+		name = localPath
+		localData, err := os.ReadFile(localPath)
 		if err != nil {
-			return nil, err
+			return artifactData{}, err
 		}
-		return &bootArtifact{path: localPath, data: data}, nil
+		data = localData
+	} else {
+		resp, err := http.Get(url)
+		if err != nil {
+			return artifactData{}, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			return artifactData{}, fmt.Errorf("download %s: %s", url, resp.Status)
+		}
+		downloaded, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return artifactData{}, err
+		}
+		data = downloaded
 	}
-	resp, err := http.Get(url)
+	if expectedSHA256 == "" && !insecure {
+		return artifactData{}, fmt.Errorf("no SHA-256 configured for %s", name)
+	}
+	if expectedSHA256 != "" {
+		if err := verifySHA256(name, data, expectedSHA256); err != nil {
+			return artifactData{}, err
+		}
+	}
+	return artifactData{name: name, data: data}, nil
+}
+
+func readBootArtifact(localPath string, url string, expectedSHA256 string, insecure bool) (*bootArtifact, error) {
+	artifact, err := readArtifact(localPath, url, expectedSHA256, insecure)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("download %s: %s", url, resp.Status)
+	return &bootArtifact{path: artifact.name, data: artifact.data}, nil
+}
+
+func verifySHA256(name string, data []byte, expected string) error {
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	if len(expected) != sha256.Size*2 {
+		return fmt.Errorf("invalid SHA-256 for %s: expected 64 hex chars", name)
 	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	sum := sha256.Sum256(data)
+	actual := hex.EncodeToString(sum[:])
+	if actual != expected {
+		return fmt.Errorf("SHA-256 mismatch for %s: got %s, want %s", name, actual, expected)
 	}
-	return &bootArtifact{path: url, data: data}, nil
+	return nil
 }
 
 type bootArtifact struct {
