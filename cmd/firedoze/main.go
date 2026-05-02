@@ -158,6 +158,19 @@ func (a app) dispatch(args []string) error {
 		return printJSON(out)
 	case "vm":
 		return a.vm(args[1:])
+	case "start":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze start <vm>")
+		}
+		vm, err := a.startVM(args[1])
+		if err != nil {
+			return err
+		}
+		if a.json {
+			return printJSON(map[string]any{"vm": vm})
+		}
+		fmt.Printf("%s started\n", vm.Name)
+		return nil
 	case "snapshot":
 		return a.snapshot(args[1:])
 	case "route":
@@ -979,6 +992,7 @@ func usage() {
 Commands:
   health
   config
+  start <vm>
   vm list [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake]

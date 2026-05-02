@@ -244,7 +244,7 @@ Create and start a VM:
 
 ```sh
 firedoze vm create demo
-firedoze vm start demo
+firedoze start demo
 ```
 
 Create a VM if needed, start it, and SSH in when it is ready:
@@ -259,7 +259,9 @@ Create several VMs with the same settings:
 firedoze vm create alice bob charlie --memory-mib 512 --disk-bytes 8589934592
 ```
 
-By default, a sleeping VM only wakes when you explicitly start it, use `firedoze ssh`, or use `firedoze up`. To let public HTTPS or raw WireGuard SSH traffic wake a sleeping VM, opt in:
+By default, a sleeping VM only wakes when you explicitly start it with `firedoze start`, use `firedoze ssh`, or use `firedoze up`. Prefer `firedoze start` when you mean to wake an existing VM; `firedoze up` creates the VM if it does not already exist.
+
+To let public HTTPS or raw WireGuard SSH traffic wake a sleeping VM, opt in:
 
 ```sh
 firedoze vm create demo-public --auto-wake
