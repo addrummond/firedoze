@@ -18,6 +18,18 @@ func (j JSONText) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(j))
 }
 
+func (j *JSONText) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*j = ""
+		return nil
+	}
+	if !json.Valid(data) {
+		return fmt.Errorf("invalid JSONText")
+	}
+	*j = JSONText(data)
+	return nil
+}
+
 func (j *JSONText) Scan(value any) error {
 	switch value := value.(type) {
 	case nil:
