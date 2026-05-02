@@ -12,7 +12,8 @@ RestartSec=5s
 WatchdogSec=30s
 TimeoutStopSec=180s
 KillSignal=SIGTERM
-KillMode=control-group
+# Let firedozed snapshot/sleep Firecracker children during shutdown.
+KillMode=process
 
 # firedozed manages WireGuard, TAP interfaces, iptables, debugfs image edits,
 # Firecracker processes, and /dev/kvm. Run it as root for v1.
