@@ -1,8 +1,10 @@
 # Example firedoze host configuration.
 #
 # Copy this file to /etc/firedoze/firedoze.toml, then edit the placeholder
-# values before starting firedozed.
+# values before starting firedozed. Placeholder values are marked with:
+# EDIT PLACEHOLDER
 
+# EDIT PLACEHOLDER
 base_domain = "dev.example.com"
 default_http_port = 8080
 state_dir = "/var/lib/firedoze"
@@ -25,6 +27,7 @@ path = "/var/lib/firedoze/firedoze.db"
 interface = "fdwg0"
 listen_port = 51820
 address = "10.77.0.1/24"
+# EDIT PLACEHOLDER
 endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
 private_key_file = "/etc/firedoze/wg.key"
 
@@ -32,8 +35,11 @@ private_key_file = "/etc/firedoze/wg.key"
 # Each peer needs a unique /32 address inside the WireGuard subnet.
 #
 # [[wireguard.peers]]
+# EDIT PLACEHOLDER
 # name = "alice-laptop"
+# EDIT PLACEHOLDER
 # public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
+# EDIT PLACEHOLDER
 # allowed_ips = ["10.77.0.2/32"]
 
 [vm_network]
