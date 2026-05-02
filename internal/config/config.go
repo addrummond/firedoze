@@ -98,9 +98,8 @@ type VMNetworkConfig struct {
 }
 
 type SSHConfig struct {
-	User               string   `toml:"user"`
-	AuthorizedKeyFiles []string `toml:"authorized_key_files"`
-	WakeProxyPort      int      `toml:"wake_proxy_port"`
+	User          string `toml:"user"`
+	WakeProxyPort int    `toml:"wake_proxy_port"`
 }
 
 type IdleConfig struct {

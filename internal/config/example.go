@@ -77,7 +77,6 @@ subnet = %q
 
 [ssh]
 user = "ubuntu"
-authorized_key_files = ["/etc/firedoze/authorized_keys"]
 # Private SSH wake proxy port on the firedoze host. The firedoze client uses
 # this to wake sleeping VMs before handing the connection to the guest SSH port.
 wake_proxy_port = 18022

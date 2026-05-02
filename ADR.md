@@ -217,11 +217,11 @@ For v1, firedoze applies host-side SNAT/MASQUERADE from the WireGuard subnet to 
 
 SSH is private over WireGuard only.
 
-Every new VM receives a shared admin-configured authorized-keys list. There is no per-VM or per-user SSH authorization model in v1.
+There is no per-VM or per-user SSH authorization model in v1.
 
 The default user is expected to be the base image's normal user. For the Ubuntu base image, this is `ubuntu`.
 
-firedoze injects configured SSH keys into `/etc/firedoze/authorized_keys` inside the guest. The base image configures sshd to accept that shared file, so key injection is independent of whether the SSH user is `ubuntu`, `root`, or a later image-specific user.
+The generated Ubuntu base image configures `sshd` for passwordless `ubuntu` login over the private VM network. This deliberately treats SSH as a terminal and file-transfer transport, not as a second identity layer. WireGuard is the security boundary.
 
 The preferred user experience is:
 
@@ -443,7 +443,7 @@ Host firewall/security group requirements must be documented before real deploym
 3. Manage kernel WireGuard interface from config.
 4. Expose JSON HTTP API only on WireGuard.
 5. Start/stop one Firecracker VM from the fixed base image.
-6. Inject shared authorized keys and make SSH work over WireGuard/private DNS.
+6. Make passwordless guest SSH work over WireGuard/private DNS.
 7. Embed Caddy and serve default VM route.
 8. Add explicit HTTPS route aliases.
 9. Add named exact-state snapshots.

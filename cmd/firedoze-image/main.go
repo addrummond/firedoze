@@ -248,7 +248,7 @@ initrd=initrd.img
 initrd_source=%s
 initrd_sha256=%s
 size=%s
-ssh_authorized_keys=/etc/firedoze/authorized_keys
+ssh_auth=passwordless-ubuntu-over-wireguard
 network=06:00:<guest-ip-octets> with guest /30 and host at guest_ip-1
 builder=firedoze-image native-go
 `, *release, *arch, source.name, *rootSHA256, artifacts.kernel.path, *kernelSHA256, artifacts.initrd.path, *initrdSHA256, *sizeText)
@@ -601,7 +601,7 @@ func customizeGuest(efs *ext4.FileSystem) error {
 		{
 			path: "etc/ssh/sshd_config.d/99-firedoze.conf",
 			mode: 0o644,
-			data: "PubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthorizedKeysFile /etc/firedoze/authorized_keys .ssh/authorized_keys\n",
+			data: "PubkeyAuthentication no\nPasswordAuthentication yes\nPermitEmptyPasswords yes\nKbdInteractiveAuthentication no\nUsePAM no\n",
 		},
 		{
 			path: "usr/local/sbin/firedoze-guest-network",
@@ -778,7 +778,7 @@ WantedBy=multi-user.target
 		{
 			path: "etc/cloud/cloud.cfg.d/99-firedoze.cfg",
 			mode: 0o644,
-			data: "datasource_list: [ None ]\npreserve_hostname: true\nmanage_etc_hosts: false\nssh_pwauth: false\ndisable_root: false\n",
+			data: "datasource_list: [ None ]\npreserve_hostname: true\nmanage_etc_hosts: false\nssh_pwauth: true\ndisable_root: false\n",
 		},
 		{
 			path: "etc/fstab",
@@ -807,10 +807,10 @@ WantedBy=multi-user.target
 			return err
 		}
 	}
-	if err := ensureLine(efs, "etc/passwd", "ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash", 0o644, 0, 0, now); err != nil {
+	if err := ensureNamedLine(efs, "etc/passwd", "ubuntu", "ubuntu:x:1000:1000:Ubuntu:/home/ubuntu:/bin/bash", 0o644, 0, 0, now); err != nil {
 		return err
 	}
-	if err := ensureLine(efs, "etc/shadow", "ubuntu:!:19723:0:99999:7:::", 0o640, 0, 42, now); err != nil {
+	if err := ensureNamedLine(efs, "etc/shadow", "ubuntu", "ubuntu::19723:0:99999:7:::", 0o640, 0, 42, now); err != nil {
 		return err
 	}
 	if err := ensureGroupMember(efs, "etc/group", "ubuntu", "x", "1000", "ubuntu", 0o644, 0, 0, now); err != nil {
@@ -875,6 +875,25 @@ func ensureLine(efs *ext4.FileSystem, p string, line string, mode os.FileMode, u
 	}
 	text += line + "\n"
 	return writeFile(efs, p, []byte(text), mode, uid, gid, modTime)
+}
+
+func ensureNamedLine(efs *ext4.FileSystem, p string, name string, line string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
+	data, err := efs.ReadFile(p)
+	if err != nil {
+		return fmt.Errorf("read /%s: %w", p, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	found := false
+	for i, current := range lines {
+		if strings.HasPrefix(current, name+":") {
+			lines[i] = line
+			found = true
+		}
+	}
+	if !found {
+		lines = append(lines, line)
+	}
+	return writeFile(efs, p, []byte(strings.Join(lines, "\n")+"\n"), mode, uid, gid, modTime)
 }
 
 func ensureGroupMember(efs *ext4.FileSystem, p string, name string, password string, gid string, member string, mode os.FileMode, uid int, fileGID int, modTime time.Time) error {

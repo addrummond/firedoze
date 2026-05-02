@@ -65,11 +65,6 @@ if [ -f "$config_dst" ]; then
   echo "leaving existing config in place: $config_dst"
 fi
 
-if [ ! -f "$sysconfdir/authorized_keys" ]; then
-  echo "creating empty guest authorized_keys file"
-  as_root install -m 0644 /dev/null "$sysconfdir/authorized_keys"
-fi
-
 echo "installing documentation and systemd unit"
 as_root install -m 0644 Quickstart.md "$docdir/Quickstart.md"
 as_root install -m 0644 ADR.md "$docdir/ADR.md"
@@ -84,16 +79,14 @@ cat <<EOF
 firedoze is installed.
 
 Next steps:
-  1. Build the base image with: ./firedoze-image build
+  1. Build the base image with: task build:image && ./firedoze-image build
   2. Install the generated image files with:
        task image:install
-  3. Add your SSH public key:
-       cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> $sysconfdir/authorized_keys'
-  4. Create $config_dst:
+  3. Create $config_dst:
        sudo firedozed -init-config -init-sslip-host PUBLIC_IP
-  5. Ask the client to run 'firedoze wg keygen', then add their public key:
-       sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
-  6. Start the daemon:
+  4. Ask the client to run 'firedoze wg keygen', then add their public key:
+       task build:daemon && sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
+  5. Start the daemon:
        sudo systemctl enable --now firedozed
 
 EOF

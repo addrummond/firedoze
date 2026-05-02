@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"firedoze/internal/store"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -49,6 +51,25 @@ func TestParseNamesAndFlags(t *testing.T) {
 	}
 	if *diskBytes != 1024 {
 		t.Fatalf("diskBytes = %d, want 1024", *diskBytes)
+	}
+}
+
+func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
+	got := sshCommand(vmInfo{
+		VM: store.VM{
+			PrivateIP: "10.88.0.2",
+		},
+		SSH: "ssh ubuntu@demo.example.com",
+	})
+	want := []string{
+		"ssh",
+		"-o", "PubkeyAuthentication=no",
+		"-o", "PreferredAuthentications=none,password",
+		"-o", "NumberOfPasswordPrompts=1",
+		"ubuntu@10.88.0.2",
+	}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("sshCommand = %#v, want %#v", got, want)
 	}
 }
 

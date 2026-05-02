@@ -43,10 +43,8 @@ The setup shape is:
 
 ```sh
 ./scripts/install.sh
-./firedoze-image build
+task build:image && ./firedoze-image build
 task image:install
-# on each client laptop:
-cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> /etc/firedoze/authorized_keys'
 sudo firedozed -init-config -init-sslip-host PUBLIC_IP
 # Alice runs this locally and sends you only the public_key:
 firedoze wg keygen
@@ -76,7 +74,7 @@ Build the firedoze Ubuntu base image on the Linux host. The builder is native Go
 From the repo checkout, run:
 
 ```sh
-./firedoze-image build
+task build:image && ./firedoze-image build
 task image:install
 ```
 
@@ -90,19 +88,11 @@ The install task copies the generated files here:
 /var/lib/firedoze/images/rootfs.ext4
 ```
 
-The generated image uses the normal Ubuntu `ubuntu` user for SSH.
+The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
 
 ### 2.3 Configure firedoze
 
-firedoze injects a shared authorized keys file into new VM disks. Every client who should be able to SSH into firedoze VMs needs to provide their public SSH key to the admin.
-
-From each client laptop, copy that laptop's public key to the firedoze host:
-
-```sh
-cat ~/.ssh/id_ed25519.pub | ssh root@PUBLIC_IP 'cat >> /etc/firedoze/authorized_keys'
-```
-
-Replace `PUBLIC_IP` with the firedoze host's public IP address. If a client uses a different key path, use that `.pub` file instead.
+firedoze uses WireGuard as the access-control layer. The generated base image configures the `ubuntu` guest account for passwordless SSH, and VM SSH is reachable only through the WireGuard-routed private VM network.
 
 Create the host config:
 
@@ -367,7 +357,6 @@ path = "/var/lib/firedoze/firedoze.db"
 
 [ssh]
 user = "ubuntu"
-authorized_key_files = ["/etc/firedoze/authorized_keys"]
 wake_proxy_port = 18022
 
 [idle]

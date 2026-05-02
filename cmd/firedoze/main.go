@@ -446,10 +446,23 @@ func sshCommand(vm vmInfo) []string {
 		userHost := fields[1]
 		if at := strings.LastIndex(userHost, "@"); at >= 0 {
 			fields[1] = userHost[:at+1] + vm.PrivateIP
-			return fields
+			return withFiredozeSSHOptions(fields)
 		}
 	}
-	return append([]string{}, fields...)
+	return withFiredozeSSHOptions(fields)
+}
+
+func withFiredozeSSHOptions(fields []string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	args := []string{
+		fields[0],
+		"-o", "PubkeyAuthentication=no",
+		"-o", "PreferredAuthentications=none,password",
+		"-o", "NumberOfPasswordPrompts=1",
+	}
+	return append(args, fields[1:]...)
 }
 
 func runtimeSinceStart(vm vmInfo) string {

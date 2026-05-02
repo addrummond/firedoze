@@ -397,9 +397,6 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 			return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
 		}
 	}
-	if err := m.injectAuthorizedKeys(ctx, layout.diskPath); err != nil {
-		return store.VM{}, fmt.Errorf("inject authorized keys: %w", err)
-	}
 	netdev, err := m.prepareNetwork(ctx, vm)
 	if err != nil {
 		return store.VM{}, fmt.Errorf("prepare network: %w", err)
@@ -976,51 +973,6 @@ func copyFile(dst string, src string) error {
 		return err
 	}
 	return out.Close()
-}
-
-func (m *Manager) injectAuthorizedKeys(ctx context.Context, diskPath string) error {
-	if len(m.cfg.SSH.AuthorizedKeyFiles) == 0 {
-		return nil
-	}
-	var keys []byte
-	for _, path := range m.cfg.SSH.AuthorizedKeyFiles {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		keys = append(keys, data...)
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			keys = append(keys, '\n')
-		}
-	}
-
-	tmp, err := os.CreateTemp("", "firedoze-authorized-keys-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(keys); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-
-	if err := run(ctx, debugfsPath, "-w", "-R", "mkdir /etc/firedoze", diskPath); err != nil {
-		m.logger.Debug("mkdir /etc/firedoze in guest disk", "error", err)
-	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "rm /etc/firedoze/authorized_keys", diskPath); err != nil {
-		m.logger.Debug("remove existing authorized_keys in guest disk", "error", err)
-	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" /etc/firedoze/authorized_keys", diskPath); err != nil {
-		return err
-	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "set_inode_field /etc/firedoze/authorized_keys mode 0100644", diskPath); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmName string) error {
