@@ -144,6 +144,19 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	}
 }
 
+func TestRemoteExecCommandAddsSeparatorBeforeRemoteCommand(t *testing.T) {
+	got := remoteExecCommand(vmInfo{
+		VM: store.VM{
+			PrivateIP: "10.88.0.2",
+		},
+		SSH: "ssh ubuntu@demo.example.com",
+	}, []string{"echo", "hello"})
+	wantSuffix := []string{"ubuntu@10.88.0.2", "--", "echo", "hello"}
+	if got := strings.Join(got[len(got)-len(wantSuffix):], "\x00"); got != strings.Join(wantSuffix, "\x00") {
+		t.Fatalf("remoteExecCommand suffix = %#v, want %#v", got, strings.Join(wantSuffix, "\x00"))
+	}
+}
+
 func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {

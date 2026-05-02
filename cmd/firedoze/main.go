@@ -179,6 +179,8 @@ func (a app) dispatch(args []string) error {
 		return a.wg(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
+	case "exec":
+		return a.exec(args[1:])
 	case "up":
 		return a.up(args[1:])
 	case "with-vm-ip":
@@ -685,18 +687,9 @@ func (a app) ssh(args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: firedoze ssh <vm> [ssh args...]")
 	}
-	vm, err := a.lookupVM(args[0])
+	vm, err := a.ensureVMReadyForSSH(args[0])
 	if err != nil {
 		return err
-	}
-	if vm.State != "running" {
-		vm, err = a.startVM(vm.Name)
-		if err != nil {
-			return err
-		}
-		if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
-			return err
-		}
 	}
 	sshArgs := sshCommand(vm)
 	sshArgs = append(sshArgs, args[1:]...)
@@ -705,6 +698,53 @@ func (a app) ssh(args []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func (a app) exec(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: firedoze exec <vm> -- <command> [args...]")
+	}
+	vmName := args[0]
+	commandArgs := args[1:]
+	if commandArgs[0] == "--" {
+		commandArgs = commandArgs[1:]
+	}
+	if len(commandArgs) == 0 {
+		return errors.New("usage: firedoze exec <vm> -- <command> [args...]")
+	}
+	vm, err := a.ensureVMReadyForSSH(vmName)
+	if err != nil {
+		return err
+	}
+	sshArgs := remoteExecCommand(vm, commandArgs)
+	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return vmInfo{}, err
+	}
+	if vm.State == "running" {
+		return vm, nil
+	}
+	vm, err = a.startVM(vm.Name)
+	if err != nil {
+		return vmInfo{}, err
+	}
+	if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
+		return vmInfo{}, err
+	}
+	return vm, nil
+}
+
+func remoteExecCommand(vm vmInfo, commandArgs []string) []string {
+	sshArgs := append(sshCommand(vm), "--")
+	return append(sshArgs, commandArgs...)
 }
 
 func (a app) withVMIP(args []string) error {
@@ -1011,6 +1051,7 @@ Commands:
   route delete <route>
   wg keygen
   ssh <vm> [ssh args...]
+  exec <vm> -- <command> [args...]
   up <vm> [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N] [--auto-wake] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 

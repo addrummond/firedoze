@@ -283,6 +283,13 @@ firedoze vm inspect demo
 firedoze ssh demo
 ```
 
+Run a command inside a VM and snapshot it after the command succeeds:
+
+```sh
+firedoze exec demo -- sh -lc 'set -eu; echo ready > /home/ubuntu/ready.txt'
+firedoze snapshot save demo-ready demo
+```
+
 Run another local tool with the VM private IP in `FIREDOZE_VM_IP`:
 
 ```sh
