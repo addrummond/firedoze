@@ -242,7 +242,7 @@ func (a app) vm(args []string) error {
 			return printJSON(out)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATE\tVISIBILITY\tRUNTIME\tIP\tURL")
+		fmt.Fprintln(w, "NAME\tSTATE\tVISIBILITY\tRUNTIME\tPRIVATE IP\tURL")
 		for _, vm := range out.VMs {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", vm.Name, vm.State, visibility(vm), runtimeSinceStart(vm), vm.PrivateIP, displayURL(vm))
 		}
