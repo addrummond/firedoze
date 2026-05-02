@@ -245,6 +245,10 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 
 	var b strings.Builder
+	if clientPrivateKey == "<client-private-key>" {
+		fmt.Fprintf(&b, "# WireGuard client config template for %s.\n", peer.Name)
+		fmt.Fprintf(&b, "# Save this on the client laptop and replace <client-private-key> locally.\n\n")
+	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
 	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))
