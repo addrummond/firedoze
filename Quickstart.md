@@ -27,7 +27,7 @@ Install `mise` on the Linux host. The project uses `.tool-versions` to pin the G
 
 ```sh
 curl https://mise.run/bash | sh
-exec /bin/bash -l
+source ~/.bashrc
 ```
 
 Clone the private repo on the Linux host, install the pinned tools, then run the installer from the repo root:
@@ -36,15 +36,15 @@ Clone the private repo on the Linux host, install the pinned tools, then run the
 git clone REPO_URL firedoze
 cd firedoze
 mise install
-mise exec -- ./scripts/install.sh
+./scripts/install.sh
 ```
 
 The setup shape is:
 
 ```sh
-mise exec -- ./scripts/install.sh
-firedoze-image build
-mise exec -- task image:install
+./scripts/install.sh
+./firedoze-image build
+task image:install
 cat ~/.ssh/id_ed25519.pub | sudo tee /etc/firedoze/authorized_keys
 sudoedit /etc/firedoze/firedoze.toml
 sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
@@ -69,8 +69,8 @@ Build the firedoze Ubuntu base image on the Linux host. The builder is native Go
 From the repo checkout, run:
 
 ```sh
-firedoze-image build
-mise exec -- task image:install
+./firedoze-image build
+task image:install
 ```
 
 The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
@@ -350,7 +350,7 @@ To upgrade from a newer checkout, run the installer again:
 ```sh
 git pull
 mise install
-mise exec -- ./scripts/install.sh
+./scripts/install.sh
 sudo systemctl restart firedozed
 ```
 
