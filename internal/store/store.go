@@ -49,7 +49,22 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "vms", "idle_sleep_after_seconds", "integer not null default 0"); err != nil {
 		return err
 	}
-	return s.ensureColumn(ctx, "vms", "last_started_at", "text not null default ''")
+	if err := s.ensureColumn(ctx, "vms", "last_started_at", "text not null default ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "vms", "base_image_id", "text not null default ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "vms", "kernel_id", "text not null default ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "vms", "base_image_metadata", "text not null default ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "snapshots", "base_image_metadata", "text not null default ''"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Now(ctx context.Context) (time.Time, error) {
@@ -77,6 +92,9 @@ create table if not exists vms (
 	default_http_port integer not null,
 	idle_sleep_after_seconds integer not null default 0,
 	last_started_at text not null default '',
+	base_image_id text not null default '',
+	kernel_id text not null default '',
+	base_image_metadata text not null default '',
 	created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -89,6 +107,7 @@ create table if not exists snapshots (
 	disk_path text not null,
 	base_image_id text not null,
 	kernel_id text not null,
+	base_image_metadata text not null default '',
 	created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 

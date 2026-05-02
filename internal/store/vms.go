@@ -10,15 +10,18 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type VM struct {
-	Name                  string `json:"name"`
-	State                 string `json:"state"`
-	PrivateIP             string `json:"private_ip,omitempty"`
-	VCPUs                 int    `json:"vcpus"`
-	MemoryMiB             int    `json:"memory_mib"`
-	DiskBytes             int64  `json:"disk_bytes"`
-	DefaultHTTPPort       int    `json:"default_http_port"`
-	IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds,omitempty"`
-	LastStartedAt         string `json:"last_started_at,omitempty"`
+	Name                  string   `json:"name"`
+	State                 string   `json:"state"`
+	PrivateIP             string   `json:"private_ip,omitempty"`
+	VCPUs                 int      `json:"vcpus"`
+	MemoryMiB             int      `json:"memory_mib"`
+	DiskBytes             int64    `json:"disk_bytes"`
+	DefaultHTTPPort       int      `json:"default_http_port"`
+	IdleSleepAfterSeconds int      `json:"idle_sleep_after_seconds,omitempty"`
+	LastStartedAt         string   `json:"last_started_at,omitempty"`
+	BaseImageID           string   `json:"base_image_id,omitempty"`
+	KernelID              string   `json:"kernel_id,omitempty"`
+	BaseImageMetadata     JSONText `json:"base_image_metadata,omitempty"`
 }
 
 type CreateVMParams struct {
@@ -29,6 +32,9 @@ type CreateVMParams struct {
 	DiskBytes             int64
 	DefaultHTTPPort       int
 	IdleSleepAfterSeconds int
+	BaseImageID           string
+	KernelID              string
+	BaseImageMetadata     string
 }
 
 type UpdateVMParams struct {
@@ -38,9 +44,9 @@ type UpdateVMParams struct {
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
 	_, err := s.db.ExecContext(ctx, `
-		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds)
-		values (?, 'stopped', ?, ?, ?, ?, ?, ?)
-	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds)
+		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, base_image_id, kernel_id, base_image_metadata)
+		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata)
 	if err != nil {
 		return VM{}, err
 	}
@@ -49,7 +55,7 @@ func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error)
 
 func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata
 		from vms
 		order by name
 	`)
@@ -61,7 +67,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 	vms := []VM{}
 	for rows.Next() {
 		var vm VM
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt); err != nil {
+		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata); err != nil {
 			return nil, err
 		}
 		vms = append(vms, vm)
@@ -75,10 +81,10 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 	var vm VM
 	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata
 		from vms
 		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt)
+	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}

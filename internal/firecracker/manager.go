@@ -3,6 +3,8 @@ package firecracker
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,6 +100,11 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 		}
 		params.PrivateIP = ip.String()
 	}
+	metadata, err := m.baseImageMetadata()
+	if err != nil {
+		return store.VM{}, err
+	}
+	applyBaseImageMetadata(&params, metadata)
 	return m.store.CreateVM(ctx, params)
 }
 
@@ -144,6 +152,9 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 		}
 		params.PrivateIP = ip.String()
 	}
+	params.BaseImageID = snapshot.BaseImageID
+	params.KernelID = snapshot.KernelID
+	params.BaseImageMetadata = string(snapshot.BaseImageMetadata)
 
 	layout := m.layout(params.Name)
 	if err := os.MkdirAll(layout.vmDir, 0o755); err != nil {
@@ -184,6 +195,112 @@ func (m *Manager) UpdateVM(ctx context.Context, name string, params store.Update
 		return store.VM{}, errors.New("idle_sleep_after_seconds cannot be negative")
 	}
 	return m.store.UpdateVM(ctx, name, params)
+}
+
+type BaseImageMetadata struct {
+	Rootfs   ArtifactMetadata  `json:"rootfs"`
+	Kernel   ArtifactMetadata  `json:"kernel"`
+	Initrd   *ArtifactMetadata `json:"initrd,omitempty"`
+	Manifest map[string]string `json:"manifest,omitempty"`
+}
+
+type ArtifactMetadata struct {
+	Path     string `json:"path"`
+	Basename string `json:"basename"`
+	SHA256   string `json:"sha256,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	ModTime  string `json:"mod_time,omitempty"`
+}
+
+func (m *Manager) baseImageMetadata() (BaseImageMetadata, error) {
+	metadata := BaseImageMetadata{}
+	var err error
+	metadata.Rootfs, err = artifactMetadata(m.cfg.Firecracker.BaseRootfsPath)
+	if err != nil {
+		return BaseImageMetadata{}, fmt.Errorf("rootfs metadata: %w", err)
+	}
+	metadata.Kernel, err = artifactMetadata(m.cfg.Firecracker.BaseKernelPath)
+	if err != nil {
+		return BaseImageMetadata{}, fmt.Errorf("kernel metadata: %w", err)
+	}
+	if m.cfg.Firecracker.BaseInitrdPath != "" {
+		initrd, err := artifactMetadata(m.cfg.Firecracker.BaseInitrdPath)
+		if err != nil {
+			return BaseImageMetadata{}, fmt.Errorf("initrd metadata: %w", err)
+		}
+		metadata.Initrd = &initrd
+	}
+	manifest, err := readImageManifest(filepath.Join(filepath.Dir(m.cfg.Firecracker.BaseRootfsPath), "manifest.txt"))
+	if err != nil {
+		m.logger.Debug("read base image manifest", "error", err)
+	}
+	metadata.Manifest = manifest
+	return metadata, nil
+}
+
+func applyBaseImageMetadata(params *store.CreateVMParams, metadata BaseImageMetadata) {
+	params.BaseImageID = metadata.Rootfs.SHA256
+	if params.BaseImageID == "" {
+		params.BaseImageID = metadata.Rootfs.Basename
+	}
+	params.KernelID = metadata.Kernel.SHA256
+	if params.KernelID == "" {
+		params.KernelID = metadata.Kernel.Basename
+	}
+	if data, err := json.Marshal(metadata); err == nil {
+		params.BaseImageMetadata = string(data)
+	}
+}
+
+func artifactMetadata(p string) (ArtifactMetadata, error) {
+	info, err := os.Stat(p)
+	if err != nil {
+		return ArtifactMetadata{}, err
+	}
+	sum, err := fileSHA256(p)
+	if err != nil {
+		return ArtifactMetadata{}, err
+	}
+	return ArtifactMetadata{
+		Path:     p,
+		Basename: filepath.Base(p),
+		SHA256:   sum,
+		Size:     info.Size(),
+		ModTime:  info.ModTime().UTC().Format(time.RFC3339Nano),
+	}, nil
+}
+
+func fileSHA256(p string) (string, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func readImageManifest(p string) (map[string]string, error) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	manifest := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		manifest[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return manifest, nil
 }
 
 func (m *Manager) DeleteVM(ctx context.Context, name string) error {
@@ -476,13 +593,14 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	resume = false
 
 	snapshot, err := m.store.CreateSnapshot(ctx, store.CreateSnapshotParams{
-		Name:        params.Name,
-		SourceVM:    vm.Name,
-		StatePath:   snapshotLayout.statePath,
-		MemPath:     snapshotLayout.memPath,
-		DiskPath:    snapshotLayout.diskPath,
-		BaseImageID: filepath.Base(m.cfg.Firecracker.BaseRootfsPath),
-		KernelID:    filepath.Base(m.cfg.Firecracker.BaseKernelPath),
+		Name:              params.Name,
+		SourceVM:          vm.Name,
+		StatePath:         snapshotLayout.statePath,
+		MemPath:           snapshotLayout.memPath,
+		DiskPath:          snapshotLayout.diskPath,
+		BaseImageID:       vm.BaseImageID,
+		KernelID:          vm.KernelID,
+		BaseImageMetadata: string(vm.BaseImageMetadata),
 	})
 	if err != nil {
 		return store.Snapshot{}, err

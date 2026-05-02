@@ -341,17 +341,44 @@ The image builder should be host-portable for development. v1 uses a native Go b
 
 The guest image carries a tiny firedoze network service. At boot, it reads the Firecracker MAC address in the `06:00:<guest-ip-octets>` convention and configures `eth0` with the derived `/30` guest IP and default route through `guest_ip - 1`.
 
-The base image is used only for fresh VMs. Existing VMs and snapshots do not track base image updates.
+The base image is used only for fresh VMs. Existing VMs and snapshots do not change when the configured base image changes.
 
 Kernel/runtime changes apply only to newly created VMs.
 
-Snapshot metadata should record lineage, for example:
+New VMs store base image lineage metadata at creation time. Snapshots copy that metadata from the source VM. firedoze stores all available metadata rather than choosing a single identifier: parsed `manifest.txt` fields, artifact path, basename, SHA-256, size, and modification time for the root filesystem, kernel, and initrd where present.
+
+The compact `base_image_id` and `kernel_id` fields are summary identifiers for easy display and compatibility checks; the full `base_image_metadata` object is the source of detail.
+
+Example metadata:
 
 ```json
 {
-  "base_image_id": "ubuntu-lts-firecracker-v1",
-  "kernel_id": "linux-fc-v1",
-  "created_with_orchestrator_version": "0.1.0"
+  "base_image_id": "sha256-of-rootfs",
+  "kernel_id": "sha256-of-kernel",
+  "base_image_metadata": {
+    "rootfs": {
+      "path": "/var/lib/firedoze/base/rootfs.ext4",
+      "basename": "rootfs.ext4",
+      "sha256": "sha256-of-rootfs",
+      "size": 8589934592,
+      "mod_time": "2026-05-02T12:00:00Z"
+    },
+    "kernel": {
+      "path": "/var/lib/firedoze/base/vmlinux.bin",
+      "basename": "vmlinux.bin",
+      "sha256": "sha256-of-kernel"
+    },
+    "initrd": {
+      "path": "/var/lib/firedoze/base/initrd.img",
+      "basename": "initrd.img",
+      "sha256": "sha256-of-initrd"
+    },
+    "manifest": {
+      "release": "noble",
+      "arch": "amd64",
+      "builder": "firedoze-image native-go"
+    }
+  }
 }
 ```
 
