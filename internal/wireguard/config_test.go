@@ -33,7 +33,6 @@ func TestNewPeerSetup(t *testing.T) {
 		"[Interface]",
 		"PrivateKey = <client-private-key>",
 		"Address = 10.77.0.2/32",
-		"DNS = 10.77.0.1",
 		"Endpoint = example.com:51820",
 		"AllowedIPs = 10.77.0.1/32, 10.88.0.0/16",
 	} {
@@ -89,9 +88,6 @@ port = 8081
 http_port = 80
 https_port = 443
 internal_proxy_port = 18082
-
-[dns]
-port = 53
 
 [metadata]
 path = "`+dir+`/firedoze.db"

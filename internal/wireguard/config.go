@@ -239,10 +239,6 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 	allowedIPs := []string{wireGuardHostCIDR(cfg.WireGuard.Address), cfg.VMNetwork.Subnet}
 	allowedIPs = compactStrings(allowedIPs)
-	dnsIP, _, err := net.ParseCIDR(cfg.WireGuard.Address)
-	if err != nil {
-		return "", err
-	}
 
 	var b strings.Builder
 	if clientPrivateKey == "<client-private-key>" {
@@ -251,8 +247,7 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
-	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))
-	fmt.Fprintf(&b, "DNS = %s\n\n", dnsIP.String())
+	fmt.Fprintf(&b, "Address = %s\n\n", strings.Join(clientAddresses, ", "))
 	fmt.Fprintf(&b, "[Peer]\n")
 	fmt.Fprintf(&b, "PublicKey = %s\n", serverPublicKey)
 	fmt.Fprintf(&b, "Endpoint = %s\n", endpoint(cfg))

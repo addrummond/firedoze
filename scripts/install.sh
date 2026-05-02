@@ -79,13 +79,12 @@ cat <<EOF
 firedoze is installed.
 
 Next steps:
-  1. Build the base image with: task build:image && ./firedoze-image build
-  2. Install the generated image files with:
-       task image:install
+  1. Build firedoze commands: task build
+  2. Build and install the base image: ./firedoze-image build && task image:install
   3. Create $config_dst:
        sudo firedozed -init-config -init-sslip-host PUBLIC_IP
   4. Ask the client to run 'firedoze wg keygen', then add their public key:
-       task build:daemon && sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
+       sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
   5. Start the daemon:
        sudo systemctl enable --now firedozed
 

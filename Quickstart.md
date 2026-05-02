@@ -39,21 +39,35 @@ mise install
 ./scripts/install.sh
 ```
 
-The setup shape is:
+The fastest possible setup (using [sslip.io](https://sslip.io) to obtain a hostname) is:
 
 ```sh
 ./scripts/install.sh
 task build:image && ./firedoze-image build
 task image:install
 sudo firedozed -init-config -init-sslip-host PUBLIC_IP
-# Alice runs this locally and sends you only the public_key:
+
+# Alice runs this on her laptop and sends you only the public_key:
 firedoze wg keygen
+
+# You add Alice's laptop as a WireGuard peer on the server, which prints her
+# client config template.
 sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY
-# send the printed client config to Alice
+# Alice replaces <client-private-key> in the printed config with the private
+# key she generated, then connects WireGuard on her laptop.
+
 sudo systemctl enable --now firedozed
 ```
 
-The rest of this section explains those steps in order.
+Alice can now connect:
+
+```sh
+sudo wg-quick up /path/to/alice-client.conf
+firedoze health # check API connectivity
+```
+
+
+The rest of this section explains the above steps in order.
 
 ### 2.1 Install firedoze
 
@@ -150,7 +164,7 @@ To choose the client address yourself, pass a unique `/32` address inside the ge
 sudo firedozed -wg-add-peer alice-laptop ALICE_PUBLIC_KEY 10.93.0.2/32
 ```
 
-### 2.4 Configure firewall and DNS
+### 2.4 Configure firewall and public DNS
 
 Open these inbound ports to the host:
 
@@ -164,12 +178,6 @@ Set public wildcard DNS for web routes:
 ```
 
 Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
-
-firedoze also runs a private DNS server on the WireGuard IP. It resolves default VM names like:
-
-```text
-myvm.dev.example.com -> VM private IP
-```
 
 ### 2.5 Start firedozed
 
@@ -206,11 +214,13 @@ sudo firedozed -wg-peer-config alice-laptop
 
 ## 3. Use firedoze
 
-The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1` or your API port is not `8081`, set `FIREDOZE_API`:
+The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If your server WireGuard address is not `10.77.0.1`, set `FIREDOZE_API`:
 
 ```sh
-export FIREDOZE_API=http://10.77.0.1:8081
+export FIREDOZE_API=http://10.77.0.1
 ```
+
+The client adds the default API port, `8081`, when the URL has no port. If your server uses a different API port, include it explicitly.
 
 Check that the API is reachable:
 
@@ -348,9 +358,6 @@ subnet = "10.88.0.0/16"
 http_port = 80
 https_port = 443
 internal_proxy_port = 18082
-
-[dns]
-port = 53
 
 [metadata]
 path = "/var/lib/firedoze/firedoze.db"

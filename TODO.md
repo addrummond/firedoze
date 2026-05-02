@@ -1,7 +1,7 @@
 # TODO
 
 - Move privileged host operations behind a small helper or tighter privilege boundary.
-- Add real tests for API handlers, SQLite migrations, DNS responses, WireGuard config generation, and Firecracker lifecycle edge cases.
+- Add real tests for API handlers, SQLite migrations, WireGuard config generation, and Firecracker lifecycle edge cases.
 - Add structured migrations instead of ad hoc `alter table` checks.
 - Add image management: base image versioning, image import, image export, and slow-storage archival for old disks/snapshots.
 - Improve idle detection with better per-VM overrides, observability, and race handling during start/stop/sleep.
@@ -14,3 +14,4 @@
 - Install a 'firedoze-sleep' command within the VM. If possible, this should be a static linux x86_64 binary that can be copied into any VM and invoked to trigger a clean sleep with the same semantics as `firedoze vm sleep`.
 - Figure out why exactly we need chmodIfExists in the image builder.
 - Check if we guard against multiple wireguard peers with the same IP or name.
+- Is this sentence in the quickstart.md guide still accurate? "Do not invent a different client address on the laptop. Change the peer's `allowed_ips` entry on the server first, then regenerate the client config if needed:"

@@ -23,9 +23,6 @@ http_port = 80
 https_port = 443
 internal_proxy_port = 18082
 
-[dns]
-port = 53
-
 [metadata]
 path = "/var/lib/firedoze/firedoze.db"
 

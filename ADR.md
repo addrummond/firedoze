@@ -100,7 +100,7 @@ public_key = "..."
 allowed_ips = ["10.77.0.2/32"]
 ```
 
-firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, DNS, management and VM subnet routes, and a `<client-private-key>` placeholder. firedoze does not manage developer client private keys.
+firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, management and VM subnet routes, and a `<client-private-key>` placeholder. firedoze does not manage developer client private keys.
 
 ## Host Firewall
 
@@ -171,25 +171,7 @@ Public DNS is configured by the admin as a wildcard record pointing to the fired
 
 firedoze does not dynamically manage public DNS.
 
-firedoze should include a minimal authoritative DNS responder bound only to the WireGuard interface.
-
-The WireGuard DNS responder is only for SSH usability. It answers VM default hostnames with VM private IPs:
-
-```text
-myvm.dev.example.com -> VM private IP
-```
-
-It should not recurse, forward, or manage public DNS. It should answer only the configured base domain and only for VM default hostnames. Public HTTPS aliases do not need split-horizon answers in v1.
-
-DNS library:
-
-```text
-codeberg.org/miekg/dns
-```
-
-WireGuard peer configs should set the firedoze WireGuard IP as DNS where practical.
-
-The v1 daemon starts UDP and TCP DNS listeners on the WireGuard address. It answers A queries for `{vm}.{base_domain}` with the VM private IP and does not recurse or forward.
+firedoze does not run a private DNS resolver in v1. Direct VM SSH should use the `firedoze ssh <vm>` client command, which gets the VM private IP from the management API instead of relying on laptop DNS configuration.
 
 WireGuard peer configuration must include routes for both the WireGuard management address and the VM private subnet. The config format should support multiple peer allowed IP CIDRs.
 
@@ -226,10 +208,10 @@ The generated Ubuntu base image configures `sshd` for passwordless `ubuntu` logi
 The preferred user experience is:
 
 ```text
-ssh ubuntu@myvm.dev.example.com
+firedoze ssh myvm
 ```
 
-This relies on the WireGuard-only DNS responder resolving VM hostnames to private VM IPs for connected peers.
+The client resolves the VM to its private IP through the management API before starting OpenSSH, so no client-side DNS setup is required.
 
 Sleeping VMs should wake from direct SSH/network activity. The v1 implementation redirects WireGuard TCP/22 traffic for VM private IPs into a daemon-side SSH wake proxy. The proxy identifies the original destination VM, starts or resumes it, waits for guest SSH, then relays the original connection.
 
@@ -443,7 +425,7 @@ Host firewall/security group requirements must be documented before real deploym
 3. Manage kernel WireGuard interface from config.
 4. Expose JSON HTTP API only on WireGuard.
 5. Start/stop one Firecracker VM from the fixed base image.
-6. Make passwordless guest SSH work over WireGuard/private DNS.
+6. Make passwordless guest SSH work over WireGuard.
 7. Embed Caddy and serve default VM route.
 8. Add explicit HTTPS route aliases.
 9. Add named exact-state snapshots.

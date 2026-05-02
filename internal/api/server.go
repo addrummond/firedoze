@@ -104,9 +104,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"https_port":          s.cfg.Caddy.HTTPSPort,
 			"internal_proxy_port": s.cfg.Caddy.InternalProxyPort,
 		},
-		"dns": map[string]any{
-			"port": s.cfg.DNS.Port,
-		},
 		"wireguard": map[string]any{
 			"interface":   s.cfg.WireGuard.Interface,
 			"listen_port": s.cfg.WireGuard.ListenPort,

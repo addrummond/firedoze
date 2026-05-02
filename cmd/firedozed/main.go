@@ -18,7 +18,6 @@ import (
 	"firedoze/internal/firecracker"
 	"firedoze/internal/host"
 	"firedoze/internal/proxy"
-	"firedoze/internal/resolver"
 	"firedoze/internal/store"
 	"firedoze/internal/systemd"
 	wgconfig "firedoze/internal/wireguard"
@@ -186,13 +185,6 @@ func run() int {
 		idleCtx, cancelIdle := context.WithCancel(ctx)
 		defer cancelIdle()
 		go firecracker.NewIdleMonitor(manager, proxyManager, logger).Run(idleCtx)
-		dnsCtx, cancelDNS := context.WithCancel(ctx)
-		defer cancelDNS()
-		go func() {
-			if err := resolver.NewServer(cfg, db, logger).Run(dnsCtx); err != nil {
-				logger.Error("serve dns", "error", err)
-			}
-		}()
 		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
