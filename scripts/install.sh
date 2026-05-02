@@ -91,7 +91,7 @@ Next steps:
        cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> $sysconfdir/authorized_keys'
   4. Edit $config_dst:
        sudoedit $config_dst
-  5. Generate a WireGuard peer bundle:
+  5. Add a WireGuard peer and send the printed client config securely:
        sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
   6. Start the daemon:
        sudo systemctl enable --now firedozed

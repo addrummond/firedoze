@@ -37,23 +37,31 @@ func ServerPublicKey(cfg config.Config) (string, error) {
 	return privateKey.PublicKey().String(), nil
 }
 
-func NewPeerSetup(cfg config.Config, name string, allowedIP string) (string, error) {
+func NewPeerSetup(cfg config.Config, name string, allowedIP string) (config.WGPeer, string, error) {
 	if name == "" {
-		return "", fmt.Errorf("peer name is required")
+		return config.WGPeer{}, "", fmt.Errorf("peer name is required")
 	}
 	if _, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
-		return "", fmt.Errorf("allowed IP must be CIDR: %w", err)
+		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be CIDR: %w", err)
 	} else if ones, bits := ipNet.Mask.Size(); ones != bits {
-		return "", fmt.Errorf("allowed IP must be a single client address, such as 10.77.0.2/32")
+		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be a single client address, such as 10.77.0.2/32")
+	}
+	for _, peer := range cfg.WireGuard.Peers {
+		if peer.Name == name {
+			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already exists", name)
+		}
+		if slices.Contains(peer.AllowedIPs, allowedIP) {
+			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses %s", peer.Name, allowedIP)
+		}
 	}
 
 	serverPrivateKey, err := ensureServerPrivateKey(cfg.WireGuard.PrivateKeyFile)
 	if err != nil {
-		return "", err
+		return config.WGPeer{}, "", err
 	}
 	clientKeyPair, err := GenerateClientKeyPair()
 	if err != nil {
-		return "", err
+		return config.WGPeer{}, "", err
 	}
 	peer := config.WGPeer{
 		Name:       name,
@@ -62,18 +70,66 @@ func NewPeerSetup(cfg config.Config, name string, allowedIP string) (string, err
 	}
 	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String(), clientKeyPair.PrivateKey)
 	if err != nil {
-		return "", err
+		return config.WGPeer{}, "", err
 	}
+	return peer, clientConfig, nil
+}
 
+func AppendPeer(path string, peer config.WGPeer) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	appended := append([]byte(nil), data...)
+	if len(appended) > 0 && appended[len(appended)-1] != '\n' {
+		appended = append(appended, '\n')
+	}
+	appended = append(appended, []byte(renderPeerTOML(peer))...)
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(appended); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if _, err := config.Load(tmpPath); err != nil {
+		return fmt.Errorf("validate updated config: %w", err)
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func renderPeerTOML(peer config.WGPeer) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Add this to /etc/firedoze/firedoze.toml on the firedoze host.\n")
+	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "[[wireguard.peers]]\n")
 	fmt.Fprintf(&b, "name = %q\n", peer.Name)
 	fmt.Fprintf(&b, "public_key = %q\n", peer.PublicKey)
-	fmt.Fprintf(&b, "allowed_ips = [%q]\n\n", allowedIP)
-	fmt.Fprintf(&b, "# Save this as the WireGuard client config on %s.\n", peer.Name)
-	fmt.Fprint(&b, clientConfig)
-	return b.String(), nil
+	fmt.Fprintf(&b, "allowed_ips = [")
+	for i, allowedIP := range peer.AllowedIPs {
+		if i > 0 {
+			fmt.Fprintf(&b, ", ")
+		}
+		fmt.Fprintf(&b, "%q", allowedIP)
+	}
+	fmt.Fprintf(&b, "]\n")
+	return b.String()
 }
 
 func readServerPrivateKey(path string) (wgtypes.Key, error) {
@@ -130,6 +186,10 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 
 	var b strings.Builder
+	if clientPrivateKey != "<client-private-key>" {
+		fmt.Fprintf(&b, "# WARNING: THIS FILE CONTAINS A PRIVATE WIREGUARD KEY.\n")
+		fmt.Fprintf(&b, "# SHARE IT WITH %s SECURELY. DO NOT PASTE IT INTO CHAT.\n\n", peer.Name)
+	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
 	fmt.Fprintf(&b, "Address = %s\n", strings.Join(clientAddresses, ", "))

@@ -49,7 +49,7 @@ task image:install
 cat ~/.ssh/id_ed25519.pub | ssh root@HOST 'cat >> /etc/firedoze/authorized_keys'
 sudoedit /etc/firedoze/firedoze.toml
 sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
-# paste the printed [[wireguard.peers]] block into /etc/firedoze/firedoze.toml
+# send the printed client config to Alice securely
 sudo systemctl enable --now firedozed
 ```
 
@@ -115,16 +115,15 @@ The main fields to set are:
 - `wireguard.peers`: one peer per laptop.
 - `firecracker.default_memory_mib`: the default VM memory size.
 
-To add a laptop, generate a peer setup bundle on the host:
+To add a laptop, add a WireGuard peer on the host:
 
 ```sh
 sudo firedozed -wg-new-peer alice-laptop 10.77.0.2/32
 ```
 
-The command prints:
+The command updates `/etc/firedoze/firedoze.toml` automatically and prints a WireGuard client config for Alice.
 
-- a `[[wireguard.peers]]` TOML block to paste into `/etc/firedoze/firedoze.toml`.
-- a WireGuard client config to save on that laptop.
+The printed config contains Alice's private WireGuard key. Send it to Alice securely. Do not paste it into Slack, Discord, issue trackers, or other shared chat systems.
 
 `10.77.0.2/32` is Alice's WireGuard client address. Use a different `/32` address for each laptop.
 
@@ -168,7 +167,7 @@ The provided unit uses systemd readiness notification and a watchdog. If the dae
 
 ### 2.6 Connect WireGuard
 
-Save the WireGuard client config printed by `-wg-new-peer` on your laptop, then bring the tunnel up with `wg-quick` or your WireGuard client.
+Save the WireGuard client config printed by `-wg-new-peer` on the client laptop, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
 The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. For the example above, Alice's config will contain:
 
