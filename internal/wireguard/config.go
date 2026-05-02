@@ -1,8 +1,8 @@
 package wireguard
 
 import (
-	"encoding/binary"
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -55,10 +55,12 @@ func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP st
 			return config.WGPeer{}, "", err
 		}
 	}
-	if _, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
+	if ip, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
 		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be CIDR: %w", err)
 	} else if ones, bits := ipNet.Mask.Size(); ones != bits {
-		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be a single client address, such as 10.77.0.2/32")
+		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be a single client address, such as fd7a:115c:a1e1::2/128")
+	} else if ip.To4() != nil {
+		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be IPv6")
 	}
 	for _, peer := range cfg.WireGuard.Peers {
 		if peer.Name == name {
@@ -93,17 +95,17 @@ func nextPeerAllowedIP(cfg config.Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("wireguard.address must be CIDR: %w", err)
 	}
-	base := ip.To4()
-	if base == nil {
-		return "", fmt.Errorf("automatic peer addresses require an IPv4 wireguard.address")
-	}
+	base := ip.To16()
 	ones, bits := ipNet.Mask.Size()
-	if bits != 32 || ones > 30 {
+	if base == nil || ip.To4() != nil || bits != 128 {
+		return "", fmt.Errorf("automatic peer addresses require an IPv6 wireguard.address")
+	}
+	if ones > 126 {
 		return "", fmt.Errorf("wireguard.address subnet is too small for automatic peer addresses")
 	}
-	network := binary.BigEndian.Uint32(base) & binary.BigEndian.Uint32(ipNet.Mask)
-	hostIP := binary.BigEndian.Uint32(base)
-	used := map[uint32]struct{}{
+	network := ip.Mask(ipNet.Mask)
+	hostIP := ip.String()
+	used := map[string]struct{}{
 		hostIP: {},
 	}
 	for _, peer := range cfg.WireGuard.Peers {
@@ -113,25 +115,41 @@ func nextPeerAllowedIP(cfg config.Config) (string, error) {
 				continue
 			}
 			ones, bits := ipNet.Mask.Size()
-			if bits != 32 || ones != 32 {
+			if bits != 128 || ones != 128 || ip.To4() != nil {
 				continue
 			}
-			if ip4 := ip.To4(); ip4 != nil {
-				used[binary.BigEndian.Uint32(ip4)] = struct{}{}
-			}
+			used[ip.String()] = struct{}{}
 		}
 	}
-	size := uint32(1) << uint32(32-ones)
-	for offset := uint32(1); offset < size-1; offset++ {
-		candidate := network + offset
-		if _, ok := used[candidate]; ok {
+	size := new(big.Int).Lsh(big.NewInt(1), uint(128-ones))
+	for offset := int64(1); ; offset++ {
+		if big.NewInt(offset).Cmp(size) >= 0 {
+			break
+		}
+		candidate, err := addToIP(network, offset)
+		if err != nil {
+			return "", err
+		}
+		if _, ok := used[candidate.String()]; ok {
 			continue
 		}
-		var out [4]byte
-		binary.BigEndian.PutUint32(out[:], candidate)
-		return net.IP(out[:]).String() + "/32", nil
+		return candidate.String() + "/128", nil
 	}
 	return "", fmt.Errorf("no free wireguard peer addresses in %s", cfg.WireGuard.Address)
+}
+
+func addToIP(ip net.IP, offset int64) (net.IP, error) {
+	ip16 := ip.To16()
+	if ip16 == nil {
+		return nil, fmt.Errorf("invalid IP address %q", ip)
+	}
+	value := new(big.Int).SetBytes(ip16)
+	value.Add(value, big.NewInt(offset))
+	if value.Sign() < 0 || value.BitLen() > 128 {
+		return nil, fmt.Errorf("IP offset %d overflows %s", offset, ip)
+	}
+	out := value.FillBytes(make([]byte, 16))
+	return net.IP(out), nil
 }
 
 func AppendPeer(path string, peer config.WGPeer) error {
@@ -266,6 +284,9 @@ func apiURL(wireGuardAddress string) (string, error) {
 	ip, _, err := net.ParseCIDR(wireGuardAddress)
 	if err != nil {
 		return "", fmt.Errorf("wireguard.address must be CIDR: %w", err)
+	}
+	if ip.To4() == nil {
+		return "http://[" + ip.String() + "]", nil
 	}
 	return "http://" + ip.String(), nil
 }

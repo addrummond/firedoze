@@ -32,10 +32,10 @@ func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConf
 
 	addr, err := netlink.ParseAddr(cfg.Address)
 	if err != nil {
-		return fmt.Errorf("parse address: %w", err)
+		return fmt.Errorf("parse address %q: %w", cfg.Address, err)
 	}
 	if err := netlink.AddrReplace(link, addr); err != nil {
-		return fmt.Errorf("assign address: %w", err)
+		return fmt.Errorf("assign address %q: %w", cfg.Address, err)
 	}
 
 	client, err := wgctrl.New()

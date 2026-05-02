@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -40,7 +41,6 @@ const ShutdownSleepTimeout = 2 * time.Minute
 
 const (
 	debugfsPath   = "/usr/sbin/debugfs"
-	iptablesPath  = "/usr/sbin/iptables"
 	sshKeygenPath = "/usr/bin/ssh-keygen"
 )
 
@@ -87,7 +87,7 @@ func (m *Manager) ReconcileStartup(ctx context.Context) error {
 		proc := &Process{
 			Name:      vm.Name,
 			TapName:   tapName(vm.Name),
-			GuestCIDR: vm.PrivateIP + "/30",
+			GuestCIDR: vm.PrivateIP + "/127",
 		}
 		if err := m.cleanupNetwork(proc); err != nil {
 			m.logger.Debug("cleanup stale vm network", "vm", vm.Name, "error", err)
@@ -436,7 +436,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
 			InitrdPath:      m.cfg.Firecracker.BaseInitrdPath,
-			BootArgs:        m.bootArgs(),
+			BootArgs:        m.bootArgs(netdev),
 		},
 		Drives: []drive{{
 			DriveID:      "rootfs",
@@ -477,8 +477,10 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	return m.store.GetVM(ctx, name)
 }
 
-func (m *Manager) bootArgs() string {
+func (m *Manager) bootArgs(netdev preparedNetwork) string {
 	args := "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw"
+	args += " firedoze.guest_ip=" + netdev.guestIP.String()
+	args += " firedoze.host_ip=" + netdev.hostIP.String()
 	if m.cfg.DNS.Enabled {
 		args += " firedoze.dns_ip=" + m.cfg.DNS.ListenIP
 		args += " firedoze.dns_domain=" + m.cfg.DNS.Domain
@@ -674,20 +676,26 @@ type preparedNetwork struct {
 	tapName   string
 	guestMAC  string
 	guestCIDR string
+	hostIP    net.IP
+	guestIP   net.IP
 }
 
 func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetwork, error) {
+	_ = ctx
 	if vm.PrivateIP == "" {
 		return preparedNetwork{}, errors.New("vm has no private_ip")
 	}
-	guestIP := net.ParseIP(vm.PrivateIP).To4()
+	guestIP := net.ParseIP(vm.PrivateIP)
 	if guestIP == nil {
-		return preparedNetwork{}, fmt.Errorf("private_ip must be IPv4: %q", vm.PrivateIP)
+		return preparedNetwork{}, fmt.Errorf("private_ip must be an IP address: %q", vm.PrivateIP)
 	}
-	hostIP := append(net.IP(nil), guestIP...)
-	hostIP[3]--
-	if hostIP[3] == 0 {
-		return preparedNetwork{}, fmt.Errorf("private_ip %s has invalid /30 host peer", vm.PrivateIP)
+	guestIP = guestIP.To16()
+	if guestIP == nil || guestIP.To4() != nil {
+		return preparedNetwork{}, fmt.Errorf("private_ip must be IPv6: %q", vm.PrivateIP)
+	}
+	hostIP, err := decrementIP(guestIP)
+	if err != nil {
+		return preparedNetwork{}, fmt.Errorf("private_ip %s has invalid /127 host peer: %w", vm.PrivateIP, err)
 	}
 
 	tapName := tapName(vm.Name)
@@ -706,7 +714,7 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
-	addr, err := netlink.ParseAddr(hostIP.String() + "/30")
+	addr, err := netlink.ParseAddr(hostIP.String() + "/127")
 	if err != nil {
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
@@ -719,44 +727,22 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
-	if err := enableIPv4Forwarding(); err != nil {
+	if err := enableIPv6Forwarding(); err != nil {
 		return preparedNetwork{}, err
 	}
-	guestCIDR := guestIP.String() + "/30"
-	if err := m.ensureMasquerade(ctx, guestCIDR, tapName); err != nil {
-		_ = deleteTap(tapName)
-		return preparedNetwork{}, err
-	}
+	guestCIDR := guestIP.String() + "/127"
 
 	return preparedNetwork{
 		tapName:   tapName,
-		guestMAC:  macForGuestIP(guestIP),
+		guestMAC:  macForVMName(vm.Name),
 		guestCIDR: guestCIDR,
+		hostIP:    hostIP,
+		guestIP:   guestIP,
 	}, nil
 }
 
-func (m *Manager) ensureMasquerade(ctx context.Context, guestCIDR string, tapName string) error {
-	_, wgNet, err := net.ParseCIDR(m.cfg.WireGuard.Address)
-	if err != nil {
-		return err
-	}
-	checkArgs := []string{"-t", "nat", "-C", "POSTROUTING", "-s", wgNet.String(), "-d", guestCIDR, "-o", tapName, "-j", "MASQUERADE"}
-	if err := run(ctx, iptablesPath, checkArgs...); err == nil {
-		return nil
-	}
-	addArgs := append([]string{"-t", "nat", "-A", "POSTROUTING"}, checkArgs[4:]...)
-	return run(ctx, iptablesPath, addArgs...)
-}
-
 func (m *Manager) cleanupNetwork(proc *Process) error {
-	var errs []error
-	if proc.GuestCIDR != "" && proc.TapName != "" {
-		if _, wgNet, err := net.ParseCIDR(m.cfg.WireGuard.Address); err == nil {
-			errs = append(errs, run(context.Background(), iptablesPath, "-t", "nat", "-D", "POSTROUTING", "-s", wgNet.String(), "-d", proc.GuestCIDR, "-o", proc.TapName, "-j", "MASQUERADE"))
-		}
-	}
-	errs = append(errs, deleteTap(proc.TapName))
-	return errors.Join(errs...)
+	return deleteTap(proc.TapName)
 }
 
 func (m *Manager) nextPrivateIP(ctx context.Context) (net.IP, error) {
@@ -764,25 +750,35 @@ func (m *Manager) nextPrivateIP(ctx context.Context) (net.IP, error) {
 	if err != nil {
 		return nil, err
 	}
-	base := subnet.IP.To4()
-	if base == nil {
-		return nil, errors.New("vm_network.subnet must be IPv4 for v1")
+	base := subnet.IP.To16()
+	if base == nil || base.To4() != nil {
+		return nil, errors.New("vm_network.subnet must be IPv6")
 	}
-	count, err := m.store.CountVMs(ctx)
+	vms, err := m.store.ListVMs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ip := append(net.IP(nil), base...)
-	// Reserve the first /30 in the VM subnet for host-side infrastructure.
-	// The DNS resolver uses the first usable address, so VM allocation starts
-	// at the second guest address in the /30 sequence.
-	offset := 6 + count*4
-	ip[2] += byte(offset / 256)
-	ip[3] += byte(offset % 256)
-	if !subnet.Contains(ip) {
-		return nil, fmt.Errorf("vm subnet exhausted: %s", subnet)
+	used := make(map[string]struct{}, len(vms))
+	for _, vm := range vms {
+		if vm.PrivateIP != "" {
+			used[vm.PrivateIP] = struct{}{}
+		}
 	}
-	return ip, nil
+	// Reserve ::1 for the DNS listener. Each VM gets a /127 pair:
+	// even address on the host TAP, odd address in the guest.
+	for offset := int64(3); ; offset += 2 {
+		ip, err := addToIP(base, offset)
+		if err != nil {
+			return nil, err
+		}
+		if !subnet.Contains(ip) {
+			return nil, fmt.Errorf("vm subnet exhausted: %s", subnet)
+		}
+		if _, ok := used[ip.String()]; ok {
+			continue
+		}
+		return ip, nil
+	}
 }
 
 func tapName(vmName string) string {
@@ -793,12 +789,32 @@ func tapName(vmName string) string {
 	return name
 }
 
-func macForGuestIP(ip net.IP) string {
-	return fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", ip[0], ip[1], ip[2], ip[3])
+func macForVMName(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("06:00:%02x:%02x:%02x:%02x", sum[0], sum[1], sum[2], sum[3])
 }
 
-func enableIPv4Forwarding() error {
-	return os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644)
+func enableIPv6Forwarding() error {
+	return os.WriteFile("/proc/sys/net/ipv6/conf/all/forwarding", []byte("1\n"), 0o644)
+}
+
+func addToIP(ip net.IP, offset int64) (net.IP, error) {
+	value := new(big.Int).SetBytes(ip.To16())
+	value.Add(value, big.NewInt(offset))
+	if value.Sign() < 0 {
+		return nil, fmt.Errorf("IP underflow")
+	}
+	bytes := value.Bytes()
+	if len(bytes) > net.IPv6len {
+		return nil, fmt.Errorf("IP overflow")
+	}
+	out := make(net.IP, net.IPv6len)
+	copy(out[net.IPv6len-len(bytes):], bytes)
+	return out, nil
+}
+
+func decrementIP(ip net.IP) (net.IP, error) {
+	return addToIP(ip, -1)
 }
 
 func deleteTap(name string) error {

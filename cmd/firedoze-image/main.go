@@ -250,7 +250,7 @@ initrd_source=%s
 initrd_sha256=%s
 size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
-network=06:00:<guest-ip-octets> with guest /30 and host at guest_ip-1
+network=IPv6-only private VM network configured from firedoze kernel args
 builder=firedoze-image native-go
 `, *release, *arch, source.name, *rootSHA256, artifacts.kernel.path, *kernelSHA256, artifacts.initrd.path, *initrdSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
@@ -762,38 +762,31 @@ if [ -z "$dev" ]; then
   exit 1
 fi
 
-mac="$(cat "/sys/class/net/$dev/address")"
-old_ifs="$IFS"
-IFS=:
-set -- $mac
-IFS="$old_ifs"
-
-if [ "$1:$2" != "06:00" ]; then
-  echo "unexpected firedoze MAC prefix: $mac" >&2
-  exit 1
-fi
-
-o1="$(printf "%d" "0x$3")"
-o2="$(printf "%d" "0x$4")"
-o3="$(printf "%d" "0x$5")"
-o4="$(printf "%d" "0x$6")"
-guest_ip="$o1.$o2.$o3.$o4"
-host_ip="$o1.$o2.$o3.$((o4 - 1))"
+guest_ip=""
+host_ip=""
 dns_ip=""
 dns_domain="firedoze"
 for arg in $(cat /proc/cmdline 2>/dev/null || true); do
   case "$arg" in
+    firedoze.guest_ip=*) guest_ip="${arg#firedoze.guest_ip=}" ;;
+    firedoze.host_ip=*) host_ip="${arg#firedoze.host_ip=}" ;;
     firedoze.dns_ip=*) dns_ip="${arg#firedoze.dns_ip=}" ;;
     firedoze.dns_domain=*) dns_domain="${arg#firedoze.dns_domain=}" ;;
   esac
 done
 
+if [ -z "$guest_ip" ] || [ -z "$host_ip" ]; then
+  echo "missing firedoze.guest_ip or firedoze.host_ip kernel arg" >&2
+  exit 1
+fi
+
 /bin/ip addr flush dev "$dev"
-/bin/ip addr add "$guest_ip/30" dev "$dev"
+/bin/ip -6 addr flush dev "$dev" scope global || true
 /bin/ip link set "$dev" up
-/bin/ip route replace default via "$host_ip" dev "$dev"
+/bin/ip -6 addr add "$guest_ip/127" dev "$dev"
+/bin/ip -6 route replace default via "$host_ip" dev "$dev"
 if [ -n "$dns_ip" ]; then
-  /bin/ip route replace "$dns_ip/32" via "$host_ip" dev "$dev"
+  /bin/ip -6 route replace "$dns_ip/128" via "$host_ip" dev "$dev"
 fi
 
 rm -f /etc/resolv.conf
@@ -869,10 +862,10 @@ while :; do
     printf '  load:     %s\n' "$load_text"
     printf '\n'
     printf 'Network\n'
-    ip -brief -4 addr show scope global 2>/dev/null | awk '{printf "  %-8s %s\n", $1, $3}' || true
+    ip -brief -6 addr show scope global 2>/dev/null | awk '{printf "  %-8s %s\n", $1, $3}' || true
     printf '\n'
     printf 'Routes\n'
-    ip route 2>/dev/null | awk '/^default / {print "  default via " $3 " dev " $5; next} {print "  " $0}' || true
+    ip -6 route 2>/dev/null | awk '/^default / {print "  default via " $3 " dev " $5; next} {print "  " $0}' || true
   } | nc -l -p "$port" -q 1
 done
 `,

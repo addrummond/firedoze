@@ -10,15 +10,16 @@ Use an x86_64 Linux box with:
 
 - KVM available at `/dev/kvm`.
 - Kernel WireGuard support.
-- `iptables`, `debugfs`, `ssh-keygen`, and `systemd`.
+- `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
+- IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
 
 On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential ca-certificates git iptables wireguard-tools e2fsprogs openssh-client
+sudo apt-get install -y build-essential ca-certificates git wireguard-tools e2fsprogs openssh-client
 ```
 
 ## 2. Setup
@@ -168,10 +169,10 @@ sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 
 The command picks the next free client address, updates `/etc/firedoze/firedoze.toml` automatically, and prints a WireGuard client config for Alice. The printed config contains `<client-private-key>` as a placeholder; Alice replaces that placeholder with the private key generated on her laptop.
 
-To choose the client address yourself, pass a unique `/32` address inside the generated WireGuard subnet:
+To choose the client address yourself, pass a unique `/128` address inside the generated WireGuard subnet:
 
 ```sh
-sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> 10.93.0.2/32
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> fd7a:115c:a1e1::2/128
 ```
 
 ### 2.5 Configure firewall and public DNS
@@ -212,10 +213,10 @@ Save the WireGuard client config printed by `-wg-add-peer` on the client laptop,
 
 The generated config includes a commented `FIREDOZE_API` export line. Use that value after connecting WireGuard.
 
-The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/32` address from the generated WireGuard subnet:
+The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/128` address from the generated WireGuard subnet:
 
 ```ini
-Address = 10.X.0.2/32
+Address = fdxx:xxxx:xxxx:xxxx::2/128
 ```
 
 The server config is the source of truth for the laptop's WireGuard address. Do not edit `Address` to a different value only on the laptop; it must match that peer's `allowed_ips` entry on the server. If you change the peer address in `/etc/firedoze/firedoze.toml`, regenerate the client config:
@@ -229,7 +230,7 @@ sudo firedozed -wg-peer-config alice-laptop
 The `firedoze` client runs on your laptop and talks to the WireGuard-only API. Set `FIREDOZE_API` to the value shown in the generated WireGuard client config:
 
 ```sh
-export FIREDOZE_API=http://10.X.0.1
+export FIREDOZE_API=http://[fdxx:xxxx:xxxx:xxxx::1]
 ```
 
 The client adds the default API port, `8081`, when the URL has no port. If your server uses a different API port, include it explicitly.
@@ -302,7 +303,7 @@ firedoze snapshot save demo-ready demo
 Run another local tool with the VM private IP in `FIREDOZE_VM_IP`:
 
 ```sh
-firedoze with-vm-ip demo sh -c 'rsync ./app/ "ubuntu@$FIREDOZE_VM_IP:/home/ubuntu/app/"'
+firedoze with-vm-ip demo sh -c 'rsync ./app/ "ubuntu@[$FIREDOZE_VM_IP]:/home/ubuntu/app/"'
 ```
 
 Run the built-in hello web server inside the VM:
@@ -403,17 +404,17 @@ port = 8081
 [wireguard]
 interface = "fdwg0"
 listen_port = 51820
-address = "10.77.0.1/24"
+address = "fd7a:115c:a1e1::1/64"
 endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
 private_key_file = "/etc/firedoze/wg.key"
 
 [[wireguard.peers]]
 name = "alice-laptop"
 public_key = "PASTE_CLIENT_PUBLIC_KEY_HERE"
-allowed_ips = ["10.77.0.2/32"]
+allowed_ips = ["fd7a:115c:a1e1::2/128"]
 
 [vm_network]
-subnet = "10.88.0.0/16"
+subnet = "fd7a:115c:a1e0::/64"
 
 [caddy]
 http_port = 80

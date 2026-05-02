@@ -61,8 +61,10 @@ func (c WireGuardConfig) Validate() error {
 	if c.PrivateKeyFile == "" {
 		return fmt.Errorf("wireguard.private_key_file is required")
 	}
-	if _, _, err := net.ParseCIDR(c.Address); err != nil {
+	if ip, _, err := net.ParseCIDR(c.Address); err != nil {
 		return fmt.Errorf("wireguard.address must be CIDR: %w", err)
+	} else if ip.To4() != nil {
+		return fmt.Errorf("wireguard.address must be IPv6")
 	}
 	for i, peer := range c.Peers {
 		if peer.Name == "" {
@@ -75,8 +77,10 @@ func (c WireGuardConfig) Validate() error {
 			return fmt.Errorf("wireguard.peers[%d].allowed_ips is required", i)
 		}
 		for j, allowedIP := range peer.AllowedIPs {
-			if _, _, err := net.ParseCIDR(allowedIP); err != nil {
+			if ip, _, err := net.ParseCIDR(allowedIP); err != nil {
 				return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] must be CIDR: %w", i, j, err)
+			} else if ip.To4() != nil {
+				return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] must be IPv6", i, j)
 			}
 		}
 	}
@@ -141,11 +145,11 @@ func Default() Config {
 		WireGuard: WireGuardConfig{
 			Interface:      "fdwg0",
 			ListenPort:     51820,
-			Address:        "10.77.0.1/24",
+			Address:        "fd7a:115c:a1e1::1/64",
 			PrivateKeyFile: "/etc/firedoze/wg.key",
 		},
 		VMNetwork: VMNetworkConfig{
-			Subnet: "10.88.0.0/16",
+			Subnet: "fd7a:115c:a1e0::/64",
 		},
 		DNS: DNSConfig{
 			Enabled:         true,
@@ -271,8 +275,10 @@ func (c Config) Validate() error {
 	if err := c.WireGuard.Validate(); err != nil {
 		return err
 	}
-	if _, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
+	if ip, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
+	} else if ip.To4() != nil {
+		return fmt.Errorf("vm_network.subnet must be IPv6")
 	}
 	if c.DNS.Enabled {
 		if c.DNS.Domain == "" {
@@ -335,11 +341,22 @@ func FirstUsableIP(cidr string) (net.IP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse subnet: %w", err)
 	}
-	ip = append(net.IP(nil), ip.To4()...)
-	if ip == nil {
-		return nil, fmt.Errorf("subnet must be IPv4: %s", cidr)
+	ip = append(net.IP(nil), ip...)
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = append(net.IP(nil), ip4...)
+		ip[3]++
+	} else {
+		ip = ip.To16()
+		if ip == nil {
+			return nil, fmt.Errorf("subnet must contain an IP address: %s", cidr)
+		}
+		for i := len(ip) - 1; i >= 0; i-- {
+			ip[i]++
+			if ip[i] != 0 {
+				break
+			}
+		}
 	}
-	ip[3]++
 	if !subnet.Contains(ip) {
 		return nil, fmt.Errorf("subnet has no usable DNS IP: %s", cidr)
 	}

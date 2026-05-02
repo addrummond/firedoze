@@ -20,10 +20,10 @@ func RenderExample(t ConfigTemplate) string {
 		t.Endpoint = "YOUR_SERVER_PUBLIC_IP_OR_DNS:51820"
 	}
 	if t.WGAddress == "" {
-		t.WGAddress = "10.77.0.1/24"
+		t.WGAddress = "fd7a:115c:a1e1::1/64"
 	}
 	if t.VMSubnet == "" {
-		t.VMSubnet = "10.88.0.0/16"
+		t.VMSubnet = "fd7a:115c:a1e0::/64"
 	}
 	baseDomainComment := ""
 	if t.BaseDomain == "dev.example.com" {
@@ -62,14 +62,14 @@ address = %q
 private_key_file = "/etc/firedoze/wg.key"
 
 # Add one peer for each laptop that should administer firedoze.
-# Each peer needs a unique /32 address inside the WireGuard subnet.
+# Each peer needs a unique /128 address inside the WireGuard subnet.
 #
 # firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> appends the peer block
 # automatically and prints a client config with a private-key placeholder.
 
 [vm_network]
-# Private IPv4 range used for VM addresses. Change it if it overlaps with
-# your WireGuard subnet, VPC, LAN, or VPN routes.
+# Private IPv6 ULA range used for VM addresses. Change it if it overlaps with
+# another routed IPv6 range on your network.
 subnet = %q
 
 [dns]

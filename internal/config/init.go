@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -60,7 +61,7 @@ func InitFile(path string, opts InitOptions) error {
 }
 
 func InitTOML(opts InitOptions) (string, error) {
-	wgOctet, vmOctet, err := randomNetworkOctets()
+	wgSubnet, vmSubnet, err := randomNetworks()
 	if err != nil {
 		return "", err
 	}
@@ -87,17 +88,19 @@ func InitTOML(opts InitOptions) (string, error) {
 	return RenderExample(ConfigTemplate{
 		BaseDomain: baseDomain,
 		Endpoint:   endpoint,
-		WGAddress:  fmt.Sprintf("10.%d.0.1/24", wgOctet),
-		VMSubnet:   fmt.Sprintf("10.%d.0.0/16", vmOctet),
+		WGAddress:  wgSubnet,
+		VMSubnet:   vmSubnet,
 	}), nil
 }
 
-func randomNetworkOctets() (int, int, error) {
-	var b [2]byte
+func randomNetworks() (string, string, error) {
+	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return 0, 0, err
+		return "", "", err
 	}
-	return 64 + int(b[0]%64), 128 + int(b[1]%96), nil
+	wgSubnet := fmt.Sprintf("fd%02x:%04x:%04x:%04x::1/64", b[0], binary.BigEndian.Uint16(b[1:3]), binary.BigEndian.Uint16(b[3:5]), binary.BigEndian.Uint16(b[5:7]))
+	vmSubnet := fmt.Sprintf("fd%02x:%04x:%04x:%04x::/64", b[6], binary.BigEndian.Uint16(b[7:9]), binary.BigEndian.Uint16(b[9:11]), uint16(b[11])<<8)
+	return wgSubnet, vmSubnet, nil
 }
 
 func endpointForHost(host string, defaultPort int) string {

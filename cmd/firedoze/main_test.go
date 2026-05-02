@@ -125,7 +125,7 @@ func TestRunAllowsLocalCommandsWithoutAPI(t *testing.T) {
 func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	got := sshCommand(vmInfo{
 		VM: store.VM{
-			PrivateIP: "10.88.0.2",
+			PrivateIP: "fd7a:115c:a1e0::3",
 		},
 		SSH: "ssh ubuntu@demo.example.com",
 	})
@@ -137,7 +137,7 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 		"-o", "PubkeyAuthentication=no",
 		"-o", "PreferredAuthentications=none,password",
 		"-o", "NumberOfPasswordPrompts=1",
-		"ubuntu@10.88.0.2",
+		"ubuntu@fd7a:115c:a1e0::3",
 	}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("sshCommand = %#v, want %#v", got, want)
@@ -147,11 +147,11 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 func TestRemoteExecCommandAddsSeparatorBeforeRemoteCommand(t *testing.T) {
 	got := remoteExecCommand(vmInfo{
 		VM: store.VM{
-			PrivateIP: "10.88.0.2",
+			PrivateIP: "fd7a:115c:a1e0::3",
 		},
 		SSH: "ssh ubuntu@demo.example.com",
 	}, []string{"echo", "hello"})
-	wantSuffix := []string{"ubuntu@10.88.0.2", "--", "echo", "hello"}
+	wantSuffix := []string{"ubuntu@fd7a:115c:a1e0::3", "--", "echo", "hello"}
 	if got := strings.Join(got[len(got)-len(wantSuffix):], "\x00"); got != strings.Join(wantSuffix, "\x00") {
 		t.Fatalf("remoteExecCommand suffix = %#v, want %#v", got, strings.Join(wantSuffix, "\x00"))
 	}
@@ -163,7 +163,7 @@ func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","private_ip":"10.88.0.2"}]}`)
+		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","private_ip":"fd7a:115c:a1e0::3"}]}`)
 	}))
 	defer server.Close()
 
@@ -180,8 +180,8 @@ func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "10.88.0.2" {
-		t.Fatalf("FIREDOZE_VM_IP = %q, want 10.88.0.2", string(data))
+	if string(data) != "fd7a:115c:a1e0::3" {
+		t.Fatalf("FIREDOZE_VM_IP = %q, want fd7a:115c:a1e0::3", string(data))
 	}
 }
 

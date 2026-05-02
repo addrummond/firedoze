@@ -22,13 +22,13 @@ func TestAnswersVMName(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "10.88.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 
 	server := NewServer(config.DNSConfig{Domain: "firedoze", TTLSeconds: 30}, st, nil)
 	req := new(miekgdns.Msg)
-	req.SetQuestion("demo.firedoze.", miekgdns.TypeA)
+	req.SetQuestion("demo.firedoze.", miekgdns.TypeAAAA)
 	rec := &responseRecorder{}
 	server.handle(rec, req)
 
@@ -41,11 +41,11 @@ func TestAnswersVMName(t *testing.T) {
 	if len(rec.msg.Answer) != 1 {
 		t.Fatalf("answers = %#v, want one answer", rec.msg.Answer)
 	}
-	answer, ok := rec.msg.Answer[0].(*miekgdns.A)
+	answer, ok := rec.msg.Answer[0].(*miekgdns.AAAA)
 	if !ok {
-		t.Fatalf("answer = %T, want A", rec.msg.Answer[0])
+		t.Fatalf("answer = %T, want AAAA", rec.msg.Answer[0])
 	}
-	if got, want := answer.A.String(), "10.88.0.2"; got != want {
+	if got, want := answer.AAAA.String(), "fd7a:115c:a1e0::3"; got != want {
 		t.Fatalf("answer IP = %s, want %s", got, want)
 	}
 }
@@ -63,7 +63,7 @@ func TestUnknownVMNameIsNXDOMAIN(t *testing.T) {
 
 	server := NewServer(config.DNSConfig{Domain: "firedoze", TTLSeconds: 30}, st, nil)
 	req := new(miekgdns.Msg)
-	req.SetQuestion("missing.firedoze.", miekgdns.TypeA)
+	req.SetQuestion("missing.firedoze.", miekgdns.TypeAAAA)
 	rec := &responseRecorder{}
 	server.handle(rec, req)
 

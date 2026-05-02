@@ -91,13 +91,13 @@ Example config shape:
 [wireguard]
 interface = "fdwg0"
 listen_port = 51820
-address = "10.77.0.1/24"
+address = "fd7a:115c:a1e1::1/64"
 private_key_file = "/etc/firedoze/wg.key"
 
 [[wireguard.peers]]
 name = "alice-laptop"
 public_key = "..."
-allowed_ips = ["10.77.0.2/32"]
+allowed_ips = ["fd7a:115c:a1e1::2/128"]
 ```
 
 firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, management and VM subnet routes, and a `<client-private-key>` placeholder. firedoze does not manage developer client private keys.
@@ -177,9 +177,9 @@ WireGuard peer configuration must include routes for both the WireGuard manageme
 
 ## VM Networking
 
-v1 uses private VM networking only.
+v1 uses private IPv6 VM networking only.
 
-Each VM gets a private IP on a host-managed VM subnet. There is no per-VM public IPv6 requirement in v1.
+Each VM gets a private IPv6 ULA address on a host-managed VM subnet. There is no per-VM public IPv6 requirement in v1.
 
 WireGuard clients should be able to route directly to VM private IPs for SSH:
 
@@ -191,9 +191,9 @@ There is no SSH jump service and no public SSH.
 
 VM private IPs do not need to be stable across sleep/resume or clone operations, but API responses should expose them for debugging.
 
-The initial Firecracker implementation uses one TAP device per VM, created and configured through Linux netlink rather than shelling out to `ip`. The quickstart guest image derives its guest IP from a `06:00:*` MAC address and configures a `/30`; firedoze currently matches that behavior by assigning the host side as `guest_ip - 1` and the guest as `guest_ip`.
+The Firecracker implementation uses one TAP device per VM, created and configured through Linux netlink rather than shelling out to `ip`. Each VM gets a `/127` host/guest point-to-point pair inside `vm_network.subnet`: the even address is assigned to the host TAP and the odd address is passed to the guest as a kernel argument.
 
-For v1, firedoze applies host-side SNAT/MASQUERADE from the WireGuard subnet to each VM TAP network. This avoids requiring the guest to know routes back to the WireGuard management subnet.
+The guest default route points at the host-side address for its `/127`. WireGuard clients receive IPv6 routes for both the management address and the VM subnet.
 
 ## SSH
 
@@ -213,7 +213,7 @@ firedoze ssh myvm
 
 The client resolves the VM to its private IP through the management API before starting OpenSSH, so no client-side DNS setup is required.
 
-Sleeping VMs should wake from direct SSH/network activity. The v1 implementation redirects WireGuard TCP/22 traffic for VM private IPs into a daemon-side SSH wake proxy. The proxy identifies the original destination VM, starts or resumes it, waits for guest SSH, then relays the original connection.
+The `firedoze ssh <vm>` client starts or resumes the VM when needed, waits for guest SSH, then execs OpenSSH against the VM private IPv6 address. Passive SSH wake-on-network is disabled for the IPv6-only VM network for now.
 
 ## Public HTTPS
 
@@ -322,7 +322,7 @@ The base image should be built from pinned Ubuntu cloud image artifacts rather t
 
 The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
-The guest image carries a tiny firedoze network service. At boot, it reads the Firecracker MAC address in the `06:00:<guest-ip-octets>` convention and configures `eth0` with the derived `/30` guest IP and default route through `guest_ip - 1`.
+The guest image carries a tiny firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
 
 The base image is used only for fresh VMs. Existing VMs and snapshots do not change when the configured base image changes.
 

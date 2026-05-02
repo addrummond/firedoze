@@ -23,19 +23,19 @@ func TestNewPeerSetup(t *testing.T) {
 	if peer.Name != "alice-laptop" {
 		t.Fatalf("peer name = %q, want alice-laptop", peer.Name)
 	}
-	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "10.77.0.2/32" {
-		t.Fatalf("allowed IPs = %#v, want 10.77.0.2/32", peer.AllowedIPs)
+	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "fd7a:115c:a1e1::2/128" {
+		t.Fatalf("allowed IPs = %#v, want fd7a:115c:a1e1::2/128", peer.AllowedIPs)
 	}
 
 	for _, want := range []string{
 		"# WireGuard client config template for alice-laptop.",
 		"# Save this on the client laptop and replace <client-private-key> locally.",
-		"#   export FIREDOZE_API=http://10.77.0.1",
+		"#   export FIREDOZE_API=http://[fd7a:115c:a1e1::1]",
 		"[Interface]",
 		"PrivateKey = <client-private-key>",
-		"Address = 10.77.0.2/32",
+		"Address = fd7a:115c:a1e1::2/128",
 		"Endpoint = example.com:51820",
-		"AllowedIPs = 10.77.0.1/32, 10.88.0.0/16",
+		"AllowedIPs = fd7a:115c:a1e1::1/128, fd7a:115c:a1e0::/64",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
@@ -63,15 +63,15 @@ func TestNewPeerSetupSkipsUsedAllowedIPs(t *testing.T) {
 	cfg.WireGuard.Peers = []config.WGPeer{{
 		Name:       "alice-laptop",
 		PublicKey:  "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE=",
-		AllowedIPs: []string{"10.77.0.2/32"},
+		AllowedIPs: []string{"fd7a:115c:a1e1::2/128"},
 	}}
 
 	peer, _, err := NewPeerSetup(cfg, "bob-laptop", publicKey, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "10.77.0.3/32" {
-		t.Fatalf("allowed IPs = %#v, want 10.77.0.3/32", peer.AllowedIPs)
+	if len(peer.AllowedIPs) != 1 || peer.AllowedIPs[0] != "fd7a:115c:a1e1::3/128" {
+		t.Fatalf("allowed IPs = %#v, want fd7a:115c:a1e1::3/128", peer.AllowedIPs)
 	}
 }
 
@@ -96,12 +96,12 @@ path = "`+dir+`/firedoze.db"
 [wireguard]
 interface = "fdwg0"
 listen_port = 51820
-address = "10.77.0.1/24"
+address = "fd7a:115c:a1e1::1/64"
 endpoint = "example.com:51820"
 private_key_file = "`+dir+`/wg.key"
 
 [vm_network]
-subnet = "10.88.0.0/16"
+subnet = "fd7a:115c:a1e0::/64"
 
 [ssh]
 user = "ubuntu"
@@ -125,7 +125,7 @@ default_disk_bytes = 4294967296
 	peer := config.WGPeer{
 		Name:       "alice-laptop",
 		PublicKey:  "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE=",
-		AllowedIPs: []string{"10.77.0.2/32"},
+		AllowedIPs: []string{"fd7a:115c:a1e1::2/128"},
 	}
 	if err := AppendPeer(configPath, peer); err != nil {
 		t.Fatal(err)

@@ -39,6 +39,11 @@ func NewTCPWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logg
 }
 
 func (p *TCPWakeProxy) RunSSH(ctx context.Context) error {
+	if !isIPv4CIDR(p.cfg.VMNetwork.Subnet) {
+		p.logger.Info("ssh wake proxy disabled for IPv6 VM network; firedoze ssh starts VMs explicitly", "subnet", p.cfg.VMNetwork.Subnet)
+		<-ctx.Done()
+		return nil
+	}
 	if err := p.ensureSSHRedirect(ctx); err != nil {
 		return err
 	}
@@ -91,6 +96,11 @@ func (p *TCPWakeProxy) RunSSH(ctx context.Context) error {
 			p.handleSSHConn(ctx, conn)
 		}()
 	}
+}
+
+func isIPv4CIDR(cidr string) bool {
+	ip, _, err := net.ParseCIDR(cidr)
+	return err == nil && ip.To4() != nil
 }
 
 func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {

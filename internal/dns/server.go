@@ -88,7 +88,7 @@ func (s *Server) handle(w miekgdns.ResponseWriter, r *miekgdns.Msg) {
 
 func (s *Server) answerVM(w miekgdns.ResponseWriter, r *miekgdns.Msg, q miekgdns.Question, vmName string) {
 	msg := newReply(r, miekgdns.RcodeSuccess)
-	if q.Qtype != miekgdns.TypeA && q.Qtype != miekgdns.TypeANY {
+	if q.Qtype != miekgdns.TypeAAAA && q.Qtype != miekgdns.TypeANY {
 		writeDNS(w, msg)
 		return
 	}
@@ -97,19 +97,19 @@ func (s *Server) answerVM(w miekgdns.ResponseWriter, r *miekgdns.Msg, q miekgdns
 		writeDNS(w, newReply(r, miekgdns.RcodeNameError))
 		return
 	}
-	ip := net.ParseIP(vm.PrivateIP).To4()
-	if ip == nil {
+	ip := net.ParseIP(vm.PrivateIP)
+	if ip == nil || ip.To4() != nil {
 		writeDNS(w, newReply(r, miekgdns.RcodeNameError))
 		return
 	}
-	msg.Answer = append(msg.Answer, &miekgdns.A{
+	msg.Answer = append(msg.Answer, &miekgdns.AAAA{
 		Hdr: miekgdns.RR_Header{
 			Name:   q.Name,
-			Rrtype: miekgdns.TypeA,
+			Rrtype: miekgdns.TypeAAAA,
 			Class:  miekgdns.ClassINET,
 			Ttl:    uint32(s.cfg.TTLSeconds),
 		},
-		A: ip,
+		AAAA: ip,
 	})
 	writeDNS(w, msg)
 }

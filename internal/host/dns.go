@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/vishvananda/netlink"
 )
@@ -12,7 +13,15 @@ func (o *LinuxOps) EnsureLoopbackAddress(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("find loopback: %w", err)
 	}
-	addr, err := netlink.ParseAddr(address + "/32")
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return fmt.Errorf("parse loopback address: %s", address)
+	}
+	prefix := "/32"
+	if ip.To4() == nil {
+		prefix = "/128"
+	}
+	addr, err := netlink.ParseAddr(address + prefix)
 	if err != nil {
 		return fmt.Errorf("parse loopback address: %w", err)
 	}
