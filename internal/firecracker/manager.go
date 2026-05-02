@@ -183,6 +183,10 @@ func (m *Manager) ListVMs(ctx context.Context) ([]store.VM, error) {
 	return m.store.ListVMs(ctx)
 }
 
+func (m *Manager) ListVMsMatching(ctx context.Context, namePatterns []string) ([]store.VM, error) {
+	return m.store.ListVMsMatching(ctx, namePatterns)
+}
+
 func (m *Manager) GetVM(ctx context.Context, name string) (store.VM, error) {
 	return m.store.GetVM(ctx, name)
 }

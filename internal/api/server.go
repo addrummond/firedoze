@@ -134,7 +134,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
-	vms, err := s.manager.ListVMs(r.Context())
+	vms, err := s.manager.ListVMsMatching(r.Context(), r.URL.Query()["name"])
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

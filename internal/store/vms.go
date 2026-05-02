@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -54,11 +55,27 @@ func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error)
 }
 
 func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListVMsMatching(ctx, nil)
+}
+
+func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]VM, error) {
+	query := `
 		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata
 		from vms
+	`
+	args := []any{}
+	if len(namePatterns) > 0 {
+		clauses := make([]string, 0, len(namePatterns))
+		for _, pattern := range namePatterns {
+			clauses = append(clauses, `name like ? escape '\'`)
+			args = append(args, GlobToLike(pattern))
+		}
+		query += " where " + strings.Join(clauses, " or ")
+	}
+	query += `
 		order by name
-	`)
+	`
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +93,24 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 		return nil, err
 	}
 	return vms, nil
+}
+
+func GlobToLike(pattern string) string {
+	var b strings.Builder
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			b.WriteByte('%')
+		case '?':
+			b.WriteByte('_')
+		case '%', '_', '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {

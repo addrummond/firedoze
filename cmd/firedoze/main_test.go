@@ -200,6 +200,30 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	}
 }
 
+func TestVMListPassesNameGlobs(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.String()
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[]}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (app{client: c, json: true}).vm([]string{"list", "dev-*", "test?"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := gotPath, "/vms?name=dev-%2A&name=test%3F"; got != want {
+		t.Fatalf("path = %q, want %q", got, want)
+	}
+}
+
 func TestWGKeygen(t *testing.T) {
 	oldStdout := os.Stdout
 	read, write, err := os.Pipe()

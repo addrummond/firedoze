@@ -202,10 +202,19 @@ func (a app) vm(args []string) error {
 	}
 	switch args[0] {
 	case "list", "ls":
+		patterns := args[1:]
 		var out struct {
 			VMs []vmInfo `json:"vms"`
 		}
-		if err := a.client.do(context.Background(), http.MethodGet, "/vms", nil, &out); err != nil {
+		listURL := "/vms"
+		if len(patterns) > 0 {
+			values := url.Values{}
+			for _, pattern := range patterns {
+				values.Add("name", pattern)
+			}
+			listURL += "?" + values.Encode()
+		}
+		if err := a.client.do(context.Background(), http.MethodGet, listURL, nil, &out); err != nil {
 			return err
 		}
 		if a.json {
@@ -917,7 +926,7 @@ func usage() {
 Commands:
   health
   config
-  vm list
+  vm list [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [--vcpus N] [--memory-mib N] [--disk-bytes N] [--http-port N] [--idle-sleep-after N]
   vm start <name>
