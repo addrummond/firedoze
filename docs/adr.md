@@ -125,7 +125,7 @@ The client stores named server profiles in `~/.config/firedoze/config.toml`. Onb
 The client should provide the friendly operational surface:
 
 - `firedoze server add/list/use/current/remove`
-- `firedoze vm list`
+- `firedoze vm list [-names] [name-glob...]`
 - `firedoze vm inspect <vm>`
 - `firedoze vm create/start/sleep/stop/delete/settings`
 - `firedoze ssh <vm>`

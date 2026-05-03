@@ -253,7 +253,16 @@ func (a app) vm(args []string) error {
 	}
 	switch args[0] {
 	case "list", "ls":
-		patterns := args[1:]
+		listFlags := flag.NewFlagSet("firedoze vm list", flag.ContinueOnError)
+		listFlags.SetOutput(io.Discard)
+		namesOnly := listFlags.Bool("names", false, "print only VM names")
+		if err := listFlags.Parse(args[1:]); err != nil {
+			return fmt.Errorf("%w\nusage: firedoze vm list [-names] [name-glob...]", err)
+		}
+		if a.json && *namesOnly {
+			return errors.New("firedoze vm list -names cannot be combined with -json")
+		}
+		patterns := listFlags.Args()
 		var out struct {
 			VMs []vmInfo `json:"vms"`
 		}
@@ -270,6 +279,12 @@ func (a app) vm(args []string) error {
 		}
 		if a.json {
 			return printJSON(out)
+		}
+		if *namesOnly {
+			for _, vm := range out.VMs {
+				fmt.Println(vm.Name)
+			}
+			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tSTATE\tRUNTIME\tPRIVATE IP\tPUBLIC URL")
@@ -1322,7 +1337,7 @@ Commands:
   reboot <vm>
   publish <vm>
   hide <vm>
-  vm list [name-glob...]
+  vm list [-names] [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   vm start <name>

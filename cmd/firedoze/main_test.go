@@ -320,6 +320,57 @@ func TestVMListUsesPublicURLColumn(t *testing.T) {
 	}
 }
 
+func TestVMListNamesOnlyPrintsOneNamePerLine(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := strings.Join(r.URL.Query()["name"], ","); got != "demo*,test*" {
+			t.Fatalf("name query = %q, want demo*,test*", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[
+			{"name":"demo-one","state":"running","private_ip":"fd7a:115c:a1e0::3"},
+			{"name":"test-two","state":"stopped","private_ip":"fd7a:115c:a1e0::5"}
+		]}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: c}).vm([]string{"list", "-names", "demo*", "test*"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "demo-one\ntest-two\n"; got != want {
+		t.Fatalf("names-only output = %q, want %q", got, want)
+	}
+}
+
+func TestVMListNamesOnlyRejectsJSON(t *testing.T) {
+	err := (app{json: true}).vm([]string{"list", "-names"})
+	if err == nil {
+		t.Fatal("vm list -names accepted -json mode")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined with -json") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -320,6 +320,12 @@ firedoze vm inspect demo
 firedoze ssh demo
 ```
 
+For shell scripts, print just matching VM names:
+
+```sh
+firedoze vm list -names 'demo*'
+```
+
 Run a command inside a VM and snapshot it after the command succeeds:
 
 ```sh

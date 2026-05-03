@@ -99,6 +99,12 @@ Filter the list with globs:
 firedoze vm list 'demo*'
 ```
 
+Print just the matching VM names, one per line, for scripts:
+
+```sh
+firedoze vm list -names 'demo*'
+```
+
 Inspect one VM:
 
 ```sh
