@@ -66,8 +66,9 @@ if [ -f "$config_dst" ]; then
 fi
 
 echo "installing documentation and systemd unit"
-as_root install -m 0644 Quickstart.md "$docdir/Quickstart.md"
-as_root install -m 0644 ADR.md "$docdir/ADR.md"
+as_root install -m 0644 docs/Quickstart.md "$docdir/Quickstart.md"
+as_root install -m 0644 docs/ADR.md "$docdir/ADR.md"
+as_root install -m 0644 docs/AWS-notes.md "$docdir/AWS-notes.md"
 as_root install -m 0644 "$unit_src" "$unit_dst"
 
 if command -v systemctl >/dev/null 2>&1; then
