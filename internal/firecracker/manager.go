@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -625,17 +626,36 @@ func (m *Manager) SleepVM(ctx context.Context, name string) (store.VM, error) {
 }
 
 func (m *Manager) SleepRunningVMs(ctx context.Context) error {
-	m.mu.Lock()
-	names := make([]string, 0, len(m.running))
-	for name := range m.running {
-		names = append(names, name)
-	}
-	m.mu.Unlock()
+	names := m.RunningVMNames()
 
 	var errs []error
 	for _, name := range names {
 		if _, err := m.SleepVM(ctx, name); err != nil {
 			errs = append(errs, fmt.Errorf("sleep %s: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (m *Manager) RunningVMNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.running))
+	for name := range m.running {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (m *Manager) StartVMs(ctx context.Context, names []string) error {
+	var errs []error
+	for _, name := range names {
+		if _, err := m.StartVM(ctx, name); err != nil {
+			if errors.Is(err, ErrAlreadyRunning) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("start %s: %w", name, err))
 		}
 	}
 	return errors.Join(errs...)

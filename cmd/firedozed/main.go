@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -184,6 +186,9 @@ func run() int {
 			logger.Error("reconcile firecracker state", "error", err)
 			return 1
 		}
+		if err := wakeRestartVMs(ctx, cfg, manager, logger); err != nil {
+			logger.Warn("wake restart vms", "error", err)
+		}
 		proxyManager := proxy.NewManager(cfg, db, logger)
 		wakeProxy := proxy.NewWakeProxy(cfg, db, manager, logger)
 		tcpWakeProxy := proxy.NewTCPWakeProxy(cfg, db, manager, logger)
@@ -254,10 +259,14 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 		sleepCtx, cancelSleep := context.WithTimeout(context.Background(), firecracker.ShutdownSleepTimeout)
 		defer cancelSleep()
 		start := time.Now()
+		runningVMs := manager.RunningVMNames()
+		if err := writeRestartWakeFile(cfg, runningVMs); err != nil {
+			logger.Warn("record running vms for restart wake", "error", err)
+		}
 		if err := manager.SleepRunningVMs(sleepCtx); err != nil {
 			logger.Warn("sleep running vms during shutdown", "error", err)
 		} else {
-			logger.Info("slept running vms during shutdown", "duration", time.Since(start))
+			logger.Info("slept running vms during shutdown", "vms", len(runningVMs), "duration", time.Since(start))
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), api.ShutdownTimeout)
 		defer cancel()
@@ -268,6 +277,80 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 		}
 		return err
 	}
+}
+
+func restartWakePath(cfg config.Config) string {
+	return filepath.Join(cfg.StateDir, "restart-wake.json")
+}
+
+func writeRestartWakeFile(cfg config.Config, names []string) error {
+	path := restartWakePath(cfg)
+	if len(names) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(struct {
+		VMs []string `json:"vms"`
+	}{VMs: names}, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func wakeRestartVMs(ctx context.Context, cfg config.Config, manager *firecracker.Manager, logger *slog.Logger) error {
+	path := restartWakePath(cfg)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logger.Warn("remove restart wake file", "path", path, "error", err)
+	}
+	var payload struct {
+		VMs []string `json:"vms"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	if len(payload.VMs) == 0 {
+		return nil
+	}
+	start := time.Now()
+	logger.Info("waking vms that were running before daemon shutdown", "vms", len(payload.VMs))
+	if err := manager.StartVMs(ctx, payload.VMs); err != nil {
+		return err
+	}
+	logger.Info("woke restart vms", "vms", len(payload.VMs), "duration", time.Since(start))
+	return nil
 }
 
 func wireGuardBindIP(address string) (net.IP, error) {

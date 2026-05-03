@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Disposable Linux computers for your dev team — backed by Firecracker, gone when you're done with them.**
+**Disposable Linux computers for your dev team, backed by [Firecracker](https://firecracker-microvm.github.io/).**
 
 firedoze runs persistent VMs on a single Linux host. Each one behaves like a small, real computer: its own filesystem, its own systemd, its own SSH, its own long-running processes.
 
@@ -22,11 +22,9 @@ Containers are great, but sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that just stay running
 
-firedoze makes all of that lightweight enough for everyday team development. One beefy box, a simple CLI, and a WireGuard tunnel to keep things honest.
+firedoze makes all of that lightweight enough for everyday team development. One beefy box to run the VMs, a simple CLI, and a WireGuard tunnel to keep things honest.
 
-> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md).
-
----
+> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include Hetzner dedicated servers and Digital Ocean droplets.
 
 ## What you get
 
@@ -39,11 +37,9 @@ firedoze makes all of that lightweight enough for everyday team development. One
 - **Native Go image builder** — no Docker or Podman required
 - **Deliberately single-node** — one box, local SQLite, no scheduler, no cluster to babysit
 
----
-
 ## Quick example
 
-Spin up a VM, drop in a tiny web app, and publish it:
+Spin up a VM, drop in a tiny web app, publish it:
 
 ```sh
 firedoze up launchpad
@@ -71,18 +67,14 @@ firedoze vm sleep launchpad
 
 Or don't bother — firedoze will sleep idle VMs automatically after a configurable timeout.
 
----
-
 ## Scope (what firedoze is not)
 
 firedoze is deliberately narrow. It's a tool for a team that shares one capable host, not a platform:
 
 - **No clustering.** No live migration, no scheduler, no HA.
 - **One shared trust boundary.** Access is gated purely by WireGuard. No built-in users, teams, or ACLs.
-- **Fixed image.** Single non-configurableUbuntu-based VM image.
+- **Fixed image.** Single non-configurable Ubuntu-based VM image.
 - **HTTPS ingress only.** Public routes are for sharing HTTP services, not arbitrary TCP exposure.
-
----
 
 ## Documentation
 
@@ -90,8 +82,6 @@ firedoze is deliberately narrow. It's a tool for a team that shares one capable 
 - [Admin quickstart](docs/quickstart-admin.md) — for setting up and operating a firedoze host
 - [AWS guide](docs/aws-guide.md) — EC2 notes, nested virtualization, and bastion ideas
 - [ADR](docs/adr.md) — design decisions and the reasoning behind the scope
-
----
 
 ## Status
 
