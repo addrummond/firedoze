@@ -1,10 +1,14 @@
 # firedoze
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Disposable Linux computers for shared development.
 
-firedoze runs persistent Firecracker VMs on one Linux host, gives each VM simple command-line lifecycle controls, and exposes dev services over HTTPS when you want to share them. It is designed for the "create and forget" model: make a VM, use it like a small computer, let it sleep when idle, and only think about the environments that matter today.
+firedoze runs persistent Firecracker VMs on one Linux host, with WireGuard-gated management access, simple command-line lifecycle controls, and HTTPS exposure for dev services when you want to share them. It is designed for the "create and forget" model: make a VM, use it like a small computer, let it sleep when idle (consuming only disk space), and only think about the environments that matter today.
 
-**Warning: firedoze is early-stage development software.** It is not production-ready, the interfaces may change, and the security model assumes a trusted shared dev environment. Do not use it for production workloads or hostile multi-tenant isolation.
+⚠️ **firedoze is early-stage development software.**
+
+⚠️ Do not use firedoze for production workloads or hostile multi-tenant isolation.
 
 ## Why
 
@@ -12,25 +16,55 @@ Containerized dev environments are useful, but sometimes you want the shape of a
 
 firedoze aims to make that feel lightweight enough for everyday team development.
 
+💡 **Did you know?** AWS enabled nested virtualization on virtual EC2 instances in February 2026, starting with C8i, M8i, and R8i. That means you no longer need bare-metal EC2 just to run KVM-backed dev VMs on AWS. See the [AWS guide](docs/aws-guide.md) for notes.
+
 ## Highlights
 
 - Firecracker-backed Linux VMs that behave like small persistent computers.
 - WireGuard-only management access.
-- Public HTTPS routes for sharing running dev services.
+- Automatic public HTTPS routes for sharing running dev services (no more PM's hunching over dev laptops or faffing with ngrok).
 - Sleeping VMs that keep state while freeing CPU and memory.
 - Named snapshots and restores for cloneable environments.
-- A simple `firedoze` client for VM lifecycle, SSH, exec, copy, routes, and snapshots.
+- A simple `firedoze` client for VM lifecycle, ssh, exec, copy, routes, and snapshots.
 - Native Go base-image builder; no Docker or Podman required.
 - Single-node by design: one beefy box, local SQLite, no scheduler, no cluster.
 
+## Current Scope
+
+firedoze is deliberately narrow in scope:
+
+- One host only; no clustering, scheduling, or live migration.
+- One WireGuard-gated shared trust boundary per server; no built-in users, teams, ACLs, or non-WireGuard management access.
+- A fixed Ubuntu-based VM image.
+- Public ingress is focused on HTTPS routes for dev services, not arbitrary TCP exposure.
+
 ## Example
 
+Spin up a fresh Linux VM, drop in a tiny web app, publish it, and hand someone
+the HTTPS URL:
+
 ```sh
-firedoze up demo
-firedoze exec demo -- sh -lc 'echo hello from $(hostname)'
-firedoze publish demo
-firedoze vm sleep demo
+firedoze up launchpad
+
+firedoze exec launchpad -- sh -lc 'cat > app.html <<EOF
+<h1>hello from $(hostname)</h1>
+<p>this is a whole disposable computer, not a container</p>
+EOF
+busybox httpd -f -p 8080 -h .'
+
+firedoze vm list launchpad
 ```
+
+When you are done, sleep it. It keeps its state, but stops burning CPU and
+memory:
+
+```sh
+firedoze vm sleep launchpad
+```
+
+Too lazy to run the sleep command? Don't worry! firedoze will sleep the VM automatically after a configurable idle timeout.
+The VM wakes again when network traffic arrives, so the next request to
+its HTTPS URL brings it back.
 
 ## Documentation
 
@@ -43,5 +77,3 @@ firedoze vm sleep demo
 ## Status
 
 firedoze is currently a prototype moving toward basic functional completeness. The intended audience is developers comfortable running early infrastructure software and reading the docs before trusting it.
-
-The license is MIT.
