@@ -275,7 +275,7 @@ firedoze vm create demo
 firedoze start demo
 ```
 
-VMs created with `firedoze vm create` are hidden by default: they are reachable over WireGuard, but they do not get a public HTTPS route until you publish them.
+VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do not get a public HTTPS URL).
 
 Create a VM if needed, publish it, start it, and SSH in when it is ready:
 

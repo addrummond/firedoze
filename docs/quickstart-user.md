@@ -147,7 +147,7 @@ firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 
 ## 7. Public Web Access
 
-VMs created with `firedoze vm create` are hidden by default. They are reachable over WireGuard, but they do not get a public HTTPS URL.
+VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do not get a public HTTPS URL).
 
 Publish or hide the default VM URL:
 
