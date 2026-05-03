@@ -10,6 +10,8 @@ unit_dst=/etc/systemd/system/firedozed.service
 config_src=config/firedoze.example.toml
 config_dst="$sysconfdir/firedoze.toml"
 config_example_dst="$sysconfdir/firedoze.example.toml"
+service_user=firedoze
+service_group=firedoze
 
 if [ "$(id -u)" -eq 0 ]; then
   sudo_cmd=
@@ -52,17 +54,36 @@ as_root install -m 0755 "$build_dir/firedoze" "$prefix/bin/firedoze"
 as_root install -m 0755 "$build_dir/firedozed" "$prefix/bin/firedozed"
 as_root install -m 0755 "$build_dir/firedoze-image-builder" "$prefix/bin/firedoze-image-builder"
 
+echo "creating firedoze service user"
+if ! getent group "$service_group" >/dev/null 2>&1; then
+  as_root groupadd --system "$service_group"
+fi
+if ! id -u "$service_user" >/dev/null 2>&1; then
+  as_root useradd --system --gid "$service_group" --home-dir "$statedir" --shell /usr/sbin/nologin "$service_user"
+fi
+if getent group kvm >/dev/null 2>&1; then
+  as_root usermod -a -G kvm "$service_user"
+fi
+
 echo "creating firedoze directories"
-as_root install -d -m 0755 "$sysconfdir"
-as_root install -d -m 0755 "$statedir"
-as_root install -d -m 0755 "$statedir/images"
-as_root install -d -m 0755 /var/log/firedoze
+as_root install -d -o root -g "$service_group" -m 2770 "$sysconfdir"
+as_root install -d -o "$service_user" -g "$service_group" -m 0750 "$statedir"
+as_root install -d -o "$service_user" -g "$service_group" -m 0755 "$statedir/images"
+as_root install -d -o "$service_user" -g "$service_group" -m 0750 /var/log/firedoze
 as_root install -d -m 0755 "$docdir"
 
 echo "installing example config to $config_example_dst"
-as_root install -m 0644 "$config_src" "$config_example_dst"
+as_root install -o root -g "$service_group" -m 0640 "$config_src" "$config_example_dst"
 if [ -f "$config_dst" ]; then
   echo "leaving existing config in place: $config_dst"
+fi
+as_root chown -R "$service_user:$service_group" "$statedir" /var/log/firedoze
+as_root chgrp -R "$service_group" "$sysconfdir"
+as_root chmod 2770 "$sysconfdir"
+as_root find "$sysconfdir" -type f -name '*.toml' -exec chmod 0640 {} +
+if [ -f "$sysconfdir/wg.key" ]; then
+  as_root chown "$service_user:$service_group" "$sysconfdir/wg.key"
+  as_root chmod 0600 "$sysconfdir/wg.key"
 fi
 
 echo "installing documentation and systemd unit"
@@ -78,6 +99,9 @@ fi
 cat <<EOF
 
 firedoze is installed.
+
+The firedozed systemd service runs as the '$service_user' system user with
+limited network/bind capabilities.
 
 Next steps:
   1. To run the full host setup from scratch, use: task setup:host

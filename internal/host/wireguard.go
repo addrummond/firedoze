@@ -121,7 +121,7 @@ func ensureWireGuardPrivateKey(path string) (wgtypes.Key, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return wgtypes.Key{}, err
 	}
-	if err := os.WriteFile(path, []byte(key.String()+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(key.String()+"\n"), 0o640); err != nil {
 		return wgtypes.Key{}, err
 	}
 	return key, nil

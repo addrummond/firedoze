@@ -76,10 +76,15 @@ tasks:
   image:install:
     desc: Install dist/base-image artifacts into /var/lib/firedoze/images
     cmds:
-      - sudo install -d -m 0755 /var/lib/firedoze/images
-      - sudo install -m 0644 dist/base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
-      - sudo install -m 0644 dist/base-image/initrd.img /var/lib/firedoze/images/initrd.img
-      - sudo install -m 0644 dist/base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+      - |
+        set -eu
+        sudo install -d -m 0755 /var/lib/firedoze/images
+        sudo install -m 0644 dist/base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
+        sudo install -m 0644 dist/base-image/initrd.img /var/lib/firedoze/images/initrd.img
+        sudo install -m 0644 dist/base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+        if id -u firedoze >/dev/null 2>&1; then
+          sudo chown -R firedoze:firedoze /var/lib/firedoze/images
+        fi
 
   firecracker:install:
     desc: Download and install the upstream Firecracker binary to /usr/local/bin/firecracker

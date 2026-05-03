@@ -16,6 +16,8 @@ Use an x86_64 Linux box with:
 - Recommended: **put `state_dir` on a filesystem with reflink support for fast VM disk clones**. XFS with reflinks enabled is a good default choice (see [Fast VM Disk Clones](#fast-vm-disk-clones)).
 - IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
 
+The systemd service runs as a dedicated `firedoze` system user, not as root. It uses Linux capabilities for the privileged network operations it still needs at runtime.
+
 On Ubuntu, the host packages are roughly:
 
 ```sh
@@ -76,9 +78,10 @@ The installer:
 
 - Builds `firedoze`, `firedozed`, and `firedoze-image-builder` from the checked-out source.
 - Installs them to `/usr/local/bin`.
+- Creates the `firedoze` system user and adds it to the `kvm` group when that group exists.
 - Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
 - Installs an example config at `/etc/firedoze/firedoze.example.toml`.
-- Installs the systemd unit and reloads systemd.
+- Installs a systemd unit that runs `firedozed` as the `firedoze` user with `CAP_NET_ADMIN` and `CAP_NET_BIND_SERVICE`.
 
 Existing config and VM state are left alone when you reinstall. The real config is created later with `firedozed -init-config`.
 
@@ -214,6 +217,14 @@ When systemd stops firedozed, the daemon tries to sleep all running VMs before e
 
 The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
+The daemon runs as the `firedoze` system user. It is not UID 0, but systemd grants it the narrow runtime privileges it needs:
+
+- `CAP_NET_ADMIN` for WireGuard, TAP devices, routes, and related network setup.
+- `CAP_NET_BIND_SERVICE` for ports `80` and `443`.
+- `kvm` group membership for `/dev/kvm`.
+
+Config and key material under `/etc/firedoze` are not world-readable. Use `sudo firedozed ...` for admin helper commands such as `-wg-add-peer`, `-wg-peer-config`, and `-print-api-env`.
+
 ### 2.7 Connect WireGuard
 
 Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
@@ -223,7 +234,7 @@ The generated config includes a commented `FIREDOZE_API` export line. The client
 On the firedoze host, you can print the same API shell export directly:
 
 ```sh
-firedozed -print-api-env
+sudo firedozed -print-api-env
 ```
 
 The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/128` address from the generated WireGuard subnet:
