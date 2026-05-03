@@ -41,7 +41,7 @@ Low-cost options include small dedicated servers from providers like [Hetzner](h
 
 - **Firecracker-backed VMs** that boot fast and act like real Linux machines
 - **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint
-- **Automatic public HTTPS routes** for sharing a dev service with someone outside the tunnel
+- **Public HTTPS routes** for sharing a dev service with someone outside the tunnel
 - **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team
 - **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore
