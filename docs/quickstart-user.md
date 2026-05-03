@@ -71,15 +71,15 @@ firedoze health
 The quickest way to get a VM is:
 
 ```sh
-firedoze up demo
+firedoze vm up demo
 ```
 
-`up` creates the VM if needed, publishes its default HTTPS URL, starts it, waits for SSH, and connects you.
+`vm up` creates the VM if needed, publishes its default HTTPS URL, starts it, waits for SSH, and connects you.
 
 If you only want to wake an existing VM, use:
 
 ```sh
-firedoze start demo
+firedoze vm start demo
 firedoze ssh demo
 ```
 
@@ -121,8 +121,8 @@ firedoze vm create app1 app2 app3 -memory-mib 1024
 Start, reboot, sleep, stop, or delete VMs:
 
 ```sh
-firedoze start demo
-firedoze reboot demo
+firedoze vm start demo
+firedoze vm reboot demo
 firedoze vm sleep demo
 firedoze vm stop demo
 firedoze vm delete demo
@@ -164,14 +164,14 @@ VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do 
 Publish or hide the default VM URL:
 
 ```sh
-firedoze publish demo
-firedoze hide demo
+firedoze vm publish demo
+firedoze vm hide demo
 ```
 
-`firedoze up demo` publishes by default. To use `up` without publishing:
+`firedoze vm up demo` publishes by default. To use `vm up` without publishing:
 
 ```sh
-firedoze up demo -publish=false
+firedoze vm up demo -publish=false
 ```
 
 The default public route proxies to port `8080` inside the VM. Custom services should listen on IPv6, for example:
@@ -227,7 +227,7 @@ When autowake is enabled:
 When autowake is disabled:
 
 - Public HTTPS requests will not wake the VM.
-- Start the VM explicitly with `firedoze start demo`.
+- Start the VM explicitly with `firedoze vm start demo`.
 - `firedoze ssh`, `firedoze exec`, and `firedoze cp` still try to make the VM ready because they are explicit client commands.
 
 Disable autowake when creating a VM:
@@ -249,13 +249,13 @@ Check the current setting:
 firedoze vm inspect demo
 ```
 
-Use `firedoze start` when you definitely mean "wake this existing VM":
+Use `firedoze vm start` when you definitely mean "wake this existing VM":
 
 ```sh
-firedoze start demo
+firedoze vm start demo
 ```
 
-Use `firedoze up` when you want the more convenient workflow: create if missing, publish by default, start, and SSH.
+Use `firedoze vm up` when you want the more convenient workflow: create if missing, publish by default, start, and SSH.
 
 ## 9. Snapshots
 
@@ -320,7 +320,7 @@ If `firedoze health` fails:
 If `firedoze ssh demo` hangs:
 
 - Run `firedoze vm inspect demo` and check the VM state.
-- Try `firedoze start demo`.
+- Try `firedoze vm start demo`.
 - If WireGuard was reconfigured recently, disconnect and reconnect the tunnel.
 
 If a public URL shows a human check, complete it in the browser. firedoze uses that check to avoid waking sleeping VMs for ordinary scanner traffic.

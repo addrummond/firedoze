@@ -127,7 +127,7 @@ The client should provide the friendly operational surface:
 - `firedoze server add/list/use/current/remove`
 - `firedoze vm list [-names] [name-glob...]`
 - `firedoze vm inspect <vm>`
-- `firedoze vm create/start/sleep/stop/delete/settings`
+- `firedoze vm create/up/start/reboot/sleep/stop/delete/publish/hide/settings`
 - `firedoze ssh <vm>`
 - `firedoze snapshot list/inspect/save/restore/delete`
 - `firedoze route ...`

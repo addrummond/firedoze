@@ -270,7 +270,7 @@ Create and start a VM:
 
 ```sh
 firedoze vm create demo
-firedoze start demo
+firedoze vm start demo
 ```
 
 VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do not get a public HTTPS URL).
@@ -278,7 +278,7 @@ VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do 
 Create a VM if needed, publish it, start it, and SSH in when it is ready:
 
 ```sh
-firedoze up demo
+firedoze vm up demo
 ```
 
 Create several VMs with the same settings:
@@ -290,13 +290,13 @@ firedoze vm create alice bob charlie -memory-mib 512 -disk-bytes 8589934592
 Toggle public HTTPS access:
 
 ```sh
-firedoze publish demo
-firedoze hide demo
+firedoze vm publish demo
+firedoze vm hide demo
 ```
 
 By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires. The signing key is generated automatically in the firedoze state directory; if it is lost, visitors just complete the challenge again.
 
-Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `firedoze up` creates the VM if it does not already exist.
+Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `firedoze vm up` creates the VM if it does not already exist.
 
 To disable passive wake for a VM:
 
@@ -380,7 +380,7 @@ sudo systemctl status firedoze-hello.service
 Reboot, sleep, or stop a VM:
 
 ```sh
-firedoze reboot demo
+firedoze vm reboot demo
 firedoze vm sleep demo
 firedoze vm stop demo
 ```

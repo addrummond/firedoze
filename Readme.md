@@ -54,7 +54,7 @@ Create a VM, publish it, and drop in a tiny web app:
 
 ```sh
 firedoze vm create launchpad -publish
-firedoze start launchpad
+firedoze vm start launchpad
 firedoze exec launchpad -- sh -lc 'cat > app.html <<EOF
 <h1>hello from $(hostname)</h1>
 <p>this is a whole disposable computer, not a container</p>
@@ -69,7 +69,7 @@ Start a second VM and call the first one by name over the private VM network:
 
 ```sh
 firedoze vm create cockpit
-firedoze start cockpit
+firedoze vm start cockpit
 firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
 ```
 

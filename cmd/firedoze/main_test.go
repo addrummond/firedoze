@@ -103,10 +103,23 @@ func TestCommandNeedsAPI(t *testing.T) {
 		{args: []string{"server", "list"}, want: false},
 		{args: []string{"health"}, want: true},
 		{args: []string{"vm", "list"}, want: true},
+		{args: []string{"definitely-not-a-command"}, want: false},
 	}
 	for _, tt := range tests {
 		if got := commandNeedsAPI(tt.args); got != tt.want {
 			t.Fatalf("commandNeedsAPI(%#v) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestDispatchRejectsTopLevelLifecycleCommands(t *testing.T) {
+	for _, command := range []string{"start", "reboot", "publish", "hide", "up"} {
+		err := (app{}).dispatch([]string{command, "demo"})
+		if err == nil {
+			t.Fatalf("dispatch accepted top-level %q", command)
+		}
+		if !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("dispatch(%q) error = %q, want unknown command", command, err)
 		}
 	}
 }
@@ -425,6 +438,51 @@ func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 	}
 	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+}
+
+func TestVMPublishAndHidePatchSettings(t *testing.T) {
+	var requests []string
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, string(data))
+		if r.Method != http.MethodPatch || r.URL.Path != "/vms/demo/settings" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := app{client: c, json: true}
+	if err := app.vm([]string{"publish", "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.vm([]string{"hide", "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	wantRequests := []string{
+		"PATCH /vms/demo/settings",
+		"PATCH /vms/demo/settings",
+	}
+	if strings.Join(requests, "\x00") != strings.Join(wantRequests, "\x00") {
+		t.Fatalf("requests = %#v, want %#v", requests, wantRequests)
+	}
+	wantBodies := []string{
+		`{"public_http":true}`,
+		`{"public_http":false}`,
+	}
+	if strings.Join(bodies, "\x00") != strings.Join(wantBodies, "\x00") {
+		t.Fatalf("bodies = %#v, want %#v", bodies, wantBodies)
 	}
 }
 

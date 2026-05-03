@@ -120,8 +120,10 @@ func commandNeedsAPI(args []string) bool {
 		return false
 	case "server":
 		return false
-	default:
+	case "health", "config", "vm", "snapshot", "route", "ssh", "exec", "cp", "with-vm-ip":
 		return true
+	default:
+		return false
 	}
 }
 
@@ -171,38 +173,6 @@ func (a app) dispatch(args []string) error {
 		return printJSON(out)
 	case "vm":
 		return a.vm(args[1:])
-	case "start":
-		if len(args) != 2 {
-			return errors.New("usage: firedoze start <vm>")
-		}
-		vm, err := a.startVM(args[1])
-		if err != nil {
-			return err
-		}
-		if a.json {
-			return printJSON(map[string]any{"vm": vm})
-		}
-		fmt.Printf("%s started\n", vm.Name)
-		return nil
-	case "reboot":
-		if len(args) != 2 {
-			return errors.New("usage: firedoze reboot <vm>")
-		}
-		vm, err := a.rebootVM(args[1])
-		if err != nil {
-			return err
-		}
-		if a.json {
-			return printJSON(map[string]any{"vm": vm})
-		}
-		fmt.Printf("%s rebooted\n", vm.Name)
-		return nil
-	case "publish", "hide":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: firedoze %s <vm>", args[0])
-		}
-		public := args[0] == "publish"
-		return a.setPublicHTTP(args[1], public)
 	case "snapshot":
 		return a.snapshot(args[1:])
 	case "route":
@@ -217,8 +187,6 @@ func (a app) dispatch(args []string) error {
 		return a.exec(args[1:])
 	case "cp":
 		return a.cp(args[1:])
-	case "up":
-		return a.up(args[1:])
 	case "with-vm-ip":
 		return a.withVMIP(args[1:])
 	default:
@@ -249,7 +217,7 @@ func (a app) wg(args []string) error {
 
 func (a app) vm(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze vm <list|inspect|create|start|reboot|sleep|stop|delete|settings>")
+		return errors.New("usage: firedoze vm <list|inspect|create|up|start|reboot|sleep|stop|delete|publish|hide|settings>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -370,6 +338,14 @@ func (a app) vm(args []string) error {
 			fmt.Printf("%s rebooted\n", vm.Name)
 		}
 		return nil
+	case "publish", "hide":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: firedoze vm %s <name>", args[0])
+		}
+		public := args[0] == "publish"
+		return a.setPublicHTTP(args[1], public)
+	case "up":
+		return a.up(args[1:])
 	case "delete", "rm":
 		if len(args) < 2 {
 			return errors.New("usage: firedoze vm delete <name> [name...]")
@@ -690,15 +666,15 @@ func (a app) route(args []string) error {
 
 func (a app) up(args []string) error {
 	if a.json {
-		return errors.New("firedoze up does not support -json")
+		return errors.New("firedoze vm up does not support -json")
 	}
 	createArgs, sshArgs := splitUpArgs(args)
-	params, names, err := parseVMCreateArgs("firedoze up", createArgs)
+	params, names, err := parseVMCreateArgs("firedoze vm up", createArgs)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]", err)
 	}
 	if len(names) != 1 {
-		return errors.New("usage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]")
+		return errors.New("usage: firedoze vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]")
 	}
 	name := names[0]
 	publishOnUp := true
@@ -1333,18 +1309,17 @@ Commands:
   server current
   server remove <name> [name...]
   server path
-  start <vm>
-  reboot <vm>
-  publish <vm>
-  hide <vm>
   vm list [-names] [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
+  vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
   vm start <name>
   vm reboot <name> [name...]
   vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
+  vm publish <name>
+  vm hide <name>
   vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]
   snapshot list
   snapshot inspect <snapshot>
@@ -1358,7 +1333,6 @@ Commands:
   ssh <vm> [ssh args...]
   exec <vm> -- <command> [args...]
   cp <src> <dst>
-  up <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 
 Environment:
