@@ -4,7 +4,7 @@
 
 **Disposable Linux computers for your dev team, backed by [Firecracker](https://firecracker-microvm.github.io/).**
 
-firedoze runs persistent VMs on a single Linux host. Each one behaves like a small, real computer: its own filesystem, its own systemd, its own SSH, its own long-running processes.
+firedoze runs persistent VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, its own systemd, its own SSH, its own long-running processes.
 
 Spin one up in seconds. Work in it normally. When it goes idle, it sleeps automatically — keeping all its state while consuming only disk space. Wake it again by sending it traffic.
 
