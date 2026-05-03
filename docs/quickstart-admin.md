@@ -393,13 +393,14 @@ firedoze vm delete demo old-test scratch
 Save a named snapshot:
 
 ```sh
-firedoze vm sleep demo
+firedoze vm stop demo
 firedoze snapshot save demo-base demo
 ```
 
-Snapshots can only be saved from sleeping or stopped VMs. firedoze rejects
-snapshots of running VMs so the snapshot does not capture a dirty guest
-filesystem or half-finished application state.
+Snapshots can only be saved from stopped VMs. firedoze rejects snapshots of
+running or sleeping VMs because restored snapshots boot as new VM identities.
+Use `sleep` for exact suspend/resume of the same VM, and `stop` before creating
+a cloneable snapshot.
 
 Restore a snapshot as a new VM:
 

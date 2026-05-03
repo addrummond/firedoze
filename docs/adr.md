@@ -292,18 +292,14 @@ Automatic idle detection is layered on top of that primitive. The daemon samples
 
 ## Snapshot Model
 
-Snapshots are named frozen computers.
+Snapshots are named cloneable disk images.
 
-Users can save a sleeping or stopped VM as a named snapshot. Snapshot names are global and may be freer than VM names, but duplicate names fail. Saving a snapshot from a running VM is rejected because it can capture dirty guest filesystem or application state.
+Users can save a stopped VM as a named snapshot. Snapshot names are global and may be freer than VM names, but duplicate names fail. Saving a snapshot from a running or sleeping VM is rejected because clone restore boots a new VM identity from the snapshot disk.
 
-Snapshots include all applicable state:
+Snapshots include the cloneable VM state:
 
-- Memory state.
 - Disk state.
-- Device/VM metadata required for exact restore.
 - Base image/kernel/runtime lineage metadata.
-
-Stopped VM snapshots are disk-only. Sleeping VM snapshots also copy the exact Firecracker sleep state and memory files.
 
 Restoring a snapshot should create a new VM by default rather than overwriting an existing VM.
 
@@ -317,7 +313,7 @@ A destructive in-place restore may be added later, but is not the v1 default.
 
 When cloning/restoring, firedoze must rewrite guest identity so multiple VMs do not share properties such as hostname, machine-id, SSH host keys, or network identity.
 
-The first restore implementation creates a stopped VM from the snapshot disk copy, rewrites guest identity, and boots it normally when started. The Firecracker memory and VM state files are saved and tracked, but are not yet loaded for clone restore because exact memory restore conflicts with changing guest identity. Exact memory resume remains part of the later sleep/resume path.
+Restore creates a stopped VM from the snapshot disk copy, rewrites guest identity, and boots it normally when started. Exact Firecracker memory restore remains part of the sleep/resume path for the same VM, not the cloneable named snapshot model, because exact memory restore conflicts with changing guest identity.
 
 ## Base Image and Kernel
 

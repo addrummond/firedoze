@@ -37,6 +37,7 @@ var ErrAlreadyRunning = errors.New("vm already running")
 var ErrAlreadyExists = errors.New("already exists")
 var ErrNotRunning = errors.New("vm is not running")
 var ErrRunning = errors.New("vm is running")
+var ErrNotStopped = errors.New("vm is not stopped")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
@@ -725,10 +726,10 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	_, running := m.running[vm.Name]
 	m.mu.Unlock()
 	if vm.State == "running" || running {
-		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm sleep %s` first", ErrRunning, vm.Name, vm.Name)
+		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm stop %s` first", ErrRunning, vm.Name, vm.Name)
 	}
-	if vm.State != "sleeping" && vm.State != "stopped" {
-		return store.Snapshot{}, fmt.Errorf("cannot snapshot VM %q in state %q; run `firedoze vm sleep %s` first", vm.Name, vm.State, vm.Name)
+	if vm.State != "stopped" {
+		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot VM %q in state %q; run `firedoze vm stop %s` first", ErrNotStopped, vm.Name, vm.State, vm.Name)
 	}
 
 	vmLayout := m.layout(vm.Name)
@@ -741,24 +742,11 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 		return store.Snapshot{}, fmt.Errorf("copy vm disk: %w", err)
 	}
 
-	statePath := ""
-	memPath := ""
-	if vm.State == "sleeping" {
-		if err := copyFile(snapshotLayout.statePath, vmLayout.sleepStatePath); err != nil {
-			return store.Snapshot{}, fmt.Errorf("copy sleep state: %w", err)
-		}
-		if err := copyFile(snapshotLayout.memPath, vmLayout.sleepMemPath); err != nil {
-			return store.Snapshot{}, fmt.Errorf("copy sleep memory: %w", err)
-		}
-		statePath = snapshotLayout.statePath
-		memPath = snapshotLayout.memPath
-	}
-
 	snapshot, err := m.store.CreateSnapshot(ctx, store.CreateSnapshotParams{
 		Name:              params.Name,
 		SourceVM:          vm.Name,
-		StatePath:         statePath,
-		MemPath:           memPath,
+		StatePath:         "",
+		MemPath:           "",
 		DiskPath:          snapshotLayout.diskPath,
 		BaseImageID:       vm.BaseImageID,
 		KernelID:          vm.KernelID,

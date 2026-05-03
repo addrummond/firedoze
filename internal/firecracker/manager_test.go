@@ -173,35 +173,12 @@ func TestSaveSnapshotFromStoppedVMCopiesDiskOnly(t *testing.T) {
 	}
 }
 
-func TestSaveSnapshotFromSleepingVMCopiesSleepState(t *testing.T) {
+func TestSaveSnapshotRejectsSleepingVM(t *testing.T) {
 	m, st := newTestManager(t)
 	createSnapshotTestVM(t, m, st, "demo", "sleeping")
-	layout := m.layout("demo")
-	if err := os.MkdirAll(layout.sleepDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(layout.sleepStatePath, []byte("state"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(layout.sleepMemPath, []byte("memory"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for path, want := range map[string]string{
-		snapshot.DiskPath:  "disk",
-		snapshot.StatePath: "state",
-		snapshot.MemPath:   "memory",
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(data) != want {
-			t.Fatalf("%s = %q, want %q", path, data, want)
-		}
+	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	if !errors.Is(err, ErrNotStopped) {
+		t.Fatalf("SaveSnapshot error = %v, want ErrNotStopped", err)
 	}
 }

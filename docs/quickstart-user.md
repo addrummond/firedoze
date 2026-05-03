@@ -255,14 +255,16 @@ Use `firedoze up` when you want the more convenient workflow: create if missing,
 
 Snapshots are named VM images you can restore later.
 
-Sleep the VM first, then save a snapshot:
+Stop the VM first, then save a snapshot:
 
 ```sh
-firedoze vm sleep demo
+firedoze vm stop demo
 firedoze snapshot save demo-base demo
 ```
 
-firedoze does not allow snapshotting a running VM.
+firedoze does not allow snapshotting a running or sleeping VM. Use `sleep` for
+exact suspend/resume of the same VM, and `stop` before creating a cloneable
+snapshot.
 
 List and inspect snapshots:
 
