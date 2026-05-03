@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"io"
 	"net/http"
@@ -412,6 +413,56 @@ func TestVMCreatePublishFlag(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "alpha" {
 		t.Fatalf("names = %#v, want alpha", names)
+	}
+}
+
+func TestVMCreateWarmsBaseImageMetadataOnce(t *testing.T) {
+	requests := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/base-image/warmup":
+			_, _ = io.WriteString(w, `{"base_image":{"rootfs":{"path":"rootfs.ext4","basename":"rootfs.ext4"}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms":
+			var req struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode create VM request: %v", err)
+			}
+			_, _ = io.WriteString(w, `{"vm":{"name":"`+req.Name+`","state":"stopped"}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: c, json: true}).createVMs(vmCreateParams{}, []string{"alpha", "beta"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(r)
+
+	want := []string{
+		"POST /base-image/warmup",
+		"POST /vms",
+		"POST /vms",
+	}
+	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
 	}
 }
 

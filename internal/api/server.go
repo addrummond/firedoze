@@ -51,6 +51,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /", s.handleHelp)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /config", s.handleConfig)
+	s.mux.HandleFunc("POST /base-image/warmup", s.handleWarmBaseImage)
 	s.mux.HandleFunc("GET /vms", s.handleListVMs)
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
 	s.mux.HandleFunc("GET /vms/{name}", s.handleGetVM)
@@ -79,12 +80,22 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		"resources": map[string][]string{
 			"health":          {"GET /health"},
 			"config":          {"GET /config"},
+			"base_image":      {"POST /base-image/warmup"},
 			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
 		},
 	})
+}
+
+func (s *Server) handleWarmBaseImage(w http.ResponseWriter, r *http.Request) {
+	metadata, err := s.manager.WarmBaseImageMetadata(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"base_image": metadata})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

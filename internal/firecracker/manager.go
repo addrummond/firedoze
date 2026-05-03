@@ -145,6 +145,15 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	return m.store.CreateVM(ctx, params)
 }
 
+func (m *Manager) WarmBaseImageMetadata(ctx context.Context) (BaseImageMetadata, error) {
+	select {
+	case <-ctx.Done():
+		return BaseImageMetadata{}, ctx.Err()
+	default:
+	}
+	return m.baseImageMetadata()
+}
+
 func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, params store.CreateVMParams) (store.VM, error) {
 	if snapshotName == "" {
 		return store.VM{}, errors.New("snapshot name is required")

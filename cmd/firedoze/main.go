@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	defaultAPIPort = "8081"
+	defaultAPIPort       = "8081"
+	baseImageWarmupLabel = "preparing base image metadata (hashes once after image changes)"
 )
 
 type client struct {
@@ -422,6 +423,9 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 }
 
 func (a app) createVMs(params vmCreateParams, names []string) error {
+	if err := a.prepareBaseImageMetadata(); err != nil {
+		return err
+	}
 	created := []vmInfo{}
 	for _, name := range names {
 		vm, err := a.createVM(params, name)
@@ -437,6 +441,18 @@ func (a app) createVMs(params vmCreateParams, names []string) error {
 		fmt.Printf("%s created\n", vm.Name)
 	}
 	return nil
+}
+
+func (a app) prepareBaseImageMetadata() error {
+	if a.json {
+		return a.warmBaseImageMetadata()
+	}
+	return runWithSpinner(os.Stderr, baseImageWarmupLabel, a.warmBaseImageMetadata)
+}
+
+func (a app) warmBaseImageMetadata() error {
+	var out map[string]any
+	return a.client.do(context.Background(), http.MethodPost, "/base-image/warmup", nil, &out)
 }
 
 func (a app) createVM(params vmCreateParams, name string) (vmInfo, error) {
@@ -685,6 +701,9 @@ func (a app) up(args []string) error {
 		return err
 	}
 	if !found {
+		if err := runWithSpinner(os.Stderr, baseImageWarmupLabel, a.warmBaseImageMetadata); err != nil {
+			return err
+		}
 		if err := runWithSpinner(os.Stderr, "creating VM "+name, func() error {
 			var err error
 			vm, err = a.createVM(params, name)
