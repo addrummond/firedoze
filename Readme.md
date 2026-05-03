@@ -2,91 +2,99 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Disposable Linux computers for shared dev.
+**Disposable Linux computers for your dev team — backed by Firecracker, gone when you're done with them.**
 
-firedoze runs persistent Firecracker VMs on one Linux host. You get:
+firedoze runs persistent VMs on a single Linux host. Each one behaves like a small, real computer: its own filesystem, its own systemd, its own SSH, its own long-running processes.
 
-- WireGuard-gated management access.
-- Simple command-line lifecycle controls.
-- Optional public HTTPS for dev services.
+Spin one up in seconds. Work in it normally. When it goes idle, it sleeps automatically — keeping all its state while consuming only disk space. Wake it again by sending it traffic.
 
-Create a VM in seconds. Use it like a small computer. When it goes idle, it sleeps. Sleeping VMs keep their state and consume only disk space.
+> ⚠️ firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or on infrastructure you'd be upset to lose.
 
-Reproducibility is optional. Fire and forget, or script creation of named snapshots for cloneable environments. 
+---
 
-⚠️ _firedoze is early-stage software. Do not use it for production, hostile multi-tenant isolation, or on sensitive infrastructure accounts._
+## Why not just use containers?
 
-## Why
+Containers are great, but sometimes you want:
 
-Containers are useful. Sometimes you want a real machine: a persistent filesystem, systemd, normal SSH, long-running services, snapshots, and fewer container-specific assumptions.
+- A real persistent filesystem that survives restarts without volume gymnastics
+- `systemd` running like normal
+- Ordinary SSH without any container runtime in the way
+- Snapshots you can clone and hand to a teammate
+- A place to run services that just stay running
 
-firedoze makes that lightweight enough for everyday team development.
+firedoze makes all of that lightweight enough for everyday team development. One beefy box, a simple CLI, and a WireGuard tunnel to keep things honest.
 
-💡 **Did you know?** AWS enabled nested virtualization on virtual EC2 instances in February 2026. It started with C8i, M8i, and R8i. You no longer need bare-metal EC2 just to run KVM-backed dev VMs on AWS. See the [AWS guide](docs/aws-guide.md) for notes.
+> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md).
 
-## Highlights
+---
 
-- Firecracker-backed Linux VMs that behave like small persistent computers.
-- WireGuard-only management access.
-- Automatic public HTTPS routes for sharing running dev services.
-- Sleeping VMs that keep state while freeing CPU and memory.
-- Named snapshots and restores for cloneable environments.
-- A simple `firedoze` client for VM lifecycle, SSH, exec, copy, routes, and snapshots.
-- Native Go base-image builder; no Docker or Podman required.
-- Single-node by design: one beefy box, local SQLite, no scheduler, no cluster.
+## What you get
 
-## Current Scope
+- **Firecracker-backed VMs** that boot fast and act like real Linux machines
+- **WireGuard-only management access** — if you're not in the tunnel, you can't access the management endpoint
+- **Automatic public HTTPS routes** for sharing a dev service with someone outside the tunnel
+- **Idle sleep with full state preservation** — sleeping VMs cost you nothing but disk
+- **Named snapshots and clones** — script a golden environment, clone it for everyone on the team
+- **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore
+- **Native Go image builder** — no Docker or Podman required
+- **Deliberately single-node** — one box, local SQLite, no scheduler, no cluster to babysit
 
-firedoze is deliberately narrow in scope:
+---
 
-- One host only; no clustering, scheduling, live migration, or high availability features.
-- One WireGuard-gated shared trust boundary per server; no built-in users, teams, ACLs, or non-WireGuard management access.
-- A fixed Ubuntu-based VM image.
-- Public ingress is focused on HTTPS routes for dev services, not arbitrary TCP exposure.
+## Quick example
 
-## Example
-
-Spin up a fresh Linux VM, drop in a tiny web app, publish it, and hand someone
-the HTTPS URL:
+Spin up a VM, drop in a tiny web app, and publish it:
 
 ```sh
 firedoze up launchpad
-
 firedoze exec launchpad -- sh -lc 'cat > app.html <<EOF
 <h1>hello from $(hostname)</h1>
 <p>this is a whole disposable computer, not a container</p>
 EOF
 busybox httpd -f -p 8080 -h .'
-
 firedoze vm list launchpad
 ```
 
-Start another VM and call the first one by name on the private VM network:
+Start a second VM and call the first one by name over the private VM network:
 
 ```sh
-firedoze up cockpit -publish=false
+firedoze up cockpit --publish=false
 firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
 ```
 
-When you are done, sleep it. It keeps its state, but stops burning CPU and
-memory:
+Done for the day? Put them to sleep. They'll keep everything and wake up the next time traffic arrives:
 
 ```sh
 firedoze vm sleep cockpit
 firedoze vm sleep launchpad
 ```
 
-Too lazy to run the sleep command? Don't worry! firedoze will sleep the VM automatically after a configurable idle timeout.
-The VM wakes again when network traffic arrives, so the next (verifiably human) request to
-its HTTPS URL brings it back.
+Or don't bother — firedoze will sleep idle VMs automatically after a configurable timeout.
+
+---
+
+## Scope (what firedoze is not)
+
+firedoze is deliberately narrow. It's a tool for a team that shares one capable host, not a platform:
+
+- **No clustering.** No live migration, no scheduler, no HA.
+- **One shared trust boundary.** Access is gated purely by WireGuard. No built-in users, teams, or ACLs.
+- **Fixed image.** Single non-configurableUbuntu-based VM image.
+- **HTTPS ingress only.** Public routes are for sharing HTTP services, not arbitrary TCP exposure.
+
+---
 
 ## Documentation
 
-- [User quickstart](docs/quickstart-user.md): for people using an existing firedoze server.
-- [Admin quickstart](docs/quickstart-admin.md): for setting up and operating a firedoze host.
-- [AWS guide](docs/aws-guide.md): EC2 notes, nested virtualization, and bastion ideas.
-- [ADR](docs/adr.md): design decisions and project scope.
+- [User quickstart](docs/quickstart-user.md) — for people using an existing firedoze server
+- [Admin quickstart](docs/quickstart-admin.md) — for setting up and operating a firedoze host
+- [AWS guide](docs/aws-guide.md) — EC2 notes, nested virtualization, and bastion ideas
+- [ADR](docs/adr.md) — design decisions and the reasoning behind the scope
+
+---
 
 ## Status
 
-firedoze is currently a prototype moving toward basic functional completeness. The intended audience is developers comfortable running early infrastructure software and reading the docs before trusting it.
+firedoze is a prototype working toward basic functional completeness. The intended audience is developers who are comfortable running early-stage infrastructure software and reading the docs before trusting something with their workflow.
+
+Contributions and feedback welcome.
