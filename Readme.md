@@ -24,7 +24,7 @@ Containers are great, but sometimes you want:
 
 firedoze makes all of that lightweight enough for everyday team development. One beefy box to run the VMs, a simple CLI, and a WireGuard tunnel to keep things honest.
 
-> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include Hetzner dedicated servers and Digital Ocean droplets.
+> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include [Hetzner](https://www.hetzner.com/) dedicated servers and [Digital Ocean droplets](https://www.digitalocean.com/community/questions/does-digitalocean-support-kvm-or-nested-virtulzation).
 
 ## What you get
 
