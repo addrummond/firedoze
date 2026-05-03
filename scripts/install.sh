@@ -44,13 +44,13 @@ trap 'rm -rf "$build_dir"' EXIT INT TERM
 echo "building firedoze binaries"
 go build -o "$build_dir/firedoze" ./cmd/firedoze
 go build -o "$build_dir/firedozed" ./cmd/firedozed
-go build -o "$build_dir/firedoze-image" ./cmd/firedoze-image
+go build -o "$build_dir/firedoze-image-builder" ./cmd/firedoze-image-builder
 
 echo "installing binaries to $prefix/bin"
 as_root install -d -m 0755 "$prefix/bin"
 as_root install -m 0755 "$build_dir/firedoze" "$prefix/bin/firedoze"
 as_root install -m 0755 "$build_dir/firedozed" "$prefix/bin/firedozed"
-as_root install -m 0755 "$build_dir/firedoze-image" "$prefix/bin/firedoze-image"
+as_root install -m 0755 "$build_dir/firedoze-image-builder" "$prefix/bin/firedoze-image-builder"
 
 echo "creating firedoze directories"
 as_root install -d -m 0755 "$sysconfdir"
@@ -82,7 +82,7 @@ firedoze is installed.
 Next steps:
   1. Build firedoze commands: task build
   2. Install firecracker: task firecracker:install
-  3. Build and install the base image: ./firedoze-image build && task image:install
+  3. Build and install the base image: ./firedoze-image-builder build && task image:install
   4. Create $config_dst:
      If you have a domain name:
        sudo firedozed -init-config -init-host <DOMAIN_NAME>

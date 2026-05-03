@@ -31,7 +31,7 @@ tasks:
     deps:
       - build:client
       - build:daemon
-      - build:image
+      - build:image-builder
 
   build:client:
     desc: Build ./firedoze
@@ -43,20 +43,20 @@ tasks:
     cmds:
       - go build -o firedozed ./cmd/firedozed
 
-  build:image:
-    desc: Build ./firedoze-image
+  build:image-builder:
+    desc: Build ./firedoze-image-builder
     cmds:
-      - go build -o firedoze-image ./cmd/firedoze-image
+      - go build -o firedoze-image-builder ./cmd/firedoze-image-builder
 
   clean:
     desc: Remove local build outputs
     cmds:
-      - rm -f firedoze firedozed firedoze-image
+      - rm -f firedoze firedozed firedoze-image-builder
 
   image:build:
     desc: Build the Ubuntu base image into dist/base-image
     cmds:
-      - go run ./cmd/firedoze-image build {{.CLI_ARGS}}
+      - go run ./cmd/firedoze-image-builder build {{.CLI_ARGS}}
 
   image:install:
     desc: Install dist/base-image artifacts into /var/lib/firedoze/images

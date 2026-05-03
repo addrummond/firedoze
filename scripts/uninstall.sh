@@ -21,7 +21,7 @@ fi
 rm -f /etc/systemd/system/firedozed.service
 rm -f /usr/local/bin/firedoze
 rm -f /usr/local/bin/firedozed
-rm -f /usr/local/bin/firedoze-image
+rm -f /usr/local/bin/firedoze-image-builder
 rm -rf /usr/local/share/doc/firedoze
 
 if command -v systemctl >/dev/null 2>&1; then

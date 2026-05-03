@@ -46,7 +46,7 @@ The fastest possible setup is:
 ./scripts/install.sh
 task firecracker:install
 task build
-./firedoze-image build
+./firedoze-image-builder build
 task image:install
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
@@ -78,7 +78,7 @@ The rest of this section explains the above steps in order.
 
 The installer:
 
-- Builds `firedoze`, `firedozed`, and `firedoze-image` from the checked-out source.
+- Builds `firedoze`, `firedozed`, and `firedoze-image-builder` from the checked-out source.
 - Installs them to `/usr/local/bin`.
 - Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
 - Installs an example config at `/etc/firedoze/firedoze.example.toml`.
@@ -103,7 +103,7 @@ Build the firedoze Ubuntu base image on the Linux host. The builder is native Go
 From the repo checkout, run:
 
 ```sh
-task build:image && ./firedoze-image build
+task build:image-builder && ./firedoze-image-builder build
 task image:install
 ```
 

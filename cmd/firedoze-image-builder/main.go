@@ -62,7 +62,7 @@ func run(args []string) int {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `Usage:
-  firedoze-image build [options]
+  firedoze-image-builder build [options]
 
 Build a Firecracker-ready Ubuntu root filesystem and matching boot artifacts.
 
@@ -92,7 +92,7 @@ pinned and SHA-256 verified.
 }
 
 func build(args []string) error {
-	fs := flag.NewFlagSet("firedoze-image build", flag.ContinueOnError)
+	fs := flag.NewFlagSet("firedoze-image-builder build", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
 	release := fs.String("release", defaultRelease, "Ubuntu cloud image release")
@@ -260,7 +260,7 @@ initrd_sha256=%s
 size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
 network=IPv6-only private VM network configured from firedoze kernel args
-builder=firedoze-image native-go
+builder=firedoze-image-builder native-go
 `, *release, *arch, source.name, *rootSHA256, artifacts.kernel.path, *kernelSHA256, artifacts.initrd.path, *initrdSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
 		_ = os.Remove(tmpRootfsPath)
@@ -458,7 +458,7 @@ func findRepoRoot() (string, error) {
 		}
 		dir = parent
 	}
-	return "", errors.New("could not find firedoze repo root; run firedoze-image from a firedoze source checkout")
+	return "", errors.New("could not find firedoze repo root; run firedoze-image-builder from a firedoze source checkout")
 }
 
 func extractKernelELF(kernel []byte) ([]byte, error) {

@@ -36,5 +36,5 @@ rsync -az --delete \
   --exclude /dist \
   --exclude /firedoze \
   --exclude /firedozed \
-  --exclude /firedoze-image \
+  --exclude /firedoze-image-builder \
   ./ "$dest"

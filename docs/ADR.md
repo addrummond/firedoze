@@ -363,7 +363,7 @@ Example metadata:
     "manifest": {
       "release": "noble",
       "arch": "amd64",
-      "builder": "firedoze-image native-go"
+      "builder": "firedoze-image-builder native-go"
     }
   }
 }
