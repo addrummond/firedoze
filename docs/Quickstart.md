@@ -448,7 +448,7 @@ firedoze stores VM disks as plain raw image files. When the state directory is o
 
 This makes VM start after first create much faster. On filesystems without reflinks, firedoze still works and falls back to sparse-aware copying.
 
-XFS is a good default because it is a mainstream Linux server filesystem and supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
+XFS is a good default choice of filesystem that supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
 
 The important rule is that these paths should live on the same reflink-capable filesystem:
 
