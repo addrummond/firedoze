@@ -92,9 +92,14 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 		}},
 	})
 
-	server := map[string]any{
-		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort), ":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
-		"routes": routes,
+	httpServer := map[string]any{
+		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
+		"routes": []map[string]any{redirectToHTTPSRoute()},
+	}
+	httpsServer := map[string]any{
+		"listen":                  []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
+		"routes":                  routes,
+		"tls_connection_policies": []map[string]any{{}},
 	}
 
 	return map[string]any{
@@ -106,7 +111,8 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 				"http_port":  m.cfg.Caddy.HTTPPort,
 				"https_port": m.cfg.Caddy.HTTPSPort,
 				"servers": map[string]any{
-					"firedoze": server,
+					"firedoze_http":  httpServer,
+					"firedoze_https": httpsServer,
 				},
 			},
 		},
@@ -131,6 +137,18 @@ func reverseProxyRoute(host string, upstream string) map[string]any {
 			"upstreams": []map[string]any{{
 				"dial": upstream,
 			}},
+		}},
+	}
+}
+
+func redirectToHTTPSRoute() map[string]any {
+	return map[string]any{
+		"handle": []map[string]any{{
+			"handler":     "static_response",
+			"status_code": "308",
+			"headers": map[string][]string{
+				"Location": {"https://{http.request.host}{http.request.uri}"},
+			},
 		}},
 	}
 }

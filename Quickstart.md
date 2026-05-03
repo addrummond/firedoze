@@ -47,6 +47,7 @@ task firecracker:install
 task build
 ./firedoze-image build
 task image:install
+# use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # Alice runs this on her laptop and sends you only the public_key:
