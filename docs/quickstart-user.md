@@ -158,7 +158,7 @@ firedoze hide demo
 `firedoze up demo` publishes by default. To use `up` without publishing:
 
 ```sh
-firedoze up demo -public=false
+firedoze up demo -publish=false
 ```
 
 The default public route proxies to port `8080` inside the VM. Custom services should listen on IPv6, for example:

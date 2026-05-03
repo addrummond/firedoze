@@ -263,7 +263,7 @@ func (a app) vm(args []string) error {
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]", err)
+			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
 		}
 		return a.createVMs(params, names)
 	case "start", "stop":
@@ -355,7 +355,7 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 	idle := flags.Int("idle-sleep-after", 0, "idle sleep timeout in seconds")
 	autoWake := flags.Bool("auto-wake", false, "allow passive network traffic to wake this VM (default)")
 	noAutoWake := flags.Bool("no-auto-wake", false, "disable passive network traffic wake for this VM")
-	publicHTTP := flags.Bool("public", false, "expose the VM over public HTTPS")
+	publicHTTP := flags.Bool("publish", false, "publish the VM over public HTTPS")
 	names, err := parseNamesAndFlags(flags, args)
 	if err != nil {
 		return vmCreateParams{}, nil, err
@@ -434,10 +434,10 @@ func (a app) vmSettings(args []string) error {
 	httpPort := flags.Int("http-port", -1, "default guest HTTP port")
 	idle := flags.Int("idle-sleep-after", -1, "idle sleep timeout in seconds")
 	autoWake := optionalBoolFlag(flags, "auto-wake")
-	publicHTTP := optionalBoolFlag(flags, "public-http")
+	publicHTTP := optionalBoolFlag(flags, "publish")
 	name, err := parseNameAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-public-http true|false]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]", err)
 	}
 	body := map[string]any{}
 	if *httpPort >= 0 {
@@ -530,7 +530,7 @@ func (a app) snapshot(args []string) error {
 	case "restore":
 		params, snapshotName, vmName, err := parseSnapshotRestoreArgs(args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]", err)
+			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
 		}
 		var out map[string]any
 		body := restoreSnapshotBody(params, vmName)
@@ -608,14 +608,14 @@ func (a app) up(args []string) error {
 	createArgs, sshArgs := splitUpArgs(args)
 	params, names, err := parseVMCreateArgs("firedoze up", createArgs)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]", err)
+		return fmt.Errorf("%w\nusage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]", err)
 	}
 	if len(names) != 1 {
-		return errors.New("usage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]")
+		return errors.New("usage: firedoze up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]")
 	}
 	name := names[0]
 	publishOnUp := true
-	if foundFlag(createArgs, "public") {
+	if foundFlag(createArgs, "publish") {
 		publishOnUp = params.PublicHTTP
 	}
 	params.PublicHTTP = publishOnUp
@@ -1242,16 +1242,16 @@ Commands:
   hide <vm>
   vm list [name-glob...]
   vm inspect <name>
-  vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]
+  vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   vm start <name>
   vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
-  vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-public-http true|false]
+  vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
-  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]
+  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   snapshot delete <snapshot>
   route list
   route create <route> <vm> <port>
@@ -1260,7 +1260,7 @@ Commands:
   ssh <vm> [ssh args...]
   exec <vm> -- <command> [args...]
   cp <src> <dst>
-  up <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]
+  up <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 
 Environment:

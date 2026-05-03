@@ -300,13 +300,13 @@ Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `fir
 To disable passive wake for a VM:
 
 ```sh
-firedoze vm create demo-public -public -no-auto-wake
+firedoze vm create demo-public -publish -no-auto-wake
 ```
 
 Update a VM's firedoze settings, such as default HTTP port, idle timeout, public HTTPS visibility, or passive network wake:
 
 ```sh
-firedoze vm settings demo -http-port 3000 -idle-sleep-after 900 -public-http true -auto-wake false
+firedoze vm settings demo -http-port 3000 -idle-sleep-after 900 -publish true -auto-wake false
 ```
 
 This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.

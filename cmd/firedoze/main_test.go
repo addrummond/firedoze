@@ -323,8 +323,8 @@ func TestVMCreateNoAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 	}
 }
 
-func TestVMCreatePublicFlag(t *testing.T) {
-	params, names, err := parseVMCreateArgs("test", []string{"alpha", "-public"})
+func TestVMCreatePublishFlag(t *testing.T) {
+	params, names, err := parseVMCreateArgs("test", []string{"alpha", "-publish"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
 		"-http-port", "3000",
 		"-idle-sleep-after", "900",
 		"-no-auto-wake",
-		"-public",
+		"-publish",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -368,13 +368,13 @@ func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
 }
 
 func TestFoundFlag(t *testing.T) {
-	if !foundFlag([]string{"demo", "-public=false"}, "public") {
-		t.Fatal("foundFlag did not find -public=false")
+	if !foundFlag([]string{"demo", "-publish=false"}, "publish") {
+		t.Fatal("foundFlag did not find -publish=false")
 	}
-	if !foundFlag([]string{"demo", "--public=false"}, "public") {
-		t.Fatal("foundFlag did not find accepted --public=false alias")
+	if !foundFlag([]string{"demo", "--publish=false"}, "publish") {
+		t.Fatal("foundFlag did not find accepted --publish=false alias")
 	}
-	if foundFlag([]string{"demo", "--not-public"}, "public") {
+	if foundFlag([]string{"demo", "--not-publish"}, "publish") {
 		t.Fatal("foundFlag matched unrelated flag")
 	}
 }
