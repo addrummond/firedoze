@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -84,7 +85,9 @@ Options:
   -h               Show this help
 
 The builder is native Go. It does not require Docker, Podman, root, mounting,
-or host ext4 support. Default Ubuntu artifacts are pinned and SHA-256 verified.
+or host ext4 support. It should be run from a firedoze source checkout so it
+can compile the small Linux guest helper binaries. Default Ubuntu artifacts are
+pinned and SHA-256 verified.
 `)
 }
 
@@ -191,7 +194,13 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	if err := customizeGuest(efs, overlay); err != nil {
+	helloBinary, err := buildGuestHelloBinary(*arch)
+	if err != nil {
+		_ = backend.Close()
+		_ = os.Remove(tmpRootfsPath)
+		return err
+	}
+	if err := customizeGuest(efs, overlay, helloBinary); err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -405,6 +414,51 @@ func verifySHA256(name string, data []byte, expected string) error {
 		return fmt.Errorf("SHA-256 mismatch for %s: got %s, want %s", name, actual, expected)
 	}
 	return nil
+}
+
+func buildGuestHelloBinary(arch string) ([]byte, error) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp("", "firedoze-hello-*")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, err
+	}
+	defer os.Remove(tmpPath)
+
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", tmpPath, "./cmd/firedoze-hello")
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("build firedoze-hello guest binary: %w\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return os.ReadFile(tmpPath)
+}
+
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil && strings.Contains(string(data), "module firedoze") {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", errors.New("could not find firedoze repo root; run firedoze-image from a firedoze source checkout")
 }
 
 func extractKernelELF(kernel []byte) ([]byte, error) {
@@ -712,7 +766,7 @@ func cleanTarPath(name string) (string, bool) {
 	return clean, true
 }
 
-func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay) error {
+func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay, helloBinary []byte) error {
 	now := time.Now()
 	files := []struct {
 		path string
@@ -1039,6 +1093,9 @@ WantedBy=multi-user.target
 		if err := writeFile(efs, file.path, []byte(file.data), file.mode, 0, 0, now); err != nil {
 			return err
 		}
+	}
+	if err := writeFile(efs, "usr/local/bin/firedoze-hello", helloBinary, 0o755, 0, 0, now); err != nil {
+		return err
 	}
 	if err := overlay.apply(efs, now); err != nil {
 		return err

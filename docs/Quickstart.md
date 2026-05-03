@@ -98,7 +98,7 @@ This downloads the release tarball declared in `Taskfile.yml`, validates its SHA
 
 ### 2.3 Build and install base images
 
-Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support.
+Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support. Run it from the firedoze source checkout so it can compile the small Linux guest helper binaries.
 
 From the repo checkout, run:
 
