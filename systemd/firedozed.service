@@ -1,6 +1,6 @@
 [Unit]
 Description=firedoze Firecracker dev environment daemon
-Documentation=file:/usr/local/share/doc/firedoze/Quickstart.md
+Documentation=file:/usr/local/share/doc/firedoze/quickstart-admin.md
 Wants=network-online.target
 After=network-online.target
 
