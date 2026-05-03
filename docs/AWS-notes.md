@@ -1,7 +1,7 @@
 # AWS EC2 Notes
 
 These notes describe the moving parts for running firedoze on AWS EC2. They are
-not a full Terraform module or production architecture. firedoze is still a
+not a full Terraform module or production architecture. firedoze is a
 shared development environment tool, not a production isolation boundary.
 
 ## Instance Types

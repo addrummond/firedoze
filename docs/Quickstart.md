@@ -216,6 +216,12 @@ Save the WireGuard client config printed by `-wg-add-peer` on the client laptop,
 
 The generated config includes a commented `FIREDOZE_API` export line. Use that value after connecting WireGuard.
 
+On the firedoze host, you can print the same API shell export directly:
+
+```sh
+firedozed -print-api-env
+```
+
 The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/128` address from the generated WireGuard subnet:
 
 ```ini

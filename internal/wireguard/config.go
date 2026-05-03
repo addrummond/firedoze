@@ -257,7 +257,7 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 	allowedIPs := []string{wireGuardHostCIDR(cfg.WireGuard.Address), cfg.VMNetwork.Subnet}
 	allowedIPs = compactStrings(allowedIPs)
-	apiURL, err := apiURL(cfg.WireGuard.Address)
+	apiURL, err := APIURL(cfg.WireGuard.Address)
 	if err != nil {
 		return "", err
 	}
@@ -280,7 +280,7 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	return b.String(), nil
 }
 
-func apiURL(wireGuardAddress string) (string, error) {
+func APIURL(wireGuardAddress string) (string, error) {
 	ip, _, err := net.ParseCIDR(wireGuardAddress)
 	if err != nil {
 		return "", fmt.Errorf("wireguard.address must be CIDR: %w", err)

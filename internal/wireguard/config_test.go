@@ -54,6 +54,24 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 }
 
+func TestAPIURL(t *testing.T) {
+	for _, tc := range []struct {
+		address string
+		want    string
+	}{
+		{address: "fd7a:115c:a1e1::1/64", want: "http://[fd7a:115c:a1e1::1]"},
+		{address: "10.77.0.1/24", want: "http://10.77.0.1"},
+	} {
+		got, err := APIURL(tc.address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Fatalf("APIURL(%q) = %q, want %q", tc.address, got, tc.want)
+		}
+	}
+}
+
 func TestNewPeerSetupSkipsUsedAllowedIPs(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()

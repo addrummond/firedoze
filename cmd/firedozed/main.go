@@ -36,6 +36,7 @@ func run() int {
 	var initBaseDomain string
 	var initForce bool
 	var printConfig bool
+	var printAPIEnv bool
 	var setupWireGuard bool
 	var serve bool
 	var wgServerPublicKey bool
@@ -49,6 +50,7 @@ func run() int {
 	flag.StringVar(&initBaseDomain, "init-base-domain", "", "base domain for VM hostnames when using -init-config")
 	flag.BoolVar(&initForce, "init-force", false, "replace an existing config when using -init-config")
 	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
+	flag.BoolVar(&printAPIEnv, "print-api-env", false, "print shell export for FIREDOZE_API and exit")
 	flag.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
 	flag.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
 	flag.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
@@ -82,6 +84,15 @@ func run() int {
 
 	if printConfig {
 		fmt.Print(cfg.TOML())
+		return 0
+	}
+	if printAPIEnv {
+		apiURL, err := wgconfig.APIURL(cfg.WireGuard.Address)
+		if err != nil {
+			logger.Error("derive API URL", "error", err)
+			return 1
+		}
+		fmt.Printf("export FIREDOZE_API=%q\n", apiURL)
 		return 0
 	}
 	if wgServerPublicKey {
