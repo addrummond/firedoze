@@ -34,25 +34,9 @@ func TestCaddyConfigServesTLSOnHTTPSPort(t *testing.T) {
 	raw, _ := manager.caddyConfig([]store.VM{
 		{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", PublicHTTP: true},
 	}, nil)
-	data, err := json.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
+	servers := caddyServers(t, raw)
 
-	var cfgJSON struct {
-		Apps struct {
-			HTTP struct {
-				Servers map[string]struct {
-					Listen                []string         `json:"listen"`
-					TLSConnectionPolicies []map[string]any `json:"tls_connection_policies"`
-				} `json:"servers"`
-			} `json:"http"`
-		} `json:"apps"`
-	}
-	if err := json.Unmarshal(data, &cfgJSON); err != nil {
-		t.Fatal(err)
-	}
-	httpsServer, ok := cfgJSON.Apps.HTTP.Servers["firedoze_https"]
+	httpsServer, ok := servers["firedoze_https"]
 	if !ok {
 		t.Fatal("missing firedoze_https server")
 	}
@@ -62,7 +46,7 @@ func TestCaddyConfigServesTLSOnHTTPSPort(t *testing.T) {
 	if httpsServer.TLSConnectionPolicies == nil {
 		t.Fatal("https server has no tls_connection_policies")
 	}
-	httpServer, ok := cfgJSON.Apps.HTTP.Servers["firedoze_http"]
+	httpServer, ok := servers["firedoze_http"]
 	if !ok {
 		t.Fatal("missing firedoze_http server")
 	}
@@ -72,4 +56,60 @@ func TestCaddyConfigServesTLSOnHTTPSPort(t *testing.T) {
 	if httpServer.TLSConnectionPolicies != nil {
 		t.Fatal("http server unexpectedly has tls_connection_policies")
 	}
+}
+
+func TestCaddyConfigBehindProxyServesRoutesOnHTTP(t *testing.T) {
+	cfg := config.Default()
+	cfg.BaseDomain = "example.test"
+	cfg.Caddy.TLSMode = "behind_proxy"
+	manager := NewManager(cfg, nil, nil)
+
+	raw, routeCount := manager.caddyConfig([]store.VM{
+		{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", PublicHTTP: true},
+	}, nil)
+	if routeCount != 1 {
+		t.Fatalf("routeCount = %d, want 1", routeCount)
+	}
+	servers := caddyServers(t, raw)
+	if _, ok := servers["firedoze_https"]; ok {
+		t.Fatal("behind_proxy mode unexpectedly configured an HTTPS server")
+	}
+	httpServer, ok := servers["firedoze_http"]
+	if !ok {
+		t.Fatal("missing firedoze_http server")
+	}
+	if len(httpServer.Listen) != 1 || httpServer.Listen[0] != ":80" {
+		t.Fatalf("http listen = %v, want [:80]", httpServer.Listen)
+	}
+	if httpServer.TLSConnectionPolicies != nil {
+		t.Fatal("http server unexpectedly has tls_connection_policies")
+	}
+	if len(httpServer.Routes) == 0 {
+		t.Fatal("http server has no routes")
+	}
+}
+
+type caddyServerConfig struct {
+	Listen                []string         `json:"listen"`
+	Routes                []map[string]any `json:"routes"`
+	TLSConnectionPolicies []map[string]any `json:"tls_connection_policies"`
+}
+
+func caddyServers(t *testing.T, raw map[string]any) map[string]caddyServerConfig {
+	t.Helper()
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfgJSON struct {
+		Apps struct {
+			HTTP struct {
+				Servers map[string]caddyServerConfig `json:"servers"`
+			} `json:"http"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(data, &cfgJSON); err != nil {
+		t.Fatal(err)
+	}
+	return cfgJSON.Apps.HTTP.Servers
 }

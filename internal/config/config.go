@@ -37,9 +37,10 @@ type APIConfig struct {
 }
 
 type CaddyConfig struct {
-	HTTPPort          int `toml:"http_port"`
-	HTTPSPort         int `toml:"https_port"`
-	InternalProxyPort int `toml:"internal_proxy_port"`
+	HTTPPort          int    `toml:"http_port"`
+	HTTPSPort         int    `toml:"https_port"`
+	InternalProxyPort int    `toml:"internal_proxy_port"`
+	TLSMode           string `toml:"tls_mode"`
 }
 
 type WireGuardConfig struct {
@@ -138,6 +139,7 @@ func Default() Config {
 			HTTPPort:          80,
 			HTTPSPort:         443,
 			InternalProxyPort: 18082,
+			TLSMode:           "auto",
 		},
 		Metadata: MetadataConfig{
 			Path: "/var/lib/firedoze/firedoze.db",
@@ -268,6 +270,12 @@ func (c Config) Validate() error {
 	}
 	if c.Caddy.InternalProxyPort <= 0 || c.Caddy.InternalProxyPort > 65535 {
 		return fmt.Errorf("caddy.internal_proxy_port must be between 1 and 65535")
+	}
+	if c.Caddy.TLSMode == "" {
+		return fmt.Errorf("caddy.tls_mode is required")
+	}
+	if c.Caddy.TLSMode != "auto" && c.Caddy.TLSMode != "behind_proxy" {
+		return fmt.Errorf("caddy.tls_mode must be auto or behind_proxy")
 	}
 	if c.Metadata.Path == "" {
 		return fmt.Errorf("metadata.path is required")

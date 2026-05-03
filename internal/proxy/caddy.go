@@ -92,14 +92,22 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 		}},
 	})
 
-	httpServer := map[string]any{
-		"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
-		"routes": []map[string]any{redirectToHTTPSRoute()},
-	}
-	httpsServer := map[string]any{
-		"listen":                  []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
-		"routes":                  routes,
-		"tls_connection_policies": []map[string]any{{}},
+	servers := map[string]any{}
+	if m.cfg.Caddy.TLSMode == "behind_proxy" {
+		servers["firedoze_http"] = map[string]any{
+			"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
+			"routes": routes,
+		}
+	} else {
+		servers["firedoze_http"] = map[string]any{
+			"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
+			"routes": []map[string]any{redirectToHTTPSRoute()},
+		}
+		servers["firedoze_https"] = map[string]any{
+			"listen":                  []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
+			"routes":                  routes,
+			"tls_connection_policies": []map[string]any{{}},
+		}
 	}
 
 	return map[string]any{
@@ -110,10 +118,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			"http": map[string]any{
 				"http_port":  m.cfg.Caddy.HTTPPort,
 				"https_port": m.cfg.Caddy.HTTPSPort,
-				"servers": map[string]any{
-					"firedoze_http":  httpServer,
-					"firedoze_https": httpsServer,
-				},
+				"servers":    servers,
 			},
 		},
 	}, len(routes) - 1

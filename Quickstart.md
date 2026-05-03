@@ -433,6 +433,7 @@ subnet = "fd7a:115c:a1e0::/64"
 http_port = 80
 https_port = 443
 internal_proxy_port = 18082
+tls_mode = "auto"
 
 [metadata]
 path = "/var/lib/firedoze/firedoze.db"
@@ -454,6 +455,22 @@ default_vcpus = 1
 default_memory_mib = 512
 default_disk_bytes = 4294967296
 ```
+
+`caddy.tls_mode = "auto"` is the normal direct-internet mode: firedoze serves
+HTTPS locally on `https_port` and redirects HTTP to HTTPS. If firedoze is behind
+a local TLS-terminating tunnel or reverse proxy such as Cloudflare Tunnel, use:
+
+```toml
+[caddy]
+http_port = 80
+https_port = 443
+internal_proxy_port = 18082
+tls_mode = "behind_proxy"
+```
+
+Then point the tunnel origin at `http://localhost:80`. Public users still see
+HTTPS from the tunnel/proxy, while firedoze serves plain HTTP only on the local
+origin connection.
 
 ## Upgrade or Uninstall
 

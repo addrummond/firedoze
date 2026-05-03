@@ -50,6 +50,10 @@ port = 8081
 http_port = 80
 https_port = 443
 internal_proxy_port = 18082
+# "auto" serves HTTPS locally with Caddy-managed certificates and redirects
+# HTTP to HTTPS. Use "behind_proxy" when a local tunnel/reverse proxy such as
+# Cloudflare Tunnel terminates public TLS and forwards plain HTTP to firedoze.
+tls_mode = "auto"
 
 [metadata]
 path = "/var/lib/firedoze/firedoze.db"
