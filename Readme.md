@@ -29,7 +29,15 @@ firedoze puts that behind one simple model. One beefy box. One CLI. One WireGuar
 
 Unlike container workflows, firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
-> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
+Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the ‘persistent computer’ idea, then narrows the target to shared dev environments: one box, one team, one WireGuard tunnel, no global fleet, production networking, or platform machinery.
+
+## Where can you host it?
+
+firedoze needs a Linux host that can run KVM-backed Firecracker VMs. That means either dedicated hardware or a cloud VM with nested virtualization support.
+
+💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances, so you no longer need bare-metal EC2 just to run KVM-backed VMs. See the [AWS guide](docs/aws-guide.md).
+
+Low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
 
 ## What you get
 
