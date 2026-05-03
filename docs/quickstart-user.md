@@ -209,8 +209,7 @@ Autowake controls whether passive network activity is allowed to wake a sleeping
 When autowake is enabled:
 
 - `firedoze ssh demo`, `firedoze exec demo -- ...`, and `firedoze cp ... demo:...` will start the VM if needed before connecting.
-- A request to a published HTTPS URL can wake the VM.
-- Public browser requests may first show a small human check. After it succeeds, the browser gets a signed cookie for that hostname and future requests can wake the VM without repeating the check.
+- A request to a published HTTPS URL can wake the VM (guarded by a captcha check to stop nuisance traffic from waking sleeping VMs).
 
 When autowake is disabled:
 
