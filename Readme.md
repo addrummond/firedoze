@@ -6,7 +6,7 @@ Disposable Linux computers for shared development.
 
 firedoze runs persistent Firecracker VMs on one Linux host, with WireGuard-gated management access, simple command-line lifecycle controls, and HTTPS exposure for dev services when you want to share them. It is designed for the "create and forget" model: make a VM, use it like a small computer, let it sleep when idle (consuming only disk space), and only think about the environments that matter today.
 
-⚠️ **Early-stage development software.** ⚠️ Do not use firedoze for production workloads or hostile multi-tenant isolation.
+⚠️ _This is early-stage development software. Don't use it for production workloads, for hostile multi-tenant isolation, or inside sensitive infrastructure accounts._
 
 ## Why?
 
@@ -53,10 +53,18 @@ busybox httpd -f -p 8080 -h .'
 firedoze vm list launchpad
 ```
 
+Start another VM and call the first one by name on the private VM network:
+
+```sh
+firedoze up cockpit -publish=false
+firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
+```
+
 When you are done, sleep it. It keeps its state, but stops burning CPU and
 memory:
 
 ```sh
+firedoze vm sleep cockpit
 firedoze vm sleep launchpad
 ```
 
