@@ -63,6 +63,8 @@ busybox httpd -p 8080 -h .'
 firedoze vm list launchpad
 ```
 
+Open the `PUBLIC URL` from `firedoze vm list` in your browser. It is a real HTTPS URL for the service running inside that VM.
+
 Start a second VM and call the first one by name over the private VM network:
 
 ```sh
