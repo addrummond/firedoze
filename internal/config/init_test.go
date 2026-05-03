@@ -39,14 +39,29 @@ func TestDNSListenIPDefaultsToFirstUsableVMNetworkIP(t *testing.T) {
 	}
 }
 
-func TestInitTOMLHostDoesNotImplySSLIP(t *testing.T) {
+func TestInitTOMLHostSetsBaseDomain(t *testing.T) {
 	text, err := InitTOML(InitOptions{Host: "203.0.113.10"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`base_domain = "dev.example.com"`,
+		`base_domain = "203.0.113.10"`,
 		`endpoint = "203.0.113.10:51820"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestInitTOMLHostBaseDomainCanBeOverridden(t *testing.T) {
+	text, err := InitTOML(InitOptions{Host: "firedoze.example.com", BaseDomain: "dev.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`base_domain = "dev.example.com"`,
+		`endpoint = "firedoze.example.com:51820"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("generated config missing %q:\n%s", want, text)

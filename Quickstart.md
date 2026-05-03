@@ -47,7 +47,7 @@ task firecracker:install
 task build
 ./firedoze-image build
 task image:install
-# use -init-host <DOMAIN_NAME> if you have a real domain
+# use -init-host <DOMAIN_NAME> if you have a real domain; it also sets base_domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # Alice runs this on her laptop and sends you only the public_key:
@@ -128,11 +128,13 @@ sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 `-init-sslip-host` also sets `base_domain` to `PUBLIC_IP.sslip.io`, which is useful when the host has no real domain yet.
 
-If you already have DNS, use `-init-host` with `-init-base-domain` instead:
+If you already have DNS, use `-init-host`:
 
 ```sh
-sudo firedozed -init-config -init-host firedoze.example.com -init-base-domain dev.example.com
+sudo firedozed -init-config -init-host dev.example.com
 ```
+
+`-init-host` sets both the WireGuard endpoint host and `base_domain`. If the WireGuard endpoint host and VM wildcard domain are different, pass `-init-base-domain` explicitly.
 
 `-init-config` writes `/etc/firedoze/firedoze.toml`, refuses to overwrite an existing config unless you pass `-init-force`, and chooses random private ranges for:
 

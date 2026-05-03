@@ -72,6 +72,9 @@ func InitTOML(opts InitOptions) (string, error) {
 	}
 	baseDomain := strings.TrimSpace(opts.BaseDomain)
 	endpointHost := host
+	if host != "" && baseDomain == "" {
+		baseDomain = hostOnly(host)
+	}
 	if sslipHost != "" {
 		endpointHost = sslipHost
 		if baseDomain == "" {
