@@ -27,7 +27,7 @@ firedoze puts that behind one simple model. One beefy box. One CLI. One WireGuar
 
 Unlike container workflows, firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
-Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the ‘persistent computer’ idea, then narrows the target to shared dev environments: no global fleet, production networking, or platform machinery.
+Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the idea of a persistent computer that can sleep cheaply when idle, then narrows the target to shared dev environments: no global fleet, production networking, durable object-storage layer, or hosted platform to operate.
 
 ## Where can you host it?
 
