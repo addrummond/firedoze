@@ -69,7 +69,7 @@ firedoze vm sleep launchpad
 ```
 
 Too lazy to run the sleep command? Don't worry! firedoze will sleep the VM automatically after a configurable idle timeout.
-The VM wakes again when network traffic arrives, so the next request to
+The VM wakes again when network traffic arrives, so the next (verifiably human) request to
 its HTTPS URL brings it back.
 
 ## Documentation
