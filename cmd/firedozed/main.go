@@ -219,6 +219,7 @@ func run() int {
 		idleCtx, cancelIdle := context.WithCancel(ctx)
 		defer cancelIdle()
 		go firecracker.NewIdleMonitor(manager, proxyManager, logger).Run(idleCtx)
+		go firecracker.NewColdStorageMonitor(manager, logger).Run(idleCtx)
 		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1

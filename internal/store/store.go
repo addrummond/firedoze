@@ -61,6 +61,19 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "vms", "last_started_at", "text not null default ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "vms", "stopped_at", "text not null default ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "vms", "archived_disk_path", "text not null default ''"); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		update vms
+		set stopped_at = updated_at
+		where state = 'stopped' and stopped_at = ''
+	`); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "vms", "base_image_id", "text not null default ''"); err != nil {
 		return err
 	}
@@ -107,6 +120,8 @@ create table if not exists vms (
 	default_http_port integer not null,
 	idle_sleep_after_seconds integer not null default 0,
 	last_started_at text not null default '',
+	stopped_at text not null default '',
+	archived_disk_path text not null default '',
 	base_image_id text not null default '',
 	kernel_id text not null default '',
 	base_image_metadata text not null default '',

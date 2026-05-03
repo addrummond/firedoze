@@ -39,8 +39,8 @@ type UpdateVMParams struct {
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
 	_, err := s.db.ExecContext(ctx, `
-		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
-		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
+		values (?, 'stopped', ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
 	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
 	if err != nil {
 		return VM{}, err
@@ -54,7 +54,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 
 func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]VM, error) {
 	query := `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 	`
 	args := []any{}
@@ -80,7 +80,7 @@ func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]V
 		var vm VM
 		var autoWake int
 		var publicHTTP int
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP); err != nil {
+		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP); err != nil {
 			return nil, err
 		}
 		vm.AutoWake = autoWake != 0
@@ -116,10 +116,10 @@ func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 	var autoWake int
 	var publicHTTP int
 	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
+	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
@@ -148,9 +148,13 @@ func (s *Store) SetVMState(ctx context.Context, name string, state string) error
 				when ? = 'running' then strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 				else last_started_at
 			end,
+			stopped_at = case
+				when ? = 'stopped' then strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+				else ''
+			end,
 			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		where name = ?
-	`, state, state, name)
+	`, state, state, state, name)
 	if err != nil {
 		return err
 	}
@@ -197,6 +201,25 @@ func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams
 		return VM{}, fmt.Errorf("%w: vm %q", ErrNotFound, name)
 	}
 	return s.GetVM(ctx, name)
+}
+
+func (s *Store) SetVMArchivedDiskPath(ctx context.Context, name string, path string) error {
+	result, err := s.db.ExecContext(ctx, `
+		update vms
+		set archived_disk_path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		where name = ?
+	`, path, name)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+	}
+	return nil
 }
 
 func boolToInt(v bool) int {

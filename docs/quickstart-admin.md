@@ -14,6 +14,7 @@ Use an x86_64 Linux box with:
 - Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
 - Recommended: **put `state_dir` on a filesystem with reflink support for fast VM disk clones**. XFS with reflinks enabled is a good default choice (see [Fast VM Disk Clones](#fast-vm-disk-clones)).
+- Optional: configure cold storage if you want disks from long-stopped VMs moved to cheaper/slower storage automatically.
 - IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
 
 The systemd service runs as a dedicated `firedoze` system user, not as root. It uses Linux capabilities for the privileged network operations it still needs at runtime.
@@ -542,6 +543,43 @@ sudo xfs_info /var/lib/firedoze | grep reflink
 
 You should see `reflink=1`.
 
+## Cold Storage For Stopped VMs
+
+Cold storage is optional. If configured, firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
+
+Only stopped VM disks are moved. Running VMs and sleeping VMs are not moved, because sleeping VMs include exact suspended runtime state.
+
+Example:
+
+```toml
+[cold_storage]
+dir = "/mnt/slow/firedoze"
+archive_stopped_after_seconds = 2592000 # 30 days
+```
+
+Prepare the directory so the `firedoze` service user can write to it:
+
+```sh
+sudo mkdir -p /mnt/slow/firedoze
+sudo chown firedoze:firedoze /mnt/slow/firedoze
+```
+
+When a disk is archived, firedoze copies:
+
+```text
+/var/lib/firedoze/vms/<name>/rootfs.ext4
+```
+
+to:
+
+```text
+<cold_storage.dir>/vms/<name>/rootfs.ext4
+```
+
+and records that path in SQLite before removing the hot copy. Starting the VM copies the disk back before booting. Saving a snapshot of an archived stopped VM copies directly from the archived disk. Deleting the VM removes the archived disk too.
+
+Cold storage is not a backup system. It is just a way to reclaim faster local disk from stopped VMs you are not actively using.
+
 ## Reference Config
 
 The generated config starts from this shape:
@@ -585,6 +623,10 @@ wake_proxy_port = 18022
 [idle]
 check_interval_seconds = 30
 default_sleep_after_seconds = 21600
+
+[cold_storage]
+dir = ""
+archive_stopped_after_seconds = 2592000
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"

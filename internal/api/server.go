@@ -142,6 +142,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"check_interval_seconds":      s.cfg.Idle.CheckIntervalSeconds,
 			"default_sleep_after_seconds": s.cfg.Idle.DefaultSleepAfterSeconds,
 		},
+		"cold_storage": map[string]any{
+			"dir":                           s.cfg.ColdStorage.Dir,
+			"archive_stopped_after_seconds": s.cfg.ColdStorage.ArchiveStoppedAfterSeconds,
+		},
 		"firecracker": map[string]any{
 			"binary_path":        s.cfg.Firecracker.BinaryPath,
 			"base_kernel_path":   s.cfg.Firecracker.BaseKernelPath,

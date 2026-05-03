@@ -54,6 +54,8 @@ type VM struct {
 	DefaultHTTPPort       int      `json:"default_http_port"`
 	IdleSleepAfterSeconds int      `json:"idle_sleep_after_seconds,omitempty"`
 	LastStartedAt         string   `json:"last_started_at,omitempty"`
+	StoppedAt             string   `json:"stopped_at,omitempty"`
+	ArchivedDiskPath      string   `json:"archived_disk_path,omitempty"`
 	BaseImageID           string   `json:"base_image_id,omitempty"`
 	KernelID              string   `json:"kernel_id,omitempty"`
 	BaseImageMetadata     JSONText `json:"base_image_metadata,omitempty"`

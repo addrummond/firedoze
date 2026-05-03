@@ -25,6 +25,7 @@ type Config struct {
 	DNS             DNSConfig         `toml:"dns"`
 	SSH             SSHConfig         `toml:"ssh"`
 	Idle            IdleConfig        `toml:"idle"`
+	ColdStorage     ColdStorageConfig `toml:"cold_storage"`
 	Firecracker     FirecrackerConfig `toml:"firecracker"`
 }
 
@@ -129,6 +130,11 @@ type IdleConfig struct {
 	DefaultSleepAfterSeconds int `toml:"default_sleep_after_seconds"`
 }
 
+type ColdStorageConfig struct {
+	Dir                        string `toml:"dir"`
+	ArchiveStoppedAfterSeconds int    `toml:"archive_stopped_after_seconds"`
+}
+
 type FirecrackerConfig struct {
 	BinaryPath       string `toml:"binary_path"`
 	BaseKernelPath   string `toml:"base_kernel_path"`
@@ -179,6 +185,9 @@ func Default() Config {
 		Idle: IdleConfig{
 			CheckIntervalSeconds:     30,
 			DefaultSleepAfterSeconds: 6 * 60 * 60,
+		},
+		ColdStorage: ColdStorageConfig{
+			ArchiveStoppedAfterSeconds: 30 * 24 * 60 * 60,
 		},
 		Firecracker: FirecrackerConfig{
 			BinaryPath:       "/usr/local/bin/firecracker",
@@ -233,6 +242,9 @@ func (c *Config) applyDerivedDefaults() error {
 	}
 	if c.Metadata.Path == "" {
 		c.Metadata.Path = filepath.Join(c.StateDir, "firedoze.db")
+	}
+	if c.ColdStorage.ArchiveStoppedAfterSeconds == 0 {
+		c.ColdStorage.ArchiveStoppedAfterSeconds = 30 * 24 * 60 * 60
 	}
 	if c.DNS.Enabled {
 		if c.DNS.Domain == "" {
@@ -334,6 +346,9 @@ func (c Config) Validate() error {
 	}
 	if c.Idle.DefaultSleepAfterSeconds < 0 {
 		return fmt.Errorf("idle.default_sleep_after_seconds cannot be negative")
+	}
+	if c.ColdStorage.ArchiveStoppedAfterSeconds < 0 {
+		return fmt.Errorf("cold_storage.archive_stopped_after_seconds cannot be negative")
 	}
 	if c.Firecracker.BinaryPath == "" {
 		return fmt.Errorf("firecracker.binary_path is required")

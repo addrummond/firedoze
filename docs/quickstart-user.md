@@ -128,7 +128,7 @@ firedoze vm stop demo
 firedoze vm delete demo
 ```
 
-`sleep` keeps the VM's exact suspended state. `stop` shuts down the Firecracker process and keeps only the disk. `reboot` restarts from disk; if the VM is sleeping, it discards the suspended runtime state rather than resuming it.
+`sleep` keeps the VM's exact suspended state. `stop` shuts down the Firecracker process and keeps only the disk. If the server has cold storage enabled, long-stopped VM disks may be moved to slower storage and restored automatically the next time you start them. `reboot` restarts from disk; if the VM is sleeping, it discards the suspended runtime state rather than resuming it.
 
 ## 6. SSH, Commands, And Files
 

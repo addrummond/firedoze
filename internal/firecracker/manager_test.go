@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"firedoze/internal/config"
 	"firedoze/internal/store"
@@ -180,5 +181,116 @@ func TestSaveSnapshotRejectsSleepingVM(t *testing.T) {
 	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
 	if !errors.Is(err, ErrNotStopped) {
 		t.Fatalf("SaveSnapshot error = %v, want ErrNotStopped", err)
+	}
+}
+
+func TestArchiveStoppedVMMovesDiskToColdStorage(t *testing.T) {
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+
+	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(m.layout("demo").diskPath); !os.IsNotExist(err) {
+		t.Fatalf("hot disk stat error = %v, want not exist", err)
+	}
+	data, err := os.ReadFile(m.coldDiskPath("demo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "disk" {
+		t.Fatalf("cold disk = %q, want disk", data)
+	}
+	vm, err := st.GetVM(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.ArchivedDiskPath != m.coldDiskPath("demo") {
+		t.Fatalf("archived_disk_path = %q, want %q", vm.ArchivedDiskPath, m.coldDiskPath("demo"))
+	}
+}
+
+func TestHydrateColdDiskRestoresArchivedDisk(t *testing.T) {
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	vm, err := st.GetVM(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.ArchivedDiskPath == "" {
+		t.Fatal("archived VM has empty archived_disk_path")
+	}
+	if err := m.hydrateColdDisk(context.Background(), vm); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(m.layout("demo").diskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "disk" {
+		t.Fatalf("hot disk = %q, want disk", data)
+	}
+	if _, err := os.Stat(m.coldDiskPath("demo")); !os.IsNotExist(err) {
+		t.Fatalf("cold disk stat error = %v, want not exist", err)
+	}
+	vm, err = st.GetVM(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.ArchivedDiskPath != "" {
+		t.Fatalf("archived_disk_path = %q, want empty", vm.ArchivedDiskPath)
+	}
+}
+
+func TestSaveSnapshotFromArchivedStoppedVMCopiesColdDisk(t *testing.T) {
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(snapshot.DiskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "disk" {
+		t.Fatalf("snapshot disk = %q, want disk", data)
+	}
+}
+
+func TestHydrateColdDiskFailsWhenRecordedArchiveIsMissing(t *testing.T) {
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
+	missingPath := filepath.Join(m.cfg.ColdStorage.Dir, "vms", "demo", "rootfs.ext4")
+	if err := st.SetVMArchivedDiskPath(context.Background(), "demo", missingPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(m.layout("demo").diskPath); err != nil {
+		t.Fatal(err)
+	}
+	vm.ArchivedDiskPath = missingPath
+
+	err := m.hydrateColdDisk(context.Background(), vm)
+	if err == nil {
+		t.Fatal("hydrateColdDisk succeeded with missing archived disk")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("hydrateColdDisk error = %v, want not exist", err)
 	}
 }

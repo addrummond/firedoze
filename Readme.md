@@ -43,6 +43,7 @@ Low-cost options include small dedicated servers from providers like [Hetzner](h
 - **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint
 - **Public HTTPS routes** for sharing a dev service with someone outside the tunnel
 - **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk
+- **Optional cold storage** for disks from long-stopped VMs
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team
 - **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore
 - **Native Go image builder** — no Docker or Podman required

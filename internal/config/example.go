@@ -96,6 +96,12 @@ wake_proxy_port = 18022
 check_interval_seconds = 30
 default_sleep_after_seconds = 21600
 
+[cold_storage]
+# Optional directory for moving disks of long-stopped VMs onto cheaper/slower
+# storage. Leave blank to disable cold storage.
+dir = ""
+archive_stopped_after_seconds = 2592000
+
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"

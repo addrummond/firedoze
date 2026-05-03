@@ -398,7 +398,8 @@ func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 	}
 	defer m.endVMOperation(name)
 
-	if _, err := m.store.GetVM(ctx, name); err != nil {
+	vm, err := m.store.GetVM(ctx, name)
+	if err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -411,6 +412,16 @@ func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 	}
 	if err := os.RemoveAll(m.layout(name).vmDir); err != nil {
 		return err
+	}
+	if vm.ArchivedDiskPath != "" {
+		if err := os.Remove(vm.ArchivedDiskPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if coldDir := m.coldVMDir(name); coldDir != "" {
+		if err := os.RemoveAll(coldDir); err != nil {
+			return err
+		}
 	}
 	if err := m.store.DeleteRoutesForVM(ctx, name); err != nil {
 		return err
@@ -464,6 +475,10 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	}
 	if vm.State == "sleeping" {
 		return m.resumeVM(ctx, vm)
+	}
+
+	if err := m.hydrateColdDisk(ctx, vm); err != nil {
+		return store.VM{}, fmt.Errorf("restore cold disk: %w", err)
 	}
 
 	layout := m.layout(name)
@@ -732,13 +747,16 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot VM %q in state %q; run `firedoze vm stop %s` first", ErrNotStopped, vm.Name, vm.State, vm.Name)
 	}
 
-	vmLayout := m.layout(vm.Name)
+	vmDiskPath, err := m.vmDiskPath(vm)
+	if err != nil {
+		return store.Snapshot{}, err
+	}
 	snapshotLayout := m.snapshotLayout(params.Name)
 	if err := os.MkdirAll(snapshotLayout.dir, 0o755); err != nil {
 		return store.Snapshot{}, err
 	}
 
-	if err := copyFile(snapshotLayout.diskPath, vmLayout.diskPath); err != nil {
+	if err := copyFile(snapshotLayout.diskPath, vmDiskPath); err != nil {
 		return store.Snapshot{}, fmt.Errorf("copy vm disk: %w", err)
 	}
 
@@ -1068,6 +1086,46 @@ func (m *Manager) layout(name string) layout {
 	}
 }
 
+func (m *Manager) coldVMDir(name string) string {
+	if m.cfg.ColdStorage.Dir == "" {
+		return ""
+	}
+	return filepath.Join(m.cfg.ColdStorage.Dir, "vms", name)
+}
+
+func (m *Manager) coldDiskPath(name string) string {
+	dir := m.coldVMDir(name)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "rootfs.ext4")
+}
+
+func (m *Manager) vmDiskPath(vm store.VM) (string, error) {
+	hot := m.layout(vm.Name).diskPath
+	if _, err := os.Stat(hot); err == nil {
+		return hot, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	cold := vm.ArchivedDiskPath
+	archived := cold != ""
+	if cold == "" {
+		cold = m.coldDiskPath(vm.Name)
+	}
+	if cold != "" {
+		if _, err := os.Stat(cold); err == nil {
+			return cold, nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		} else if archived {
+			return "", fmt.Errorf("archived disk %s: %w", cold, err)
+		}
+	}
+	return hot, nil
+}
+
 func (m *Manager) snapshotLayout(name string) snapshotLayout {
 	dir := filepath.Join(m.cfg.StateDir, "snapshots", name)
 	return snapshotLayout{
@@ -1135,6 +1193,22 @@ func copyFile(dst string, src string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func copyRegularFile(dst string, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.CopyBuffer(out, in, make([]byte, 1024*1024))
+	syncErr := out.Sync()
+	closeErr := out.Close()
+	return errors.Join(copyErr, syncErr, closeErr)
 }
 
 func copySparseFile(out *os.File, in *os.File) error {

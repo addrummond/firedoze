@@ -376,11 +376,11 @@ v1 uses plain image files on local disk.
 
 No ZFS, btrfs, LVM thin provisioning, or qcow2 overlay requirement in v1.
 
-Space efficiency is not a primary goal. Storage is assumed cheap enough for initial use, and old images/snapshots can be moved manually to slower storage by admins.
+Fast cloning can use ordinary filesystem reflinks when the configured state directory supports them, but firedoze must still work with regular file copies.
 
-firedoze v1 does not manage archival storage or automatic restore from archived files. If files are missing because an admin moved them, commands should fail clearly.
+Cold storage is opt-in. If `cold_storage.dir` is configured, firedoze can move disks from VMs that have been stopped longer than `cold_storage.archive_stopped_after_seconds` to that directory using a regular file copy, then remove the hot copy. The SQLite VM record stores the archived disk path, so starts can restore the disk before booting, snapshots can copy from the archived disk, and deletes can reclaim it.
 
-Long-term, archive/restore integration may be added.
+Only stopped VM disks are eligible for cold storage. Sleeping VMs are not moved because their exact runtime state belongs to the hot VM state directory.
 
 ## Resource Management
 
