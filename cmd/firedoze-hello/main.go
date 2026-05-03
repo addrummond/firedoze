@@ -14,14 +14,28 @@ import (
 
 const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111827"/><text x="32" y="43" text-anchor="middle" font-size="38">😴</text></svg>`
 
+var verbose bool
+
 func main() {
 	port := "8080"
-	if len(os.Args) > 1 {
-		port = os.Args[1]
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "-verbose":
+			verbose = true
+		case "-h", "--help":
+			usage()
+			os.Exit(0)
+		default:
+			if strings.HasPrefix(arg, "-") {
+				usage()
+				os.Exit(2)
+			}
+			port = arg
+		}
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		fmt.Fprintln(os.Stderr, "usage: firedoze-hello [port]")
+		usage()
 		os.Exit(2)
 	}
 
@@ -35,6 +49,10 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: firedoze-hello [port] [-verbose]")
 }
 
 func handleFavicon(w http.ResponseWriter, r *http.Request) {
@@ -58,9 +76,12 @@ func helloText() string {
 	if hostname, err := os.Hostname(); err == nil {
 		fmt.Fprintf(&b, "  hostname: %s\n", hostname)
 	}
+	fmt.Fprintf(&b, "  uptime:   %s\n", uptimeText())
+	if !verbose {
+		return b.String()
+	}
 	fmt.Fprintf(&b, "  user:     %s\n", userText())
 	fmt.Fprintf(&b, "  kernel:   %s\n", kernelText())
-	fmt.Fprintf(&b, "  uptime:   %s\n", uptimeText())
 	fmt.Fprintf(&b, "  load:     %s\n", firstFields("/proc/loadavg", 3, "unknown"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Network")

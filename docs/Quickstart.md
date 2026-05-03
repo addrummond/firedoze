@@ -345,6 +345,12 @@ To keep the hello server running as a systemd service inside the VM:
 sudo firedoze-hello-service install 8080
 ```
 
+The default hello page exposes only basic liveness information. To include extra diagnostics such as user, kernel, addresses, and routes:
+
+```sh
+sudo firedoze-hello-service install 8080 -verbose
+```
+
 After it has been installed, manage it with normal systemd commands:
 
 ```sh

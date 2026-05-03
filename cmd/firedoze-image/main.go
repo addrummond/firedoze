@@ -953,11 +953,11 @@ done
 set -eu
 
 usage() {
-  echo "usage: firedoze-hello-service <install|start|stop|restart|status|disable> [port]" >&2
+  echo "usage: firedoze-hello-service <install|start|stop|restart|status|disable> [port] [-verbose]" >&2
 }
 
 cmd="${1:-}"
-port="${2:-8080}"
+shift || true
 case "$cmd" in
   install|start|stop|restart|status|disable) ;;
   -h|--help|"")
@@ -969,6 +969,24 @@ case "$cmd" in
     exit 2
     ;;
 esac
+
+port=8080
+verbose=
+for arg in "$@"; do
+  case "$arg" in
+    -verbose)
+      verbose=" -verbose"
+      ;;
+    ''|*[!0-9]*)
+      echo "unexpected argument: $arg" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      port="$arg"
+      ;;
+  esac
+done
 
 case "$port" in
   ''|*[!0-9]*)
@@ -991,7 +1009,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/firedoze-hello $port
+ExecStart=/usr/local/bin/firedoze-hello $port$verbose
 Restart=always
 RestartSec=1s
 User=ubuntu
