@@ -291,14 +291,16 @@ Automatic idle detection is layered on top of that primitive. The daemon samples
 
 Snapshots are named frozen computers.
 
-Users can save a running VM as a named snapshot. Snapshot names are global and may be freer than VM names, but duplicate names fail.
+Users can save a sleeping or stopped VM as a named snapshot. Snapshot names are global and may be freer than VM names, but duplicate names fail. Saving a snapshot from a running VM is rejected because it can capture dirty guest filesystem or application state.
 
-Snapshots include all state:
+Snapshots include all applicable state:
 
 - Memory state.
 - Disk state.
 - Device/VM metadata required for exact restore.
 - Base image/kernel/runtime lineage metadata.
+
+Stopped VM snapshots are disk-only. Sleeping VM snapshots also copy the exact Firecracker sleep state and memory files.
 
 Restoring a snapshot should create a new VM by default rather than overwriting an existing VM.
 

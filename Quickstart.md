@@ -299,6 +299,7 @@ Run a command inside a VM and snapshot it after the command succeeds:
 
 ```sh
 firedoze exec demo -- sh -lc 'set -eu; echo ready > /home/ubuntu/ready.txt'
+firedoze vm sleep demo
 firedoze snapshot save demo-ready demo
 ```
 
@@ -350,8 +351,13 @@ firedoze vm delete demo old-test scratch
 Save a named snapshot:
 
 ```sh
+firedoze vm sleep demo
 firedoze snapshot save demo-base demo
 ```
+
+Snapshots can only be saved from sleeping or stopped VMs. firedoze rejects
+snapshots of running VMs so the snapshot does not capture a dirty guest
+filesystem or half-finished application state.
 
 Restore a snapshot as a new VM:
 

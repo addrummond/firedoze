@@ -442,7 +442,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
-		} else if errors.Is(err, firecracker.ErrNotRunning) {
+		} else if errors.Is(err, firecracker.ErrNotRunning) || errors.Is(err, firecracker.ErrRunning) {
 			status = http.StatusConflict
 		}
 		writeError(w, status, err)

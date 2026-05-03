@@ -34,6 +34,7 @@ import (
 var ErrAlreadyRunning = errors.New("vm already running")
 var ErrAlreadyExists = errors.New("already exists")
 var ErrNotRunning = errors.New("vm is not running")
+var ErrRunning = errors.New("vm is running")
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
@@ -626,9 +627,14 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	proc, ok := m.running[vm.Name]
-	if !ok {
-		return store.Snapshot{}, fmt.Errorf("%w: %s", ErrNotRunning, vm.Name)
+	if vm.State == "running" {
+		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm sleep %s` first", ErrRunning, vm.Name, vm.Name)
+	}
+	if _, ok := m.running[vm.Name]; ok {
+		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm sleep %s` first", ErrRunning, vm.Name, vm.Name)
+	}
+	if vm.State != "sleeping" && vm.State != "stopped" {
+		return store.Snapshot{}, fmt.Errorf("cannot snapshot VM %q in state %q; run `firedoze vm sleep %s` first", vm.Name, vm.State, vm.Name)
 	}
 
 	vmLayout := m.layout(vm.Name)
@@ -637,35 +643,28 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 		return store.Snapshot{}, err
 	}
 
-	if err := firecrackerSetVMState(ctx, proc.SocketPath, "Paused"); err != nil {
-		return store.Snapshot{}, err
-	}
-	resume := true
-	defer func() {
-		if resume {
-			if err := firecrackerSetVMState(context.Background(), proc.SocketPath, "Resumed"); err != nil {
-				m.logger.Warn("resume vm after snapshot", "vm", vm.Name, "error", err)
-			}
-		}
-	}()
-
-	if err := firecrackerCreateSnapshot(ctx, proc.SocketPath, snapshotLayout.statePath, snapshotLayout.memPath); err != nil {
-		return store.Snapshot{}, err
-	}
 	if err := copyFile(snapshotLayout.diskPath, vmLayout.diskPath); err != nil {
-		return store.Snapshot{}, err
+		return store.Snapshot{}, fmt.Errorf("copy vm disk: %w", err)
 	}
 
-	if err := firecrackerSetVMState(ctx, proc.SocketPath, "Resumed"); err != nil {
-		return store.Snapshot{}, err
+	statePath := ""
+	memPath := ""
+	if vm.State == "sleeping" {
+		if err := copyFile(snapshotLayout.statePath, vmLayout.sleepStatePath); err != nil {
+			return store.Snapshot{}, fmt.Errorf("copy sleep state: %w", err)
+		}
+		if err := copyFile(snapshotLayout.memPath, vmLayout.sleepMemPath); err != nil {
+			return store.Snapshot{}, fmt.Errorf("copy sleep memory: %w", err)
+		}
+		statePath = snapshotLayout.statePath
+		memPath = snapshotLayout.memPath
 	}
-	resume = false
 
 	snapshot, err := m.store.CreateSnapshot(ctx, store.CreateSnapshotParams{
 		Name:              params.Name,
 		SourceVM:          vm.Name,
-		StatePath:         snapshotLayout.statePath,
-		MemPath:           snapshotLayout.memPath,
+		StatePath:         statePath,
+		MemPath:           memPath,
 		DiskPath:          snapshotLayout.diskPath,
 		BaseImageID:       vm.BaseImageID,
 		KernelID:          vm.KernelID,
