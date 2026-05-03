@@ -2,28 +2,36 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Disposable Linux computers for shared development.
+Disposable Linux computers for shared dev.
 
-firedoze runs persistent Firecracker VMs on one Linux host, with WireGuard-gated management access, simple command-line lifecycle controls, and HTTPS exposure for dev services when you want to share them. It is designed for the "create and forget" model: make a VM, use it like a small computer, let it sleep when idle (consuming only disk space), and only think about the environments that matter today.
+firedoze runs persistent Firecracker VMs on one Linux host. You get:
 
-⚠️ _This is early-stage development software. Don't use it for production workloads, for hostile multi-tenant isolation, or inside sensitive infrastructure accounts._
+- WireGuard-gated management access.
+- Simple command-line lifecycle controls.
+- Optional public HTTPS for dev services.
 
-## Why?
+Create and forget! Make a VM. Use it like a small computer. When it goes idle, it sleeps. Sleeping VMs keep their state and consume only disk space.
 
-Containerized dev environments are useful, but sometimes you want the shape of a real machine: a persistent filesystem, systemd, normal SSH, long-running services, snapshots, and fewer container-specific assumptions.
+Reproducibility is optional. Fire and forget – or script creation of named snapshots for cloneable environments. 
 
-firedoze aims to make that feel lightweight enough for everyday team development.
+⚠️ _firedoze is early-stage software. Do not use it for production, hostile multi-tenant isolation, or sensitive infrastructure accounts._
 
-💡 **Did you know?** AWS enabled nested virtualization on virtual EC2 instances in February 2026, starting with C8i, M8i, and R8i. That means you no longer need bare-metal EC2 just to run KVM-backed dev VMs on AWS. See the [AWS guide](docs/aws-guide.md) for notes.
+## Why
+
+Containers are useful. Sometimes you want a real machine: a persistent filesystem, systemd, normal SSH, long-running services, snapshots, and fewer container-specific assumptions.
+
+firedoze makes that lightweight enough for everyday team development.
+
+💡 **Did you know?** AWS enabled nested virtualization on virtual EC2 instances in February 2026. It started with C8i, M8i, and R8i. You no longer need bare-metal EC2 just to run KVM-backed dev VMs on AWS. See the [AWS guide](docs/aws-guide.md) for notes.
 
 ## Highlights
 
 - Firecracker-backed Linux VMs that behave like small persistent computers.
 - WireGuard-only management access.
-- Automatic public HTTPS routes for sharing running dev services (no more PMs hunching over dev laptops or faffing with ngrok).
+- Automatic public HTTPS routes for sharing running dev services.
 - Sleeping VMs that keep state while freeing CPU and memory.
 - Named snapshots and restores for cloneable environments.
-- A simple `firedoze` client for VM lifecycle, ssh, exec, copy, routes, and snapshots.
+- A simple `firedoze` client for VM lifecycle, SSH, exec, copy, routes, and snapshots.
 - Native Go base-image builder; no Docker or Podman required.
 - Single-node by design: one beefy box, local SQLite, no scheduler, no cluster.
 
@@ -31,7 +39,7 @@ firedoze aims to make that feel lightweight enough for everyday team development
 
 firedoze is deliberately narrow in scope:
 
-- One host only; no clustering, scheduling, live migration or high availability features.
+- One host only; no clustering, scheduling, live migration, or high availability features.
 - One WireGuard-gated shared trust boundary per server; no built-in users, teams, ACLs, or non-WireGuard management access.
 - A fixed Ubuntu-based VM image.
 - Public ingress is focused on HTTPS routes for dev services, not arbitrary TCP exposure.
