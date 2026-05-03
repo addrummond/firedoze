@@ -120,8 +120,11 @@ The root endpoint returns a compact JSON resource index. Errors are JSON objects
 
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
+The client stores named server profiles in `~/.config/firedoze/config.toml`. Onboarding should use `firedoze server add <name> <api-url> -default` instead of requiring every shell to export `FIREDOZE_API`. The `FIREDOZE_API`, `FIREDOZE_SERVER`, `-api`, and `-server` overrides remain useful for scripts and one-off commands, but they are not the default user path.
+
 The client should provide the friendly operational surface:
 
+- `firedoze server add/list/use/current/remove`
 - `firedoze vm list`
 - `firedoze vm inspect <vm>`
 - `firedoze vm create/start/sleep/stop/delete/settings`

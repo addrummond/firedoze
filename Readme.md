@@ -98,6 +98,6 @@ firedoze is a tool for a small, high-trust team.
 
 ## Status
 
-firedoze is a prototype working toward basic functional completeness. It is for developers who are comfortable running early-stage infrastructure software and reading the docs before trusting it with their workflow.
+firedoze is a prototype working toward basic functional completeness. It is for developers who are comfortable running early-stage infrastructure software and trusting it with their workflow.
 
 Contributions and feedback welcome.

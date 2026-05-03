@@ -99,6 +99,7 @@ func TestCommandNeedsAPI(t *testing.T) {
 	}{
 		{args: []string{"help"}, want: false},
 		{args: []string{"wg", "keygen"}, want: false},
+		{args: []string{"server", "list"}, want: false},
 		{args: []string{"health"}, want: true},
 		{args: []string{"vm", "list"}, want: true},
 	}
@@ -111,6 +112,8 @@ func TestCommandNeedsAPI(t *testing.T) {
 
 func TestRunRequiresAPIForDaemonCommands(t *testing.T) {
 	t.Setenv("FIREDOZE_API", "")
+	t.Setenv("FIREDOZE_SERVER", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if got := run([]string{"health"}); got != 2 {
 		t.Fatalf("run without API = %d, want 2", got)
 	}
@@ -118,8 +121,55 @@ func TestRunRequiresAPIForDaemonCommands(t *testing.T) {
 
 func TestRunAllowsLocalCommandsWithoutAPI(t *testing.T) {
 	t.Setenv("FIREDOZE_API", "")
+	t.Setenv("FIREDOZE_SERVER", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if got := run([]string{"wg", "keygen"}); got != 0 {
 		t.Fatalf("wg keygen without API = %d, want 0", got)
+	}
+}
+
+func TestClientServerConfigResolvesDefaultAPI(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := saveClientConfig(clientConfig{
+		DefaultServer: "nuc",
+		Servers: []clientServerConfig{{
+			Name:   "nuc",
+			APIURL: "http://[fd7a:115c:a1e1::1]:8081",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveClientAPIURL("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://[fd7a:115c:a1e1::1]:8081" {
+		t.Fatalf("resolved API URL = %q", got)
+	}
+	if !strings.HasSuffix(path, filepath.Join("firedoze", "config.toml")) {
+		t.Fatalf("config path = %q", path)
+	}
+}
+
+func TestClientServerAddNormalizesAndDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := (app{}).server([]string{"add", "nuc", "http://[fd7a:115c:a1e1::1]", "-default"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultServer != "nuc" {
+		t.Fatalf("default server = %q, want nuc", cfg.DefaultServer)
+	}
+	server, ok := cfg.findServer("nuc")
+	if !ok {
+		t.Fatal("server nuc not found")
+	}
+	if server.APIURL != "http://[fd7a:115c:a1e1::1]:8081" {
+		t.Fatalf("server API URL = %q", server.APIURL)
 	}
 }
 
