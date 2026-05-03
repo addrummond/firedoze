@@ -74,7 +74,11 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := routeHost(r.Host)
-	if vm.State != "running" {
+	if vm.State != "running" && vm.State != "sleeping" {
+		http.Error(w, "firedoze route not found", http.StatusNotFound)
+		return
+	}
+	if vm.State == "sleeping" {
 		if !vm.AutoWake {
 			p.logger.Info(
 				"ignored http wake because vm auto_wake is disabled",

@@ -76,6 +76,31 @@ func TestWakeProxyRequiresCaptchaBeforeWaking(t *testing.T) {
 	}
 }
 
+func TestWakeProxyReturnsNotFoundForStoppedVM(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	starter := &recordingStarter{}
+	proxy := NewWakeProxy(testConfig(), st, starter, nil)
+	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.Host = "demo.example.test"
+	resp := httptest.NewRecorder()
+
+	proxy.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusNotFound)
+	}
+	if starter.starts != 0 {
+		t.Fatalf("starts = %d, want 0", starter.starts)
+	}
+	if strings.Contains(resp.Body.String(), "Are you human?") {
+		t.Fatalf("stopped VM unexpectedly returned captcha page:\n%s", resp.Body.String())
+	}
+}
+
 func TestWakeProxyWakesWithSignedCookie(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
