@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"io"
 	"net/http"
@@ -182,6 +183,54 @@ func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	}
 	if string(data) != "fd7a:115c:a1e0::3" {
 		t.Fatalf("FIREDOZE_VM_IP = %q, want fd7a:115c:a1e0::3", string(data))
+	}
+}
+
+func TestVMListUsesPublicURLColumn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[
+			{"name":"public","state":"running","private_ip":"fd7a:115c:a1e0::3","public_http":true,"urls":{"default":"https://public.example.test"}},
+			{"name":"hidden","state":"stopped","private_ip":"fd7a:115c:a1e0::5","public_http":false,"urls":{"default":"https://hidden.example.test"}}
+		]}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: c}).vm([]string{"list"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "NAME    STATE    RUNTIME  PRIVATE IP         PUBLIC URL\n") {
+		t.Fatalf("list output missing header:\n%s", got)
+	}
+	if strings.Contains(got, "VISIBILITY") {
+		t.Fatalf("list output still has VISIBILITY column:\n%s", got)
+	}
+	if !strings.Contains(got, "public  running  -        fd7a:115c:a1e0::3  https://public.example.test\n") {
+		t.Fatalf("list output missing public URL row:\n%s", got)
+	}
+	if !strings.Contains(got, "hidden  stopped  -        fd7a:115c:a1e0::5  -\n") {
+		t.Fatalf("list output missing hidden row with dash URL:\n%s", got)
 	}
 }
 
