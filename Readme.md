@@ -6,9 +6,7 @@ Disposable Linux computers for shared development.
 
 firedoze runs persistent Firecracker VMs on one Linux host, with WireGuard-gated management access, simple command-line lifecycle controls, and HTTPS exposure for dev services when you want to share them. It is designed for the "create and forget" model: make a VM, use it like a small computer, let it sleep when idle (consuming only disk space), and only think about the environments that matter today.
 
-⚠️ **firedoze is early-stage development software.**
-
-⚠️ Do not use firedoze for production workloads or hostile multi-tenant isolation.
+⚠️ **Early-stage development software.** ⚠️ Do not use firedoze for production workloads or hostile multi-tenant isolation.
 
 ## Why?
 
@@ -22,7 +20,7 @@ firedoze aims to make that feel lightweight enough for everyday team development
 
 - Firecracker-backed Linux VMs that behave like small persistent computers.
 - WireGuard-only management access.
-- Automatic public HTTPS routes for sharing running dev services (no more PM's hunching over dev laptops or faffing with ngrok).
+- Automatic public HTTPS routes for sharing running dev services (no more PMs hunching over dev laptops or faffing with ngrok).
 - Sleeping VMs that keep state while freeing CPU and memory.
 - Named snapshots and restores for cloneable environments.
 - A simple `firedoze` client for VM lifecycle, ssh, exec, copy, routes, and snapshots.
@@ -33,7 +31,7 @@ firedoze aims to make that feel lightweight enough for everyday team development
 
 firedoze is deliberately narrow in scope:
 
-- One host only; no clustering, scheduling, or live migration.
+- One host only; no clustering, scheduling, live migration or high availability features.
 - One WireGuard-gated shared trust boundary per server; no built-in users, teams, ACLs, or non-WireGuard management access.
 - A fixed Ubuntu-based VM image.
 - Public ingress is focused on HTTPS routes for dev services, not arbitrary TCP exposure.
