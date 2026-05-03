@@ -10,7 +10,7 @@ firedoze runs persistent Firecracker VMs on one Linux host, with WireGuard-gated
 
 ⚠️ Do not use firedoze for production workloads or hostile multi-tenant isolation.
 
-## Why
+## Why?
 
 Containerized dev environments are useful, but sometimes you want the shape of a real machine: a persistent filesystem, systemd, normal SSH, long-running services, snapshots, and fewer container-specific assumptions.
 
@@ -72,7 +72,6 @@ its HTTPS URL brings it back.
 - [Admin quickstart](docs/quickstart-admin.md): for setting up and operating a firedoze host.
 - [AWS guide](docs/aws-guide.md): EC2 notes, nested virtualization, and bastion ideas.
 - [ADR](docs/adr.md): design decisions and project scope.
-- [TODO](TODO.md): planned improvements and open work.
 
 ## Status
 
