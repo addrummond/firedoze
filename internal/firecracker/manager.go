@@ -54,6 +54,10 @@ type Manager struct {
 	mu      sync.Mutex
 	running map[string]*Process
 	vmOps   map[string]struct{}
+
+	metadataMu    sync.Mutex
+	baseMetadata  BaseImageMetadata
+	baseSignature string
 }
 
 type Process struct {
@@ -260,8 +264,17 @@ type ArtifactMetadata struct {
 }
 
 func (m *Manager) baseImageMetadata() (BaseImageMetadata, error) {
+	signature, err := m.baseImageSignature()
+	if err != nil {
+		return BaseImageMetadata{}, err
+	}
+	m.metadataMu.Lock()
+	defer m.metadataMu.Unlock()
+	if m.baseSignature == signature {
+		return m.baseMetadata, nil
+	}
+
 	metadata := BaseImageMetadata{}
-	var err error
 	metadata.Rootfs, err = artifactMetadata(m.cfg.Firecracker.BaseRootfsPath)
 	if err != nil {
 		return BaseImageMetadata{}, fmt.Errorf("rootfs metadata: %w", err)
@@ -282,7 +295,25 @@ func (m *Manager) baseImageMetadata() (BaseImageMetadata, error) {
 		m.logger.Debug("read base image manifest", "error", err)
 	}
 	metadata.Manifest = manifest
+	m.baseSignature = signature
+	m.baseMetadata = metadata
 	return metadata, nil
+}
+
+func (m *Manager) baseImageSignature() (string, error) {
+	paths := []string{m.cfg.Firecracker.BaseRootfsPath, m.cfg.Firecracker.BaseKernelPath}
+	if m.cfg.Firecracker.BaseInitrdPath != "" {
+		paths = append(paths, m.cfg.Firecracker.BaseInitrdPath)
+	}
+	var b strings.Builder
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "%s\x00%d\x00%d\x00", p, info.Size(), info.ModTime().UnixNano())
+	}
+	return b.String(), nil
 }
 
 func applyBaseImageMetadata(params *store.CreateVMParams, metadata BaseImageMetadata) {
