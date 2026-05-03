@@ -69,7 +69,7 @@ Or don't bother — firedoze will sleep idle VMs automatically after a configura
 
 ## Scope (what firedoze is not)
 
-firedoze is deliberately narrow. It's a tool for a team that shares one capable host, not a platform:
+firedoze is deliberately narrow. It's a tool for a small high-trust team or squad, not a platform:
 
 - **No clustering.** No live migration, no scheduler, no HA.
 - **One shared trust boundary.** Access is gated purely by WireGuard. No built-in users, teams, or ACLs.
