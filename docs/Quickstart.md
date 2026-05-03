@@ -283,7 +283,7 @@ firedoze hide demo
 
 By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires. The signing key is generated automatically in the firedoze state directory; if it is lost, visitors just complete the challenge again.
 
-Prefer `firedoze start` when you mean to explicitly wake an existing VM; `firedoze up` creates the VM if it does not already exist.
+Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `firedoze up` creates the VM if it does not already exist.
 
 To disable passive wake for a VM:
 
