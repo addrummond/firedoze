@@ -213,7 +213,10 @@ Logs:
 journalctl -u firedozed -f
 ```
 
-When systemd stops firedozed, the daemon tries to sleep all running VMs before exit.
+When systemd stops firedozed, the daemon records the VMs that are currently
+running, sleeps them cleanly, and wakes them again on the next daemon start.
+This keeps daemon upgrades simple while preserving VM state. Existing SSH
+sessions and open TCP connections will still disconnect during the restart.
 
 The provided unit uses systemd readiness notification and a watchdog. If the daemon stops sending watchdog pings, systemd will restart it.
 
@@ -608,6 +611,10 @@ sudo systemctl restart firedozed
 ```
 
 The installer leaves existing config and VM state untouched.
+
+Restarting the daemon temporarily interrupts the management API and public
+proxy. Running VMs are slept during shutdown and automatically started again
+after the new daemon comes up.
 
 To remove installed binaries and the systemd unit while keeping config, images, VMs, snapshots, and logs:
 
