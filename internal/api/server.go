@@ -21,17 +21,35 @@ const ShutdownTimeout = 5 * time.Second
 
 type Server struct {
 	cfg     config.Config
-	manager *firecracker.Manager
+	manager Manager
 	store   *store.Store
 	proxy   Proxy
 	mux     *http.ServeMux
+}
+
+type Manager interface {
+	WarmBaseImageMetadata(context.Context) (firecracker.BaseImageMetadata, error)
+	ListVMsMatching(context.Context, []string) ([]store.VM, error)
+	GetVM(context.Context, string) (store.VM, error)
+	CreateVM(context.Context, store.CreateVMParams) (store.VM, error)
+	UpdateVM(context.Context, string, store.UpdateVMParams) (store.VM, error)
+	DeleteVM(context.Context, string) error
+	StartVM(context.Context, string) (store.VM, error)
+	StopVM(context.Context, string) error
+	SleepVM(context.Context, string) (store.VM, error)
+	RebootVM(context.Context, string) (store.VM, error)
+	ListSnapshots(context.Context) ([]store.Snapshot, error)
+	GetSnapshot(context.Context, string) (store.Snapshot, error)
+	SaveSnapshot(context.Context, store.CreateSnapshotParams) (store.Snapshot, error)
+	RestoreSnapshot(context.Context, string, store.CreateVMParams) (store.VM, error)
+	DeleteSnapshot(context.Context, string) error
 }
 
 type Proxy interface {
 	Reconcile(context.Context) error
 }
 
-func NewServer(cfg config.Config, manager *firecracker.Manager, st *store.Store, proxy Proxy) http.Handler {
+func NewServer(cfg config.Config, manager Manager, st *store.Store, proxy Proxy) http.Handler {
 	server := &Server{
 		cfg:     cfg,
 		manager: manager,
