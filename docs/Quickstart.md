@@ -40,7 +40,7 @@ cd firedoze
 mise install
 ```
 
-The fastest possible setup (using [sslip.io](https://sslip.io) to obtain a hostname) is:
+The fastest possible setup is:
 
 ```sh
 ./scripts/install.sh
@@ -48,7 +48,7 @@ task firecracker:install
 task build
 ./firedoze-image build
 task image:install
-# use -init-host <DOMAIN_NAME> if you have a real domain; it also sets base_domain
+# use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # Alice runs this on her laptop and sends you only the public_key:
