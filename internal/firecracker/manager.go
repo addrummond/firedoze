@@ -29,6 +29,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 var ErrAlreadyRunning = errors.New("vm already running")
@@ -1011,7 +1012,7 @@ func ensureDisk(path string, source string, size int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if err := copySparseFile(out, in); err != nil {
 		_ = out.Close()
 		return false, err
 	}
@@ -1032,11 +1033,74 @@ func copyFile(dst string, src string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if err := copySparseFile(out, in); err != nil {
 		_ = out.Close()
 		return err
 	}
 	return out.Close()
+}
+
+func copySparseFile(out *os.File, in *os.File) error {
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil
+	}
+	if !info.Mode().IsRegular() {
+		_, err := io.Copy(out, in)
+		return err
+	}
+
+	offset := int64(0)
+	buf := make([]byte, 1024*1024)
+	for offset < size {
+		data, err := unix.Seek(int(in.Fd()), offset, unix.SEEK_DATA)
+		if err != nil {
+			if err == unix.ENXIO {
+				break
+			}
+			if isSparseSeekUnsupported(err) {
+				return copyFileDense(out, in)
+			}
+			return err
+		}
+		hole, err := unix.Seek(int(in.Fd()), data, unix.SEEK_HOLE)
+		if err != nil {
+			if isSparseSeekUnsupported(err) {
+				return copyFileDense(out, in)
+			}
+			return err
+		}
+		if hole > size {
+			hole = size
+		}
+		if _, err := out.Seek(data, io.SeekStart); err != nil {
+			return err
+		}
+		if _, err := in.Seek(data, io.SeekStart); err != nil {
+			return err
+		}
+		if _, err := io.CopyBuffer(out, io.LimitReader(in, hole-data), buf); err != nil {
+			return err
+		}
+		offset = hole
+	}
+	return out.Truncate(size)
+}
+
+func isSparseSeekUnsupported(err error) bool {
+	return err == unix.EINVAL || err == unix.ENOTTY || err == unix.EOPNOTSUPP
+}
+
+func copyFileDense(out *os.File, in *os.File) error {
+	if _, err := in.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	_, err := io.Copy(out, in)
+	return err
 }
 
 func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmName string) error {

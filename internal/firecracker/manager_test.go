@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"firedoze/internal/config"
@@ -32,6 +33,74 @@ func newTestManager(t *testing.T) (*Manager, *store.Store) {
 	cfg.StateDir = filepath.Join(dir, "state")
 	cfg.Metadata.Path = filepath.Join(dir, "firedoze.db")
 	return NewManager(cfg, st, slog.New(slog.NewTextHandler(os.Stderr, nil))), st
+}
+
+func TestCopySparseFilePreservesSparseRegions(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src")
+	dstPath := filepath.Join(dir, "dst")
+	src, err := os.OpenFile(srcPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.WriteAt([]byte("begin"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.WriteAt([]byte("end"), 64<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Truncate(128 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copySparseFile(dst, src); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstInfo, err := os.Stat(dstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dstInfo.Size() != srcInfo.Size() {
+		t.Fatalf("dst size = %d, want %d", dstInfo.Size(), srcInfo.Size())
+	}
+	data, err := os.ReadFile(dstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data[:5]) != "begin" || string(data[64<<20:int64(64<<20)+3]) != "end" {
+		t.Fatal("copied sparse file content mismatch")
+	}
+	srcBlocks := allocatedBlocks(t, srcInfo)
+	dstBlocks := allocatedBlocks(t, dstInfo)
+	if dstBlocks > srcBlocks*2 {
+		t.Fatalf("dst allocated blocks = %d, source = %d; copy did not preserve sparse regions", dstBlocks, srcBlocks)
+	}
+}
+
+func allocatedBlocks(t *testing.T, info os.FileInfo) int64 {
+	t.Helper()
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("file info has no syscall.Stat_t")
+	}
+	return stat.Blocks
 }
 
 func createSnapshotTestVM(t *testing.T, m *Manager, st *store.Store, name string, state string) store.VM {
