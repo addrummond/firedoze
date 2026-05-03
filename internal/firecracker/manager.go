@@ -1043,6 +1043,16 @@ func ensureDisk(path string, source string, size int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if cloned, err := tryCloneFile(out, in); err != nil {
+		_ = out.Close()
+		return false, err
+	} else if cloned {
+		if err := out.Truncate(size); err != nil {
+			_ = out.Close()
+			return false, err
+		}
+		return true, out.Close()
+	}
 	if err := copySparseFile(out, in); err != nil {
 		_ = out.Close()
 		return false, err
@@ -1063,6 +1073,12 @@ func copyFile(dst string, src string) error {
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
+	}
+	if cloned, err := tryCloneFile(out, in); err != nil {
+		_ = out.Close()
+		return err
+	} else if cloned {
+		return out.Close()
 	}
 	if err := copySparseFile(out, in); err != nil {
 		_ = out.Close()
