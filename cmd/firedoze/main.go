@@ -187,6 +187,8 @@ func (a app) dispatch(args []string) error {
 		return a.ssh(args[1:])
 	case "exec":
 		return a.exec(args[1:])
+	case "cp":
+		return a.cp(args[1:])
 	case "up":
 		return a.up(args[1:])
 	case "with-vm-ip":
@@ -526,15 +528,16 @@ func (a app) snapshot(args []string) error {
 		}
 		return a.printJSONOrLine(out, fmt.Sprintf("%s saved from %s", args[1], args[2]))
 	case "restore":
-		if len(args) != 3 {
-			return errors.New("usage: firedoze snapshot restore <snapshot> <vm>")
+		params, snapshotName, vmName, err := parseSnapshotRestoreArgs(args[1:])
+		if err != nil {
+			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]", err)
 		}
 		var out map[string]any
-		body := map[string]any{"vm": args[2]}
-		if err := a.client.do(context.Background(), http.MethodPost, "/snapshots/"+url.PathEscape(args[1])+"/restore", body, &out); err != nil {
+		body := restoreSnapshotBody(params, vmName)
+		if err := a.client.do(context.Background(), http.MethodPost, "/snapshots/"+url.PathEscape(snapshotName)+"/restore", body, &out); err != nil {
 			return err
 		}
-		return a.printJSONOrLine(out, fmt.Sprintf("%s restored as %s", args[1], args[2]))
+		return a.printJSONOrLine(out, fmt.Sprintf("%s restored as %s", snapshotName, vmName))
 	case "delete", "rm":
 		if len(args) != 2 {
 			return errors.New("usage: firedoze snapshot delete <snapshot>")
@@ -785,6 +788,29 @@ func (a app) exec(args []string) error {
 	return cmd.Run()
 }
 
+func (a app) cp(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: firedoze cp <src> <dst>")
+	}
+	src, dst, err := parseCopyEndpoints(args[0], args[1])
+	if err != nil {
+		return err
+	}
+	vm, err := a.ensureVMReadyForSSH(src.vmNameOr(dst.vmName))
+	if err != nil {
+		return err
+	}
+	cmdArgs, err := rsyncCopyCommand(vm, src, dst)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 	vm, err := a.lookupVM(name)
 	if err != nil {
@@ -806,6 +832,67 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 func remoteExecCommand(vm vmInfo, commandArgs []string) []string {
 	sshArgs := append(sshCommand(vm), "--")
 	return append(sshArgs, commandArgs...)
+}
+
+type copyEndpoint struct {
+	raw    string
+	vmName string
+	path   string
+}
+
+func (e copyEndpoint) remote() bool {
+	return e.vmName != ""
+}
+
+func (e copyEndpoint) vmNameOr(other string) string {
+	if e.vmName != "" {
+		return e.vmName
+	}
+	return other
+}
+
+func parseCopyEndpoints(src string, dst string) (copyEndpoint, copyEndpoint, error) {
+	srcEndpoint := parseCopyEndpoint(src)
+	dstEndpoint := parseCopyEndpoint(dst)
+	if srcEndpoint.remote() == dstEndpoint.remote() {
+		return copyEndpoint{}, copyEndpoint{}, errors.New("usage: firedoze cp requires exactly one endpoint in the form <vm>:<path>")
+	}
+	if srcEndpoint.remote() && dstEndpoint.remote() && srcEndpoint.vmName != dstEndpoint.vmName {
+		return copyEndpoint{}, copyEndpoint{}, errors.New("copying directly between VMs is not supported")
+	}
+	return srcEndpoint, dstEndpoint, nil
+}
+
+func parseCopyEndpoint(raw string) copyEndpoint {
+	if strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "./") || strings.HasPrefix(raw, "../") {
+		return copyEndpoint{raw: raw, path: raw}
+	}
+	vmName, path, ok := strings.Cut(raw, ":")
+	if !ok || vmName == "" || path == "" || strings.Contains(vmName, "/") {
+		return copyEndpoint{raw: raw, path: raw}
+	}
+	return copyEndpoint{raw: raw, vmName: vmName, path: path}
+}
+
+func rsyncCopyCommand(vm vmInfo, src copyEndpoint, dst copyEndpoint) ([]string, error) {
+	if vm.PrivateIP == "" {
+		return nil, errors.New("VM has no private IP")
+	}
+	remoteUser, err := sshUser(vm)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"rsync", "-a", "-e", strings.Join(sshTransportCommand(), " ")}
+	if src.remote() {
+		args = append(args, rsyncRemote(remoteUser, vm.PrivateIP, src.path), dst.path)
+	} else {
+		args = append(args, src.path, rsyncRemote(remoteUser, vm.PrivateIP, dst.path))
+	}
+	return args, nil
+}
+
+func rsyncRemote(user string, ip string, path string) string {
+	return fmt.Sprintf("%s@[%s]:%s", user, ip, path)
 }
 
 func (a app) withVMIP(args []string) error {
@@ -859,18 +946,18 @@ func sshCommand(vm vmInfo) []string {
 		userHost := fields[1]
 		if at := strings.LastIndex(userHost, "@"); at >= 0 {
 			fields[1] = userHost[:at+1] + vm.PrivateIP
-			return withFiredozeSSHOptions(fields)
+			return append(sshTransportCommand(), fields[1:]...)
 		}
 	}
-	return withFiredozeSSHOptions(fields)
-}
-
-func withFiredozeSSHOptions(fields []string) []string {
 	if len(fields) == 0 {
 		return nil
 	}
-	args := []string{
-		fields[0],
+	return append(sshTransportCommand(), fields[1:]...)
+}
+
+func sshTransportCommand() []string {
+	return []string{
+		"ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
@@ -878,7 +965,17 @@ func withFiredozeSSHOptions(fields []string) []string {
 		"-o", "PreferredAuthentications=none,password",
 		"-o", "NumberOfPasswordPrompts=1",
 	}
-	return append(args, fields[1:]...)
+}
+
+func sshUser(vm vmInfo) (string, error) {
+	fields := strings.Fields(vm.SSH)
+	if len(fields) < 2 {
+		return "", errors.New("VM has no SSH command")
+	}
+	if at := strings.LastIndex(fields[1], "@"); at >= 0 {
+		return fields[1][:at], nil
+	}
+	return "", fmt.Errorf("VM SSH command has no user: %s", vm.SSH)
 }
 
 func runtimeSinceStart(vm vmInfo) string {
@@ -990,6 +1087,36 @@ func addInt64(body map[string]any, key string, value int64) {
 	if value != 0 {
 		body[key] = value
 	}
+}
+
+func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, error) {
+	params, names, err := parseVMCreateArgs("firedoze snapshot restore", args)
+	if err != nil {
+		return vmCreateParams{}, "", "", err
+	}
+	if len(names) != 2 {
+		return vmCreateParams{}, "", "", errors.New("restore requires snapshot and VM names")
+	}
+	return params, names[0], names[1], nil
+}
+
+func restoreSnapshotBody(params vmCreateParams, vmName string) map[string]any {
+	body := map[string]any{"vm": vmName}
+	addInt(body, "vcpus", params.VCPUs)
+	addInt(body, "memory_mib", params.MemoryMiB)
+	addInt64(body, "disk_bytes", params.DiskBytes)
+	addInt(body, "default_http_port", params.DefaultHTTPPort)
+	addInt(body, "idle_sleep_after_seconds", params.IdleSleepAfterSeconds)
+	if params.AutoWake {
+		body["auto_wake"] = true
+	}
+	if params.NoAutoWake {
+		body["auto_wake"] = false
+	}
+	if params.PublicHTTP {
+		body["public_http"] = true
+	}
+	return body
 }
 
 type optionalBool struct {
@@ -1124,7 +1251,7 @@ Commands:
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
-  snapshot restore <snapshot> <vm>
+  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public]
   snapshot delete <snapshot>
   route list
   route create <route> <vm> <port>
@@ -1132,6 +1259,7 @@ Commands:
   wg keygen
   ssh <vm> [ssh args...]
   exec <vm> -- <command> [args...]
+  cp <src> <dst>
   up <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-public=false] [-- ssh args...]
   with-vm-ip <vm> <command> [args...]
 

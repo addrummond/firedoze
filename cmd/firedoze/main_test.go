@@ -158,6 +158,41 @@ func TestRemoteExecCommandAddsSeparatorBeforeRemoteCommand(t *testing.T) {
 	}
 }
 
+func TestRsyncCopyCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
+	src, dst, err := parseCopyEndpoints("./app/", "demo:/home/ubuntu/app/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := rsyncCopyCommand(vmInfo{
+		VM: store.VM{
+			PrivateIP: "fd7a:115c:a1e0::3",
+		},
+		SSH: "ssh ubuntu@demo.example.com",
+	}, src, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != "rsync" || got[1] != "-a" || got[2] != "-e" {
+		t.Fatalf("rsync prefix = %#v", got[:3])
+	}
+	if !strings.Contains(got[3], "StrictHostKeyChecking=no") {
+		t.Fatalf("rsync ssh transport missing firedoze SSH options: %#v", got[3])
+	}
+	wantSuffix := []string{"./app/", "ubuntu@[fd7a:115c:a1e0::3]:/home/ubuntu/app/"}
+	if got := strings.Join(got[len(got)-len(wantSuffix):], "\x00"); got != strings.Join(wantSuffix, "\x00") {
+		t.Fatalf("rsync suffix = %#v, want %#v", got, strings.Join(wantSuffix, "\x00"))
+	}
+}
+
+func TestParseCopyEndpointsRequiresExactlyOneRemote(t *testing.T) {
+	if _, _, err := parseCopyEndpoints("./a", "./b"); err == nil {
+		t.Fatal("parseCopyEndpoints accepted two local endpoints")
+	}
+	if _, _, err := parseCopyEndpoints("a:/x", "b:/y"); err == nil {
+		t.Fatal("parseCopyEndpoints accepted two remote endpoints")
+	}
+}
+
 func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
@@ -298,6 +333,37 @@ func TestVMCreatePublicFlag(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "alpha" {
 		t.Fatalf("names = %#v, want alpha", names)
+	}
+}
+
+func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
+	params, snapshotName, vmName, err := parseSnapshotRestoreArgs([]string{
+		"base",
+		"demo",
+		"-vcpus", "2",
+		"-memory-mib", "1024",
+		"-disk-bytes", "8589934592",
+		"-http-port", "3000",
+		"-idle-sleep-after", "900",
+		"-no-auto-wake",
+		"-public",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshotName != "base" || vmName != "demo" {
+		t.Fatalf("snapshot/vm = %q/%q, want base/demo", snapshotName, vmName)
+	}
+	body := restoreSnapshotBody(params, vmName)
+	if body["vm"] != "demo" ||
+		body["vcpus"] != 2 ||
+		body["memory_mib"] != 1024 ||
+		body["disk_bytes"] != int64(8589934592) ||
+		body["default_http_port"] != 3000 ||
+		body["idle_sleep_after_seconds"] != 900 ||
+		body["auto_wake"] != false ||
+		body["public_http"] != true {
+		t.Fatalf("restore body = %#v", body)
 	}
 }
 

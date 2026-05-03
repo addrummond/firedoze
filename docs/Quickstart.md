@@ -13,7 +13,7 @@ Use an x86_64 Linux box with:
 - `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
-- Recommended: put `state_dir` on a filesystem with reflink support for fast VM disk clones. XFS with reflinks enabled is the best default choice.
+- Recommended: **put `state_dir` on a filesystem with reflink support for fast VM disk clones**. XFS with reflinks enabled is a good default choice (see [Fast VM Disk Clones](#fast-vm-disk-clones)).
 - IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
 
 On Ubuntu, the host packages are roughly:
@@ -315,10 +315,17 @@ firedoze vm sleep demo
 firedoze snapshot save demo-ready demo
 ```
 
-Run another local tool with the VM private IP in `FIREDOZE_VM_IP`:
+Copy files between your laptop and a VM:
 
 ```sh
-firedoze with-vm-ip demo sh -c 'rsync ./app/ "ubuntu@[$FIREDOZE_VM_IP]:/home/ubuntu/app/"'
+firedoze cp ./app/ demo:/home/ubuntu/app/
+firedoze cp demo:/home/ubuntu/app/results.log ./results.log
+```
+
+For tools that need the VM private IP directly, run another local command with the VM private IP in `FIREDOZE_VM_IP`:
+
+```sh
+firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 ```
 
 Run the built-in hello web server inside the VM:
@@ -377,6 +384,12 @@ Restore a snapshot as a new VM:
 firedoze snapshot restore demo-base demo-copy
 ```
 
+Override clone settings while restoring:
+
+```sh
+firedoze snapshot restore demo-base bigger-demo -memory-mib 2048 -vcpus 2 -disk-bytes 17179869184
+```
+
 Delete a snapshot and its files:
 
 ```sh
@@ -417,17 +430,17 @@ firedoze stores VM disks as plain raw image files. When the state directory is o
 
 This makes VM start after first create much faster. On filesystems without reflinks, firedoze still works and falls back to sparse-aware copying.
 
-XFS is the recommended default because it is a mainstream Linux server filesystem and supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
+XFS is a good default because it is a mainstream Linux server filesystem and supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
 
 The important rule is that these paths should live on the same reflink-capable filesystem:
 
 ```text
-/var/lib/firedoze/images/rootfs.ext4
-/var/lib/firedoze/vms/<name>/rootfs.ext4
-/var/lib/firedoze/snapshots/<name>/rootfs.ext4
+images/rootfs.ext4
+vms/<name>/rootfs.ext4
+snapshots/<name>/rootfs.ext4
 ```
 
-The default config already uses `/var/lib/firedoze` for all of these, so the simplest approach is to mount the reflink filesystem at `/var/lib/firedoze`.
+The default config already uses `/var/lib/firedoze` as the base path for all of these, so the simplest approach is to mount the filesystem at `/var/lib/firedoze`.
 
 ### Option A: XFS Partition Or Disk
 
