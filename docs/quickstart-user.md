@@ -8,12 +8,12 @@ firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into
 
 Ask the firedoze admin for:
 
-- The `firedoze` client binary, or access to the source repo so you can build it.
 - A WireGuard peer config template for your laptop.
 - The `FIREDOZE_API` value for the server. This is usually included as a comment in the WireGuard config template.
 
 Install these local tools:
 
+- The `firedoze` client, built from this repo.
 - WireGuard, either the WireGuard app or `wg-quick`.
 - `ssh`.
 - `rsync`, if you want to use `firedoze cp`.
