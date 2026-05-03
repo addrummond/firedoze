@@ -23,7 +23,7 @@ Containers are great, but sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that keep running
 
-firedoze puts that behind one simple model. One beefy box. One CLI. One WireGuard tunnel to keep the management plane private.
+firedoze puts that behind one simple model. One beefy box to run your VMs. One CLI. One WireGuard tunnel to keep the management plane private.
 
 Unlike container workflows, firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
