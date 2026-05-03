@@ -86,7 +86,7 @@ firedoze is a tool for a small, high-trust team.
 
 - **No clustering.** No live migration, scheduler, or HA.
 - **One shared trust boundary.** Access is gated by WireGuard. No built-in users, teams, or ACLs.
-- **Fixed image.** One non-configurable Ubuntu-based VM image for now.
+- **Fixed image.** One non-configurable Ubuntu-based VM image.
 - **HTTPS ingress only.** Public routes are for HTTP services, not arbitrary TCP.
 
 ## Documentation

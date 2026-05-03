@@ -56,7 +56,8 @@ firedoze wg keygen
 # client config template.
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 # Alice replaces <client-private-key> in the printed config with the private
-# key she generated, then connects WireGuard on her laptop.
+# key she generated, then connects WireGuard and runs the printed
+# "firedoze server add ..." command on her laptop.
 
 sudo systemctl enable --now firedozed
 ```
@@ -67,6 +68,7 @@ Alice can now connect:
 
 ```sh
 sudo wg-quick up /path/to/alice-client.conf
+firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
 firedoze health # check API connectivity
 ```
 
@@ -232,9 +234,9 @@ Config and key material under `/etc/firedoze` are not world-readable. Use `sudo 
 
 Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
-The generated config includes a commented `FIREDOZE_API` export line. The client can use that value after connecting WireGuard.
+The generated config includes a commented `firedoze server add ...` command. Run it once on the client after connecting WireGuard. It stores the server API URL in `~/.config/firedoze/config.toml`, so normal client commands do not need an environment variable or command-line API URL.
 
-On the firedoze host, you can print the same API shell export directly:
+For scripts that deliberately use `FIREDOZE_API` instead of the client config file, you can print the API shell export on the firedoze host:
 
 ```sh
 sudo firedozed -print-api-env
@@ -254,13 +256,9 @@ sudo firedozed -wg-peer-config alice-laptop
 
 ## 3. Use firedoze
 
-The `firedoze` client runs on your laptop and talks to the WireGuard-only API. Set `FIREDOZE_API` to the value shown in the generated WireGuard client config:
+The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If you ran the `firedoze server add ... -default` command from the generated WireGuard config, the client will find the server automatically.
 
-```sh
-export FIREDOZE_API=http://[fdxx:xxxx:xxxx:xxxx::1]
-```
-
-The client adds the default API port, `8081`, when the URL has no port. If your server uses a different API port, include it explicitly.
+The client adds the default API port, `8081`, when the configured URL has no port. If your server uses a different API port, include it explicitly in the `firedoze server add` URL.
 
 Check that the API is reachable:
 

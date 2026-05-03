@@ -9,7 +9,6 @@ firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into
 Ask the firedoze admin for:
 
 - A WireGuard peer config template for your laptop.
-- The `FIREDOZE_API` value for the server. This is usually included as a comment in the WireGuard config template.
 
 Install these local tools:
 
@@ -46,13 +45,20 @@ Save the WireGuard config somewhere private, then connect with your WireGuard ap
 sudo wg-quick up /path/to/firedoze.conf
 ```
 
-Set the API URL shown in the generated config:
+The generated WireGuard config includes a commented `firedoze server add ...` command. Run that command once after connecting. It saves the server's API URL in your local firedoze client config:
 
 ```sh
-export FIREDOZE_API=http://[fdxx:xxxx:xxxx:xxxx::1]
+firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
 ```
 
-The client adds the default API port, `8081`, when the URL has no port. If your admin gives you a URL with a port, use it exactly.
+The client adds the default API port, `8081`, when the URL has no port. If the generated command includes a URL with a port, use it exactly.
+
+If you use more than one firedoze server, add each one with a different name:
+
+```sh
+firedoze server list
+firedoze server use work
+```
 
 Check that everything is reachable:
 
@@ -296,7 +302,7 @@ sudo wg-quick down /path/to/firedoze.conf
 If `firedoze health` fails:
 
 - Check that WireGuard is connected.
-- Check that `FIREDOZE_API` is set in the same shell.
+- Run `firedoze server current` and check that a server is configured.
 - Ask the admin whether the server is up and whether your peer is configured.
 
 If `firedoze ssh demo` hangs:
