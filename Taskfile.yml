@@ -20,6 +20,32 @@ tasks:
     cmds:
       - CGO_ENABLED=0 go test ./...
 
+  test:coverage:
+    desc: Run fast tests and print package coverage sorted from lowest to highest
+    cmds:
+      - ./scripts/test-coverage.sh {{.CLI_ARGS}}
+
+  test:integration:
+    desc: Run opt-in Linux integration tests
+    cmds:
+      - |
+        set -eu
+        if [ "${FIREDOZE_INTEGRATION:-}" != "1" ]; then
+          echo "integration tests skipped; set FIREDOZE_INTEGRATION=1 on a configured Linux host"
+          exit 0
+        fi
+        if [ "$(uname -s)" != "Linux" ]; then
+          echo "integration tests require Linux"
+          exit 1
+        fi
+        CGO_ENABLED=0 go test -tags=integration ./...
+
+  test:all:
+    desc: Run fast tests plus opt-in integration tests when enabled
+    cmds:
+      - task: test
+      - task: test:integration
+
   check:
     desc: Format and test
     cmds:
