@@ -196,13 +196,13 @@ https://app.dev.example.com -> demo port 3000
 
 firedoze VMs are meant to be cheap to forget about. When a VM is inactive for long enough, firedoze can sleep it automatically. A sleeping VM keeps its disk and suspended runtime state, but it stops using CPU and memory until it wakes again.
 
-The server has a default idle timeout. Your VM can override it:
+The server has a default idle timeout (6 hours, in the default configuration). Your VM can override it:
 
 ```sh
-firedoze vm settings demo -idle-sleep-after 21600
+firedoze vm settings demo -idle-sleep-after 3600 # 1 hour
 ```
 
-The value is seconds. `21600` is 6 hours.
+The value is in seconds.
 
 Autowake controls whether passive network activity is allowed to wake a sleeping VM. It is enabled by default for newly created VMs.
 
