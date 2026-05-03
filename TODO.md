@@ -3,7 +3,6 @@
 - Move privileged host operations behind a small helper or tighter privilege boundary.
 - Add real tests for API handlers, SQLite migrations, WireGuard config generation, and Firecracker lifecycle edge cases.
 - Add structured migrations instead of ad hoc `alter table` checks.
-- Add image management: base image versioning, image import, image export, and slow-storage archival for old disks/snapshots.
 - Improve idle detection with better per-VM overrides, observability, and race handling during start/stop/sleep.
 - Improve snapshot/restore semantics for exact clones versus identity-rewritten clones.
 - Add install packaging for deb/rpm or a single install script.
