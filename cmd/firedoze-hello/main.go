@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"runtime"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -58,8 +58,8 @@ func helloText() string {
 	if hostname, err := os.Hostname(); err == nil {
 		fmt.Fprintf(&b, "  hostname: %s\n", hostname)
 	}
-	fmt.Fprintf(&b, "  user:     uid %d\n", os.Getuid())
-	fmt.Fprintf(&b, "  kernel:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&b, "  user:     %s\n", userText())
+	fmt.Fprintf(&b, "  kernel:   %s\n", kernelText())
 	fmt.Fprintf(&b, "  uptime:   %s\n", uptimeText())
 	fmt.Fprintf(&b, "  load:     %s\n", firstFields("/proc/loadavg", 3, "unknown"))
 	fmt.Fprintln(&b)
@@ -73,6 +73,31 @@ func helloText() string {
 		fmt.Fprintf(&b, "  %s\n", line)
 	}
 	return b.String()
+}
+
+func userText() string {
+	name := strings.TrimSpace(commandOutput("id", "-un"))
+	if name == "" {
+		name = "uid"
+	}
+	id := strings.TrimSpace(commandOutput("id"))
+	if id != "" {
+		return id
+	}
+	return fmt.Sprintf("%s (uid %d)", name, os.Getuid())
+}
+
+func kernelText() string {
+	kernel := strings.TrimSpace(commandOutput("uname", "-s", "-r"))
+	if kernel != "" {
+		return kernel
+	}
+	name := strings.TrimSpace(readText("/proc/sys/kernel/ostype"))
+	release := strings.TrimSpace(readText("/proc/sys/kernel/osrelease"))
+	if name != "" || release != "" {
+		return strings.TrimSpace(name + " " + release)
+	}
+	return "unknown"
 }
 
 func uptimeText() string {
@@ -100,11 +125,11 @@ func uptimeText() string {
 }
 
 func firstFields(path string, count int, fallback string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	data := readText(path)
+	if data == "" {
 		return fallback
 	}
-	fields := strings.Fields(string(data))
+	fields := strings.Fields(data)
 	if len(fields) < count {
 		count = len(fields)
 	}
@@ -146,19 +171,33 @@ func parseAddr(addr net.Addr) (net.IP, *net.IPNet, bool) {
 }
 
 func ipv6Routes() []string {
-	data, err := os.ReadFile("/proc/net/ipv6_route")
-	if err != nil {
+	output := commandOutput("ip", "-6", "route")
+	if output == "" {
 		return nil
 	}
 	var lines []string
-	for _, raw := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(raw)
-		if len(fields) < 10 {
-			continue
-		}
-		if fields[0] == strings.Repeat("0", 32) && fields[1] == "00" {
-			lines = append(lines, "default")
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
 		}
 	}
 	return lines
+}
+
+func commandOutput(name string, args ...string) string {
+	cmd := exec.Command(name, args...)
+	data, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func readText(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
