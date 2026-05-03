@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -45,6 +47,20 @@ func TestCleanTarPath(t *testing.T) {
 		if ok != tt.ok || got != tt.want {
 			t.Fatalf("cleanTarPath(%q) = %q, %v; want %q, %v", tt.name, got, ok, tt.want, tt.ok)
 		}
+	}
+}
+
+func TestTarFileModePreservesSpecialBits(t *testing.T) {
+	got := tarFileMode(&tar.Header{Mode: 0o6755})
+	want := os.ModeSetuid | os.ModeSetgid | 0o755
+	if got != want {
+		t.Fatalf("tarFileMode(06755) = %v, want %v", got, want)
+	}
+
+	got = tarFileMode(&tar.Header{Mode: 0o1777})
+	want = os.ModeSticky | 0o777
+	if got != want {
+		t.Fatalf("tarFileMode(01777) = %v, want %v", got, want)
 	}
 }
 

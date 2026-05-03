@@ -667,7 +667,7 @@ func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader, overlay *guestOverlay)
 		if !ok {
 			continue
 		}
-		mode := os.FileMode(hdr.Mode)
+		mode := tarFileMode(hdr)
 		if hdr.FileInfo().IsDir() {
 			if err := mkdirAll(efs, clean, mode, hdr.Uid, hdr.Gid, hdr.ModTime); err != nil {
 				return artifacts, fmt.Errorf("create dir /%s: %w", clean, err)
@@ -724,13 +724,27 @@ func populateRootfs(efs *ext4.FileSystem, tr *tar.Reader, overlay *guestOverlay)
 		if err != nil {
 			return artifacts, fmt.Errorf("read hardlink target /%s for /%s: %w", link.target, link.path, err)
 		}
-		if err := writeFile(efs, link.path, data, os.FileMode(link.header.Mode), link.header.Uid, link.header.Gid, link.header.ModTime); err != nil {
+		if err := writeFile(efs, link.path, data, tarFileMode(link.header), link.header.Uid, link.header.Gid, link.header.ModTime); err != nil {
 			return artifacts, fmt.Errorf("write hardlink copy /%s: %w", link.path, err)
 		}
 		artifacts.remember(link.path, data)
 	}
 
 	return artifacts, nil
+}
+
+func tarFileMode(hdr *tar.Header) os.FileMode {
+	mode := os.FileMode(hdr.Mode & 0o777)
+	if hdr.Mode&0o4000 != 0 {
+		mode |= os.ModeSetuid
+	}
+	if hdr.Mode&0o2000 != 0 {
+		mode |= os.ModeSetgid
+	}
+	if hdr.Mode&0o1000 != 0 {
+		mode |= os.ModeSticky
+	}
+	return mode
 }
 
 func (a *bootArtifacts) remember(p string, data []byte) {
@@ -1122,19 +1136,6 @@ WantedBy=multi-user.target
 		return err
 	}
 	_ = efs.Chown("home/ubuntu", 1000, 1000)
-	for _, p := range []string{
-		"usr/bin/chfn",
-		"usr/bin/chsh",
-		"usr/bin/gpasswd",
-		"usr/bin/mount",
-		"usr/bin/newgrp",
-		"usr/bin/passwd",
-		"usr/bin/su",
-		"usr/bin/sudo",
-		"usr/bin/umount",
-	} {
-		chmodIfExists(efs, p, os.ModeSetuid|0o755)
-	}
 
 	return nil
 }
@@ -1197,13 +1198,6 @@ func stringInSlice(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func chmodIfExists(efs *ext4.FileSystem, p string, mode os.FileMode) {
-	if _, err := efs.Stat(p); err != nil {
-		return
-	}
-	_ = efs.Chmod(p, mode)
 }
 
 func mkdirAll(efs *ext4.FileSystem, p string, mode os.FileMode, uid int, gid int, modTime time.Time) error {
