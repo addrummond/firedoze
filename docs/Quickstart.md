@@ -13,13 +13,14 @@ Use an x86_64 Linux box with:
 - `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
+- Recommended: put `state_dir` on a filesystem with reflink support for fast VM disk clones. XFS with reflinks enabled is the best default choice.
 - IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
 
 On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential ca-certificates git wireguard-tools e2fsprogs openssh-client
+sudo apt-get install -y build-essential ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs
 ```
 
 ## 2. Setup
@@ -61,6 +62,8 @@ sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 
 sudo systemctl enable --now firedozed
 ```
+
+For fast VM creation, set up `/var/lib/firedoze` on XFS or another reflink-capable filesystem before building and installing the base image. The normal setup works on ext4, but VM disks are then copied with the slower sparse-copy fallback. See [Fast VM Disk Clones](#fast-vm-disk-clones) for the details.
 
 Alice can now connect:
 
@@ -407,6 +410,90 @@ firedoze -json vm list
 firedoze vm inspect demo
 firedoze snapshot inspect demo-snap
 ```
+
+## Fast VM Disk Clones
+
+firedoze stores VM disks as plain raw image files. When the state directory is on a filesystem that supports reflinks, firedoze can clone the base image with copy-on-write instead of physically copying all allocated blocks.
+
+This makes VM start after first create much faster. On filesystems without reflinks, firedoze still works and falls back to sparse-aware copying.
+
+XFS is the recommended default because it is a mainstream Linux server filesystem and supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
+
+The important rule is that these paths should live on the same reflink-capable filesystem:
+
+```text
+/var/lib/firedoze/images/rootfs.ext4
+/var/lib/firedoze/vms/<name>/rootfs.ext4
+/var/lib/firedoze/snapshots/<name>/rootfs.ext4
+```
+
+The default config already uses `/var/lib/firedoze` for all of these, so the simplest approach is to mount the reflink filesystem at `/var/lib/firedoze`.
+
+### Option A: XFS Partition Or Disk
+
+If you have a spare disk, cloud volume, or existing partition, format it as XFS with reflinks enabled and mount it at `/var/lib/firedoze`.
+
+Example after the partition already exists:
+
+```sh
+sudo systemctl stop firedozed 2>/dev/null || true
+sudo mkfs.xfs -m reflink=1 /dev/disk/by-id/<DISK_OR_PARTITION_ID>
+sudo mkdir -p /var/lib/firedoze
+sudo mount /dev/disk/by-id/<DISK_OR_PARTITION_ID> /var/lib/firedoze
+```
+
+Then add an `/etc/fstab` entry appropriate for that disk or partition, for example:
+
+```text
+/dev/disk/by-id/<DISK_OR_PARTITION_ID> /var/lib/firedoze xfs defaults,nofail 0 0
+```
+
+If `/var/lib/firedoze` already contains data, copy it aside before mounting the XFS filesystem, then copy it back into the mounted filesystem.
+
+### Option B: XFS Loopback File
+
+If you do not want to repartition or attach another disk, create a file-backed XFS filesystem and mount that at `/var/lib/firedoze`.
+
+This is useful for testing and small servers. It is still kernel XFS, not a userspace filesystem. The backing file can be sparse, so it only consumes blocks as data is written, but it cannot actually grow beyond the free space available on the outer filesystem.
+
+For a new install:
+
+```sh
+sudo mkdir -p /var/lib
+sudo truncate -s 64G /var/lib/firedoze.xfs.img
+sudo mkfs.xfs -f -m reflink=1 /var/lib/firedoze.xfs.img
+sudo mkdir -p /var/lib/firedoze
+sudo mount -o loop /var/lib/firedoze.xfs.img /var/lib/firedoze
+```
+
+Make it persistent across reboots:
+
+```sh
+echo '/var/lib/firedoze.xfs.img /var/lib/firedoze xfs loop,defaults,nofail 0 0' | sudo tee -a /etc/fstab
+```
+
+For an existing install with data:
+
+```sh
+sudo systemctl stop firedozed
+stamp=$(date +%Y%m%d%H%M%S)
+sudo truncate -s 64G /var/lib/firedoze.xfs.img
+sudo mkfs.xfs -f -m reflink=1 /var/lib/firedoze.xfs.img
+sudo mv /var/lib/firedoze /var/lib/firedoze.before-xfs.$stamp
+sudo mkdir -p /var/lib/firedoze
+sudo mount -o loop /var/lib/firedoze.xfs.img /var/lib/firedoze
+sudo rsync -aHAX --numeric-ids /var/lib/firedoze.before-xfs.$stamp/ /var/lib/firedoze/
+sudo systemctl start firedozed
+```
+
+Check that XFS reflinks are enabled:
+
+```sh
+findmnt /var/lib/firedoze
+sudo xfs_info /var/lib/firedoze | grep reflink
+```
+
+You should see `reflink=1`.
 
 ## Reference Config
 
