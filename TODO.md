@@ -8,4 +8,3 @@
 - Add clearer diagnostics for missing host dependencies such as `/dev/kvm`, Firecracker, `iptables`, `debugfs`, `ssh-keygen`, and kernel WireGuard.
 - Add optional auth layers for public routes if shared dev environments need more than WireGuard-only trust.
 - Consider best default idle timeout.
-- Add nice default shell prompt to VM image that gives info about vm name etc.

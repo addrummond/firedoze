@@ -793,6 +793,47 @@ func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay, helloBinary []b
 			data: "PubkeyAuthentication no\nPasswordAuthentication yes\nPermitEmptyPasswords yes\nKbdInteractiveAuthentication no\nUsePAM no\n",
 		},
 		{
+			path: "etc/profile.d/firedoze-prompt.sh",
+			mode: 0o644,
+			data: `# firedoze VM shell prompt.
+# shellcheck shell=sh
+
+case "$-" in
+  *i*) ;;
+  *) return 0 2>/dev/null || exit 0 ;;
+esac
+
+firedoze_prompt_host="$(hostname 2>/dev/null || printf vm)"
+firedoze_prompt_ip=""
+if command -v ip >/dev/null 2>&1; then
+  firedoze_prompt_ip="$(ip -brief -6 addr show scope global 2>/dev/null | awk 'NR == 1 {print $3}' | cut -d/ -f1)"
+fi
+
+if [ -n "$firedoze_prompt_ip" ]; then
+  firedoze_prompt_label="$firedoze_prompt_host $firedoze_prompt_ip"
+else
+  firedoze_prompt_label="$firedoze_prompt_host"
+fi
+
+if [ "$(id -u 2>/dev/null || printf 1)" = "0" ]; then
+  firedoze_prompt_char="#"
+else
+  firedoze_prompt_char="$"
+fi
+
+case "${TERM:-}" in
+  xterm*|screen*|tmux*|rxvt*|linux)
+    PS1='\[\033[1;36m\]firedoze\[\033[0m\] \[\033[1;33m\]'"$firedoze_prompt_label"'\[\033[0m\] \w '"$firedoze_prompt_char"' '
+    ;;
+  *)
+    PS1='firedoze '"$firedoze_prompt_label"' \w '"$firedoze_prompt_char"' '
+    ;;
+esac
+
+unset firedoze_prompt_host firedoze_prompt_ip firedoze_prompt_label firedoze_prompt_char
+`,
+		},
+		{
 			path: "usr/local/sbin/firedoze-guest-network",
 			mode: 0o755,
 			data: `#!/bin/sh
