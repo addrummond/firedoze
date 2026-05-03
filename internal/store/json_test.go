@@ -46,3 +46,48 @@ func TestJSONTextUnmarshalNull(t *testing.T) {
 		t.Fatalf("Metadata = %s, want empty", value.Metadata)
 	}
 }
+
+func TestJSONTextMarshalInvalidJSONAsString(t *testing.T) {
+	data, err := json.Marshal(JSONText(`not-json`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `"not-json"` {
+		t.Fatalf("json.Marshal = %s, want quoted string", data)
+	}
+}
+
+func TestJSONTextUnmarshalInvalidJSON(t *testing.T) {
+	var value JSONText
+	if err := json.Unmarshal([]byte(`not-json`), &value); err == nil {
+		t.Fatal("Unmarshal invalid JSON succeeded")
+	}
+}
+
+func TestJSONTextScan(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  JSONText
+	}{
+		{name: "nil", value: nil, want: ""},
+		{name: "string", value: `{"a":1}`, want: `{"a":1}`},
+		{name: "bytes", value: []byte(`{"b":2}`), want: `{"b":2}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var value JSONText
+			if err := value.Scan(tt.value); err != nil {
+				t.Fatal(err)
+			}
+			if value != tt.want {
+				t.Fatalf("Scan = %s, want %s", value, tt.want)
+			}
+		})
+	}
+
+	var value JSONText
+	if err := value.Scan(42); err == nil {
+		t.Fatal("Scan int succeeded")
+	}
+}
