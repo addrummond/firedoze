@@ -1,12 +1,15 @@
 # firedoze
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
+[![Status](https://img.shields.io/badge/status-early_stage-orange)](#status)
+[![Platform](https://img.shields.io/badge/platform-linux%20x86__64-lightgrey)](docs/quickstart-admin.md)
 
 **Disposable Linux computers for your dev team, backed by [Firecracker](https://firecracker-microvm.github.io/).**
 
-firedoze runs persistent VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, its own systemd, its own SSH, its own long-running processes.
+firedoze runs persistent VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, systemd, SSH, and long-running processes.
 
-Spin one up in seconds. Work in it normally. When it goes idle, it sleeps automatically, keeping all its state while consuming only disk. Weeks later, a click on its public link will wake it right back up.
+Spin one up in seconds. Work in it normally. When it goes idle, it sleeps automatically, keeping all its state while consuming only disk. If it has a public link, a click weeks later can wake it right back up.
 
 > ⚠️ firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or infrastructure you'd be upset to lose.
 
@@ -22,11 +25,11 @@ Containers are great, but sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that keep running
 
-This is what firedoze offers. One beefy box. One simple CLI. One WireGuard tunnel to keep the management plane private.
+firedoze puts that behind one simple model. One beefy box. One CLI. One WireGuard tunnel to keep the management plane private.
 
 Unlike container workflows, firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
-> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers that enable nested virtualization, such as [DigitalOcean](https://www.digitalocean.com).
+> 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
 
 ## What you get
 
@@ -41,22 +44,24 @@ Unlike container workflows, firedoze does not impose a single blessed shape for 
 
 ## Quick example
 
-Spin up a VM, drop in a tiny web app, publish it:
+Create a VM, publish it, and drop in a tiny web app:
 
 ```sh
-firedoze up launchpad
+firedoze vm create launchpad -publish
+firedoze start launchpad
 firedoze exec launchpad -- sh -lc 'cat > app.html <<EOF
 <h1>hello from $(hostname)</h1>
 <p>this is a whole disposable computer, not a container</p>
 EOF
-busybox httpd -f -p 8080 -h .'
+busybox httpd -p 8080 -h .'
 firedoze vm list launchpad
 ```
 
 Start a second VM and call the first one by name over the private VM network:
 
 ```sh
-firedoze up cockpit -publish=false
+firedoze vm create cockpit
+firedoze start cockpit
 firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
 ```
 
