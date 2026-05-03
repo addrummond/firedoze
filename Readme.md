@@ -10,11 +10,11 @@ firedoze runs persistent Firecracker VMs on one Linux host. You get:
 - Simple command-line lifecycle controls.
 - Optional public HTTPS for dev services.
 
-Create and forget! Make a VM. Use it like a small computer. When it goes idle, it sleeps. Sleeping VMs keep their state and consume only disk space.
+Create a VM in seconds. Use it like a small computer. When it goes idle, it sleeps. Sleeping VMs keep their state and consume only disk space.
 
-Reproducibility is optional. Fire and forget – or script creation of named snapshots for cloneable environments. 
+Reproducibility is optional. Fire and forget, or script creation of named snapshots for cloneable environments. 
 
-⚠️ _firedoze is early-stage software. Do not use it for production, hostile multi-tenant isolation, or sensitive infrastructure accounts._
+⚠️ _firedoze is early-stage software. Do not use it for production, hostile multi-tenant isolation, or on sensitive infrastructure accounts._
 
 ## Why
 
