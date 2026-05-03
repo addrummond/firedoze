@@ -8,3 +8,4 @@
 - Add clearer diagnostics for missing host dependencies such as `/dev/kvm`, Firecracker, `iptables`, `debugfs`, `ssh-keygen`, and kernel WireGuard.
 - Add optional auth layers for public routes if shared dev environments need more than WireGuard-only trust.
 - Consider best default idle timeout.
+- Make sure that all API 404 responses are explicit about WHAT doesn't exist.
