@@ -297,6 +297,35 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	}
 }
 
+func TestVMRebootAcceptsMultipleNames(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/vms/"), "/reboot")
+		_, _ = io.WriteString(w, `{"vm":{"name":"`+name+`","state":"running"}}`)
+	}))
+	defer server.Close()
+
+	c, err := newClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (app{client: c, json: true}).vm([]string{"reboot", "alpha", "beta"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"POST /vms/alpha/reboot",
+		"POST /vms/beta/reboot",
+	}
+	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+}
+
 func TestVMCreateAutoWakeFlagDoesNotConsumeNames(t *testing.T) {
 	params, names, err := parseVMCreateArgs("test", []string{"alpha", "beta", "-auto-wake"})
 	if err != nil {

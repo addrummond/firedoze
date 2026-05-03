@@ -521,6 +521,33 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	return m.store.GetVM(ctx, name)
 }
 
+func (m *Manager) RebootVM(ctx context.Context, name string) (store.VM, error) {
+	vm, err := m.store.GetVM(ctx, name)
+	if err != nil {
+		return store.VM{}, err
+	}
+
+	m.mu.Lock()
+	_, running := m.running[name]
+	m.mu.Unlock()
+	if running {
+		if err := m.StopVM(ctx, name); err != nil {
+			return store.VM{}, err
+		}
+		return m.StartVM(ctx, name)
+	}
+
+	if vm.State == "sleeping" {
+		if err := os.RemoveAll(m.layout(name).sleepDir); err != nil {
+			return store.VM{}, err
+		}
+		if err := m.store.SetVMState(ctx, name, "stopped"); err != nil {
+			return store.VM{}, err
+		}
+	}
+	return m.StartVM(ctx, name)
+}
+
 func (m *Manager) bootArgs(netdev preparedNetwork) string {
 	args := "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw"
 	args += " firedoze.guest_ip=" + netdev.guestIP.String()

@@ -106,16 +106,17 @@ firedoze vm create demo
 firedoze vm create app1 app2 app3 -memory-mib 1024
 ```
 
-Start, sleep, stop, or delete VMs:
+Start, reboot, sleep, stop, or delete VMs:
 
 ```sh
 firedoze start demo
+firedoze reboot demo
 firedoze vm sleep demo
 firedoze vm stop demo
 firedoze vm delete demo
 ```
 
-`sleep` keeps the VM's exact suspended state. `stop` shuts down the Firecracker process and keeps only the disk.
+`sleep` keeps the VM's exact suspended state. `stop` shuts down the Firecracker process and keeps only the disk. `reboot` restarts from disk; if the VM is sleeping, it discards the suspended runtime state rather than resuming it.
 
 ## 6. SSH, Commands, And Files
 

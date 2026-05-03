@@ -373,12 +373,16 @@ sudo systemctl start firedoze-hello.service
 sudo systemctl status firedoze-hello.service
 ```
 
-Sleep or stop a VM:
+Reboot, sleep, or stop a VM:
 
 ```sh
+firedoze reboot demo
 firedoze vm sleep demo
 firedoze vm stop demo
 ```
+
+Reboot starts the VM from disk. If the VM is sleeping, reboot discards the exact
+suspended runtime state instead of resuming it.
 
 Delete a VM and its state directory:
 

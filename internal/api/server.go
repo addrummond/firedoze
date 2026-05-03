@@ -59,6 +59,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
 	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
 	s.mux.HandleFunc("POST /vms/{name}/sleep", s.handleSleepVM)
+	s.mux.HandleFunc("POST /vms/{name}/reboot", s.handleRebootVM)
 	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
 	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
@@ -78,7 +79,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		"resources": map[string][]string{
 			"health":          {"GET /health"},
 			"config":          {"GET /config"},
-			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep"},
+			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
@@ -303,6 +304,26 @@ func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, firecracker.ErrNotRunning) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
+}
+
+func (s *Server) handleRebootVM(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	vm, err := s.manager.RebootVM(r.Context(), name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrAlreadyRunning) {
 			status = http.StatusConflict
 		}
 		writeError(w, status, err)

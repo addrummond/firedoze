@@ -171,6 +171,19 @@ func (a app) dispatch(args []string) error {
 		}
 		fmt.Printf("%s started\n", vm.Name)
 		return nil
+	case "reboot":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze reboot <vm>")
+		}
+		vm, err := a.rebootVM(args[1])
+		if err != nil {
+			return err
+		}
+		if a.json {
+			return printJSON(map[string]any{"vm": vm})
+		}
+		fmt.Printf("%s rebooted\n", vm.Name)
+		return nil
 	case "publish", "hide":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: firedoze %s <vm>", args[0])
@@ -221,7 +234,7 @@ func (a app) wg(args []string) error {
 
 func (a app) vm(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze vm <list|inspect|create|start|sleep|stop|delete|settings>")
+		return errors.New("usage: firedoze vm <list|inspect|create|start|reboot|sleep|stop|delete|settings>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -306,6 +319,25 @@ func (a app) vm(args []string) error {
 		}
 		for _, vm := range slept {
 			fmt.Printf("%s slept\n", vm["name"])
+		}
+		return nil
+	case "reboot":
+		if len(args) < 2 {
+			return errors.New("usage: firedoze vm reboot <name> [name...]")
+		}
+		rebooted := []vmInfo{}
+		for _, name := range args[1:] {
+			vm, err := a.rebootVM(name)
+			if err != nil {
+				return err
+			}
+			rebooted = append(rebooted, vm)
+		}
+		if a.json {
+			return printJSON(map[string]any{"vms": rebooted})
+		}
+		for _, vm := range rebooted {
+			fmt.Printf("%s rebooted\n", vm.Name)
 		}
 		return nil
 	case "delete", "rm":
@@ -423,6 +455,16 @@ func (a app) startVM(name string) (vmInfo, error) {
 		VM vmInfo `json:"vm"`
 	}
 	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/start", nil, &out); err != nil {
+		return vmInfo{}, err
+	}
+	return out.VM, nil
+}
+
+func (a app) rebootVM(name string) (vmInfo, error) {
+	var out struct {
+		VM vmInfo `json:"vm"`
+	}
+	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/reboot", nil, &out); err != nil {
 		return vmInfo{}, err
 	}
 	return out.VM, nil
@@ -1238,12 +1280,14 @@ Commands:
   health
   config
   start <vm>
+  reboot <vm>
   publish <vm>
   hide <vm>
   vm list [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   vm start <name>
+  vm reboot <name> [name...]
   vm sleep <name> [name...]
   vm stop <name>
   vm delete <name> [name...]
