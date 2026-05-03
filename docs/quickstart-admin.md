@@ -547,7 +547,7 @@ You should see `reflink=1`.
 
 Cold storage is optional. If configured, firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
 
-Only stopped VM disks are moved. Running VMs and sleeping VMs are not moved, because sleeping VMs include exact suspended runtime state.
+Only stopped VM disks are moved. Running VMs and sleeping VMs are not moved.
 
 Example:
 
