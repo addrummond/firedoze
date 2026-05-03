@@ -22,7 +22,9 @@ Containers are great, but sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that keep running
 
-firedoze makes all of that lightweight enough for everyday team development. One beefy box. One simple CLI. One WireGuard tunnel to keep the management plane private.
+This is what firedoze offers. One beefy box. One simple CLI. One WireGuard tunnel to keep the management plane private.
+
+Unlike with container workflows, there is no single blessed shape for a dev environment. One big hand-tended VM? Fine. Small per-service VMs built from scripts and snapshots? Also fine.
 
 > 💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances. You no longer need bare-metal EC2 to run KVM-backed VMs on AWS. See the [AWS guide](docs/aws-guide.md). Other low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers that enable nested virtualization, such as [DigitalOcean](https://www.digitalocean.com).
 
