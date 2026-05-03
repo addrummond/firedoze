@@ -291,12 +291,6 @@ When you are done, you can leave WireGuard connected or bring it down:
 sudo wg-quick down /path/to/firedoze.conf
 ```
 
-Sleeping or stopping a VM is separate from disconnecting WireGuard:
-
-```sh
-firedoze vm sleep demo
-```
-
 ## Troubleshooting
 
 If `firedoze health` fails:
