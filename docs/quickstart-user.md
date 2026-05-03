@@ -99,7 +99,7 @@ Inspect one VM:
 firedoze vm inspect demo
 ```
 
-Create one or more hidden VMs:
+Create one or more VMs (hidden from public web by default, not started):
 
 ```sh
 firedoze vm create demo
