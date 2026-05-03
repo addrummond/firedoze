@@ -12,12 +12,13 @@ require (
 	github.com/go-openapi/runtime v0.24.0
 	github.com/go-openapi/strfmt v0.21.2
 	github.com/klauspost/compress v1.18.6
-	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/miekg/dns v1.1.72
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vishvananda/netlink v1.3.1
+	golang.org/x/sys v0.42.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
+	modernc.org/sqlite v1.50.0
 )
 
 require (
@@ -111,6 +112,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
@@ -123,6 +125,7 @@ require (
 	github.com/prometheus/procfs v0.20.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
@@ -191,8 +194,7 @@ require (
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
@@ -207,4 +209,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.0 // indirect
+	modernc.org/libc v1.72.0 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.11.0 // indirect
 )

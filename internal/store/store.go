@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Store struct {
@@ -23,11 +23,20 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `pragma busy_timeout = 5000`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, `pragma foreign_keys = on`); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

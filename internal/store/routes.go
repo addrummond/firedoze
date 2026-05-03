@@ -5,14 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"firedoze/internal/model"
 )
 
-type Route struct {
-	Name      string `json:"name"`
-	VMName    string `json:"vm_name"`
-	Port      int    `json:"port"`
-	IsDefault bool   `json:"is_default"`
-}
+type Route = model.Route
 
 type CreateRouteParams struct {
 	Name      string

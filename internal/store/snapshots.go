@@ -5,19 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"firedoze/internal/model"
 )
 
-type Snapshot struct {
-	Name              string   `json:"name"`
-	SourceVM          string   `json:"source_vm,omitempty"`
-	StatePath         string   `json:"state_path"`
-	MemPath           string   `json:"mem_path"`
-	DiskPath          string   `json:"disk_path"`
-	BaseImageID       string   `json:"base_image_id"`
-	KernelID          string   `json:"kernel_id"`
-	BaseImageMetadata JSONText `json:"base_image_metadata,omitempty"`
-	CreatedAt         string   `json:"created_at"`
-}
+type Snapshot = model.Snapshot
 
 type CreateSnapshotParams struct {
 	Name              string

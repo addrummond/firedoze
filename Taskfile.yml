@@ -18,7 +18,7 @@ tasks:
   test:
     desc: Run the Go test suite
     cmds:
-      - go test ./...
+      - CGO_ENABLED=0 go test ./...
 
   check:
     desc: Format and test
@@ -50,17 +50,17 @@ tasks:
   build:client:
     desc: Build ./firedoze
     cmds:
-      - go build -o firedoze ./cmd/firedoze
+      - CGO_ENABLED=0 go build -o firedoze ./cmd/firedoze
 
   build:daemon:
     desc: Build ./firedozed
     cmds:
-      - go build -o firedozed ./cmd/firedozed
+      - CGO_ENABLED=0 go build -o firedozed ./cmd/firedozed
 
   build:image-builder:
     desc: Build ./firedoze-image-builder
     cmds:
-      - go build -o firedoze-image-builder ./cmd/firedoze-image-builder
+      - CGO_ENABLED=0 go build -o firedoze-image-builder ./cmd/firedoze-image-builder
 
   clean:
     desc: Remove local build outputs

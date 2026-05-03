@@ -22,7 +22,7 @@ On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs
+sudo apt-get install -y ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs
 ```
 
 ## 2. Setup

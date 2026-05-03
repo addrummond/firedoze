@@ -6,26 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"firedoze/internal/model"
 )
 
 var ErrNotFound = errors.New("not found")
 
-type VM struct {
-	Name                  string   `json:"name"`
-	State                 string   `json:"state"`
-	PrivateIP             string   `json:"private_ip,omitempty"`
-	VCPUs                 int      `json:"vcpus"`
-	MemoryMiB             int      `json:"memory_mib"`
-	DiskBytes             int64    `json:"disk_bytes"`
-	DefaultHTTPPort       int      `json:"default_http_port"`
-	IdleSleepAfterSeconds int      `json:"idle_sleep_after_seconds,omitempty"`
-	LastStartedAt         string   `json:"last_started_at,omitempty"`
-	BaseImageID           string   `json:"base_image_id,omitempty"`
-	KernelID              string   `json:"kernel_id,omitempty"`
-	BaseImageMetadata     JSONText `json:"base_image_metadata,omitempty"`
-	AutoWake              bool     `json:"auto_wake"`
-	PublicHTTP            bool     `json:"public_http"`
-}
+type VM = model.VM
 
 type CreateVMParams struct {
 	Name                  string

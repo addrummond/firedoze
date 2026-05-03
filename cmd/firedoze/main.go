@@ -18,7 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"firedoze/internal/store"
+	"firedoze/internal/model"
 	wgconfig "firedoze/internal/wireguard"
 )
 
@@ -37,19 +37,19 @@ type app struct {
 }
 
 type vmInfo struct {
-	store.VM
+	model.VM
 	Hostname string            `json:"hostname"`
 	SSH      string            `json:"ssh"`
 	URLs     map[string]string `json:"urls"`
 }
 
 type routeInfo struct {
-	store.Route
+	model.Route
 	Hostname string `json:"hostname"`
 	URL      string `json:"url"`
 }
 
-type snapshotInfo = store.Snapshot
+type snapshotInfo = model.Snapshot
 
 type apiError struct {
 	StatusCode int

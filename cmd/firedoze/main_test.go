@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"firedoze/internal/store"
+	"firedoze/internal/model"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -175,7 +175,7 @@ func TestClientServerAddNormalizesAndDefaults(t *testing.T) {
 
 func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	got := sshCommand(vmInfo{
-		VM: store.VM{
+		VM: model.VM{
 			PrivateIP: "fd7a:115c:a1e0::3",
 		},
 		SSH: "ssh ubuntu@demo.example.com",
@@ -197,7 +197,7 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 
 func TestRemoteExecCommandAddsSeparatorBeforeRemoteCommand(t *testing.T) {
 	got := remoteExecCommand(vmInfo{
-		VM: store.VM{
+		VM: model.VM{
 			PrivateIP: "fd7a:115c:a1e0::3",
 		},
 		SSH: "ssh ubuntu@demo.example.com",
@@ -214,7 +214,7 @@ func TestRsyncCopyCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := rsyncCopyCommand(vmInfo{
-		VM: store.VM{
+		VM: model.VM{
 			PrivateIP: "fd7a:115c:a1e0::3",
 		},
 		SSH: "ssh ubuntu@demo.example.com",

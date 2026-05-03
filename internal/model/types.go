@@ -1,0 +1,81 @@
+package model
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type JSONText string
+
+func (j JSONText) MarshalJSON() ([]byte, error) {
+	if j == "" {
+		return []byte("null"), nil
+	}
+	data := []byte(j)
+	if json.Valid(data) {
+		return data, nil
+	}
+	return json.Marshal(string(j))
+}
+
+func (j *JSONText) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*j = ""
+		return nil
+	}
+	if !json.Valid(data) {
+		return fmt.Errorf("invalid JSONText")
+	}
+	*j = JSONText(data)
+	return nil
+}
+
+func (j *JSONText) Scan(value any) error {
+	switch value := value.(type) {
+	case nil:
+		*j = ""
+	case string:
+		*j = JSONText(value)
+	case []byte:
+		*j = JSONText(value)
+	default:
+		return fmt.Errorf("scan JSONText from %T", value)
+	}
+	return nil
+}
+
+type VM struct {
+	Name                  string   `json:"name"`
+	State                 string   `json:"state"`
+	PrivateIP             string   `json:"private_ip,omitempty"`
+	VCPUs                 int      `json:"vcpus"`
+	MemoryMiB             int      `json:"memory_mib"`
+	DiskBytes             int64    `json:"disk_bytes"`
+	DefaultHTTPPort       int      `json:"default_http_port"`
+	IdleSleepAfterSeconds int      `json:"idle_sleep_after_seconds,omitempty"`
+	LastStartedAt         string   `json:"last_started_at,omitempty"`
+	BaseImageID           string   `json:"base_image_id,omitempty"`
+	KernelID              string   `json:"kernel_id,omitempty"`
+	BaseImageMetadata     JSONText `json:"base_image_metadata,omitempty"`
+	AutoWake              bool     `json:"auto_wake"`
+	PublicHTTP            bool     `json:"public_http"`
+}
+
+type Route struct {
+	Name      string `json:"name"`
+	VMName    string `json:"vm_name"`
+	Port      int    `json:"port"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type Snapshot struct {
+	Name              string   `json:"name"`
+	SourceVM          string   `json:"source_vm,omitempty"`
+	StatePath         string   `json:"state_path"`
+	MemPath           string   `json:"mem_path"`
+	DiskPath          string   `json:"disk_path"`
+	BaseImageID       string   `json:"base_image_id"`
+	KernelID          string   `json:"kernel_id"`
+	BaseImageMetadata JSONText `json:"base_image_metadata,omitempty"`
+	CreatedAt         string   `json:"created_at"`
+}

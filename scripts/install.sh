@@ -44,9 +44,9 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT INT TERM
 
 echo "building firedoze binaries"
-go build -o "$build_dir/firedoze" ./cmd/firedoze
-go build -o "$build_dir/firedozed" ./cmd/firedozed
-go build -o "$build_dir/firedoze-image-builder" ./cmd/firedoze-image-builder
+CGO_ENABLED=0 go build -o "$build_dir/firedoze" ./cmd/firedoze
+CGO_ENABLED=0 go build -o "$build_dir/firedozed" ./cmd/firedozed
+CGO_ENABLED=0 go build -o "$build_dir/firedoze-image-builder" ./cmd/firedoze-image-builder
 
 echo "installing binaries to $prefix/bin"
 as_root install -d -m 0755 "$prefix/bin"
