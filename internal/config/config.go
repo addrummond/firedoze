@@ -67,10 +67,16 @@ func (c WireGuardConfig) Validate() error {
 	} else if ip.To4() != nil {
 		return fmt.Errorf("wireguard.address must be IPv6")
 	}
+	peerNames := map[string]int{}
+	peerAllowedIPs := map[string]int{}
 	for i, peer := range c.Peers {
 		if peer.Name == "" {
 			return fmt.Errorf("wireguard.peers[%d].name is required", i)
 		}
+		if first, ok := peerNames[peer.Name]; ok {
+			return fmt.Errorf("wireguard.peers[%d].name duplicates wireguard.peers[%d].name %q", i, first, peer.Name)
+		}
+		peerNames[peer.Name] = i
 		if peer.PublicKey == "" {
 			return fmt.Errorf("wireguard.peers[%d].public_key is required", i)
 		}
@@ -78,10 +84,16 @@ func (c WireGuardConfig) Validate() error {
 			return fmt.Errorf("wireguard.peers[%d].allowed_ips is required", i)
 		}
 		for j, allowedIP := range peer.AllowedIPs {
-			if ip, _, err := net.ParseCIDR(allowedIP); err != nil {
+			if ip, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
 				return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] must be CIDR: %w", i, j, err)
 			} else if ip.To4() != nil {
 				return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] must be IPv6", i, j)
+			} else {
+				normalizedAllowedIP := ipNet.String()
+				if first, ok := peerAllowedIPs[normalizedAllowedIP]; ok {
+					return fmt.Errorf("wireguard.peers[%d].allowed_ips[%d] duplicates wireguard.peers[%d] allowed IP %s", i, j, first, normalizedAllowedIP)
+				}
+				peerAllowedIPs[normalizedAllowedIP] = i
 			}
 		}
 	}

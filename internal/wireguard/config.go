@@ -55,12 +55,15 @@ func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP st
 			return config.WGPeer{}, "", err
 		}
 	}
+	var normalizedAllowedIP string
 	if ip, ipNet, err := net.ParseCIDR(allowedIP); err != nil {
 		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be CIDR: %w", err)
 	} else if ones, bits := ipNet.Mask.Size(); ones != bits {
 		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be a single client address, such as fd7a:115c:a1e1::2/128")
 	} else if ip.To4() != nil {
 		return config.WGPeer{}, "", fmt.Errorf("allowed IP must be IPv6")
+	} else {
+		normalizedAllowedIP = ipNet.String()
 	}
 	for _, peer := range cfg.WireGuard.Peers {
 		if peer.Name == name {
@@ -69,8 +72,10 @@ func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP st
 		if peer.PublicKey == publicKey {
 			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses that public key", peer.Name)
 		}
-		if slices.Contains(peer.AllowedIPs, allowedIP) {
-			return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses %s", peer.Name, allowedIP)
+		for _, peerAllowedIP := range peer.AllowedIPs {
+			if _, peerAllowedIPNet, err := net.ParseCIDR(peerAllowedIP); err == nil && peerAllowedIPNet.String() == normalizedAllowedIP {
+				return config.WGPeer{}, "", fmt.Errorf("wireguard peer %q already uses %s", peer.Name, normalizedAllowedIP)
+			}
 		}
 	}
 
@@ -81,7 +86,7 @@ func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP st
 	peer := config.WGPeer{
 		Name:       name,
 		PublicKey:  publicKey,
-		AllowedIPs: []string{allowedIP},
+		AllowedIPs: []string{normalizedAllowedIP},
 	}
 	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String(), "<client-private-key>")
 	if err != nil {

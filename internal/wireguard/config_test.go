@@ -93,6 +93,23 @@ func TestNewPeerSetupSkipsUsedAllowedIPs(t *testing.T) {
 	}
 }
 
+func TestNewPeerSetupRejectsDuplicateAllowedIP(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.WireGuard.Endpoint = "example.com:51820"
+	cfg.WireGuard.PrivateKeyFile = filepath.Join(dir, "wg.key")
+	cfg.WireGuard.Peers = []config.WGPeer{{
+		Name:       "alice-laptop",
+		PublicKey:  "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE=",
+		AllowedIPs: []string{"fd7a:115c:a1e1::2/128"},
+	}}
+
+	_, _, err := NewPeerSetup(cfg, "bob-laptop", "Kv3AQjMlBJIbgO3gxhwWyRLDaeInBG3nYJjnzTFROVU=", "fd7a:115c:a1e1:0:0:0:0:2/128")
+	if err == nil || !strings.Contains(err.Error(), "already uses fd7a:115c:a1e1::2/128") {
+		t.Fatalf("NewPeerSetup error = %v, want duplicate allowed IP error", err)
+	}
+}
+
 func TestAppendPeer(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "firedoze.toml")
