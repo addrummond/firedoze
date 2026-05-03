@@ -217,7 +217,7 @@ The provided unit uses systemd readiness notification and a watchdog. If the dae
 
 Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
 
-The generated config includes a commented `FIREDOZE_API` export line. Use that value after connecting WireGuard.
+The generated config includes a commented `FIREDOZE_API` export line. The client can use that value after connecting WireGuard.
 
 On the firedoze host, you can print the same API shell export directly:
 
