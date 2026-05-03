@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -88,6 +89,49 @@ func TestVerifySHA256(t *testing.T) {
 	}
 }
 
+func TestExtractBusyBoxFromDeb(t *testing.T) {
+	const want = "busybox-binary"
+	var dataTar bytes.Buffer
+	tw := tar.NewWriter(&dataTar)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "./bin/busybox",
+		Mode: 0o755,
+		Size: int64(len(want)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(want)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var compressed bytes.Buffer
+	zw, err := zstd.NewWriter(&compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zw.Write(dataTar.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	deb := makeDebAr(t, map[string][]byte{
+		"debian-binary": []byte("2.0\n"),
+		"data.tar.zst":  compressed.Bytes(),
+	})
+	got, err := extractBusyBoxFromDeb(deb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("busybox = %q, want %q", got, want)
+	}
+}
+
 func TestExtractKernelELF(t *testing.T) {
 	elf := []byte{0x7f, 'E', 'L', 'F', 't', 'e', 's', 't'}
 	got, err := extractKernelELF(elf)
@@ -117,4 +161,25 @@ func TestExtractKernelELF(t *testing.T) {
 	if !bytes.Equal(got, elf) {
 		t.Fatalf("extractKernelELF(zstd payload) = %q, want %q", got, elf)
 	}
+}
+
+func makeDebAr(t *testing.T, members map[string][]byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	out.WriteString("!<arch>\n")
+	for _, name := range []string{"debian-binary", "data.tar.zst"} {
+		data, ok := members[name]
+		if !ok {
+			continue
+		}
+		if len(name) > 15 {
+			t.Fatalf("ar member name too long: %s", name)
+		}
+		fmt.Fprintf(&out, "%-16s%-12d%-6d%-6d%-8o%-10d`\n", name+"/", 0, 0, 0, 0o100644, len(data))
+		out.Write(data)
+		if len(data)%2 != 0 {
+			out.WriteByte('\n')
+		}
+	}
+	return out.Bytes()
 }

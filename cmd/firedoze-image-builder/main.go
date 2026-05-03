@@ -35,6 +35,9 @@ const (
 	nobleRootSHA256   = "13dc3c9ed4e76688ce3efaee45551dd4b5d706c2579bd91fd0de5464e34dd777"
 	nobleKernelSHA256 = "5b2a4fe174dacb18281f8f7d72ae32ac4b92801f0b7b5cb43ea55dee29fb789d"
 	nobleInitrdSHA256 = "cd0b64a5498e583a820a5b842369df83d036b4200b33bc51cadc58176184aaca"
+
+	nobleBusyBoxStaticURL    = "http://archive.ubuntu.com/ubuntu/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_amd64.deb"
+	nobleBusyBoxStaticSHA256 = "944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed"
 )
 
 func main() {
@@ -200,7 +203,13 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	if err := customizeGuest(efs, overlay, helloBinary); err != nil {
+	busyBoxBinary, err := readBusyBoxStatic(*release, *arch, *insecureSkipChecksums)
+	if err != nil {
+		_ = backend.Close()
+		_ = os.Remove(tmpRootfsPath)
+		return err
+	}
+	if err := customizeGuest(efs, overlay, helloBinary, busyBoxBinary); err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -403,6 +412,21 @@ func readBootArtifact(localPath string, url string, expectedSHA256 string, insec
 	return &bootArtifact{path: artifact.name, data: artifact.data}, nil
 }
 
+func readBusyBoxStatic(release string, arch string, insecure bool) ([]byte, error) {
+	if release != "noble" || arch != "amd64" {
+		return nil, fmt.Errorf("busybox-static is pinned only for release=%s arch=%s", defaultRelease, defaultArch)
+	}
+	artifact, err := readArtifact("", nobleBusyBoxStaticURL, nobleBusyBoxStaticSHA256, insecure)
+	if err != nil {
+		return nil, fmt.Errorf("read busybox-static package: %w", err)
+	}
+	binary, err := extractBusyBoxFromDeb(artifact.data)
+	if err != nil {
+		return nil, fmt.Errorf("extract busybox-static package: %w", err)
+	}
+	return binary, nil
+}
+
 func verifySHA256(name string, data []byte, expected string) error {
 	expected = strings.ToLower(strings.TrimSpace(expected))
 	if len(expected) != sha256.Size*2 {
@@ -414,6 +438,94 @@ func verifySHA256(name string, data []byte, expected string) error {
 		return fmt.Errorf("SHA-256 mismatch for %s: got %s, want %s", name, actual, expected)
 	}
 	return nil
+}
+
+func extractBusyBoxFromDeb(deb []byte) ([]byte, error) {
+	const globalHeader = "!<arch>\n"
+	if !bytes.HasPrefix(deb, []byte(globalHeader)) {
+		return nil, errors.New("invalid deb ar header")
+	}
+	offset := len(globalHeader)
+	for offset < len(deb) {
+		if offset+60 > len(deb) {
+			return nil, errors.New("truncated deb ar member header")
+		}
+		header := deb[offset : offset+60]
+		offset += 60
+		name := strings.TrimSpace(string(header[:16]))
+		name = strings.TrimSuffix(name, "/")
+		sizeText := strings.TrimSpace(string(header[48:58]))
+		size, err := strconv.ParseInt(sizeText, 10, 64)
+		if err != nil || size < 0 {
+			return nil, fmt.Errorf("invalid deb ar member size %q", sizeText)
+		}
+		if string(header[58:60]) != "`\n" {
+			return nil, fmt.Errorf("invalid deb ar member trailer for %s", name)
+		}
+		end := offset + int(size)
+		if end < offset || end > len(deb) {
+			return nil, fmt.Errorf("truncated deb ar member %s", name)
+		}
+		data := deb[offset:end]
+		offset = end
+		if size%2 != 0 {
+			offset++
+		}
+		if strings.HasPrefix(name, "data.tar.") {
+			return extractBusyBoxFromDataTar(name, data)
+		}
+	}
+	return nil, errors.New("deb package has no data.tar member")
+}
+
+func extractBusyBoxFromDataTar(name string, data []byte) ([]byte, error) {
+	var r io.Reader = bytes.NewReader(data)
+	switch {
+	case strings.HasSuffix(name, ".zst"):
+		dec, err := zstd.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer dec.Close()
+		r = dec
+	case strings.HasSuffix(name, ".xz"):
+		dec, err := xz.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		r = dec
+	case strings.HasSuffix(name, ".gz"):
+		dec, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		defer dec.Close()
+		r = dec
+	default:
+		return nil, fmt.Errorf("unsupported deb data member compression: %s", name)
+	}
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		clean, ok := cleanTarPath(hdr.Name)
+		if !ok {
+			continue
+		}
+		if clean != "bin/busybox" && clean != "usr/bin/busybox" {
+			continue
+		}
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			return nil, fmt.Errorf("%s is not a regular file", hdr.Name)
+		}
+		return io.ReadAll(tr)
+	}
+	return nil, errors.New("data.tar does not contain busybox")
 }
 
 func buildGuestHelloBinary(arch string) ([]byte, error) {
@@ -780,7 +892,7 @@ func cleanTarPath(name string) (string, bool) {
 	return clean, true
 }
 
-func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay, helloBinary []byte) error {
+func customizeGuest(efs *ext4.FileSystem, overlay *guestOverlay, helloBinary []byte, busyBoxBinary []byte) error {
 	now := time.Now()
 	files := []struct {
 		path string
@@ -1158,6 +1270,9 @@ WantedBy=multi-user.target
 		}
 	}
 	if err := writeFile(efs, "usr/local/bin/firedoze-hello", helloBinary, 0o755, 0, 0, now); err != nil {
+		return err
+	}
+	if err := writeFile(efs, "usr/bin/busybox", busyBoxBinary, 0o755, 0, 0, now); err != nil {
 		return err
 	}
 	if err := overlay.apply(efs, now); err != nil {
