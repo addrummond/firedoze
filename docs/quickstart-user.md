@@ -253,7 +253,7 @@ Use `firedoze up` when you want the more convenient workflow: create if missing,
 
 ## 9. Snapshots
 
-Snapshots are named VM images you can restore later.
+Snapshots are named cloneable disk images you can restore later.
 
 Stop the VM first, then save a snapshot:
 
@@ -265,6 +265,10 @@ firedoze snapshot save demo-base demo
 firedoze does not allow snapshotting a running or sleeping VM. Use `sleep` for
 exact suspend/resume of the same VM, and `stop` before creating a cloneable
 snapshot.
+
+A sleeping VM includes live memory and device state that belongs to that exact
+VM identity. A snapshot restore creates a new VM identity, so it uses a clean
+disk snapshot and boots normally.
 
 List and inspect snapshots:
 

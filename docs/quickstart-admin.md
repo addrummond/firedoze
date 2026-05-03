@@ -402,6 +402,10 @@ running or sleeping VMs because restored snapshots boot as new VM identities.
 Use `sleep` for exact suspend/resume of the same VM, and `stop` before creating
 a cloneable snapshot.
 
+A sleeping VM includes live memory and device state that belongs to that exact
+VM identity. A snapshot restore creates a new VM identity, so it uses a clean
+disk snapshot and boots normally.
+
 Restore a snapshot as a new VM:
 
 ```sh
