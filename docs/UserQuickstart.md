@@ -192,7 +192,60 @@ Your admin's domain decides the final hostname, for example:
 https://app.dev.example.com -> demo port 3000
 ```
 
-## 8. Snapshots
+## 8. Sleep And Autowake
+
+firedoze VMs are meant to be cheap to forget about. When a VM is inactive for long enough, firedoze can sleep it automatically. A sleeping VM keeps its disk and suspended runtime state, but it stops using CPU and memory until it wakes again.
+
+The server has a default idle timeout. Your VM can override it:
+
+```sh
+firedoze vm settings demo -idle-sleep-after 21600
+```
+
+The value is seconds. `21600` is 6 hours.
+
+Autowake controls whether passive network activity is allowed to wake a sleeping VM. It is enabled by default for newly created VMs.
+
+When autowake is enabled:
+
+- `firedoze ssh demo`, `firedoze exec demo -- ...`, and `firedoze cp ... demo:...` will start the VM if needed before connecting.
+- A request to a published HTTPS URL can wake the VM.
+- Public browser requests may first show a small human check. After it succeeds, the browser gets a signed cookie for that hostname and future requests can wake the VM without repeating the check.
+
+When autowake is disabled:
+
+- Public HTTPS requests will not wake the VM.
+- Start the VM explicitly with `firedoze start demo`.
+- `firedoze ssh`, `firedoze exec`, and `firedoze cp` still try to make the VM ready because they are explicit client commands.
+
+Disable autowake when creating a VM:
+
+```sh
+firedoze vm create demo -no-auto-wake
+```
+
+Disable or re-enable autowake later:
+
+```sh
+firedoze vm settings demo -auto-wake false
+firedoze vm settings demo -auto-wake true
+```
+
+Check the current setting:
+
+```sh
+firedoze vm inspect demo
+```
+
+Use `firedoze start` when you definitely mean "wake this existing VM":
+
+```sh
+firedoze start demo
+```
+
+Use `firedoze up` when you want the more convenient workflow: create if missing, publish by default, start, and SSH.
+
+## 9. Snapshots
 
 Snapshots are named VM images you can restore later.
 
@@ -230,7 +283,7 @@ Delete a snapshot:
 firedoze snapshot delete demo-base
 ```
 
-## 9. Disconnect
+## 10. Disconnect
 
 When you are done, you can leave WireGuard connected or bring it down:
 
