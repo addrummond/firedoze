@@ -43,11 +43,7 @@ mise install
 The fastest possible setup is:
 
 ```sh
-./scripts/install.sh
-task firecracker:install
-task build
-./firedoze-image-builder build
-task image:install
+task setup:host
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
@@ -103,11 +99,16 @@ Build the firedoze Ubuntu base image on the Linux host. The builder is native Go
 From the repo checkout, run:
 
 ```sh
-task build:image-builder && ./firedoze-image-builder build
-task image:install
+task image:build
 ```
 
-The builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+The `image:build` task builds `./firedoze-image-builder`, downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+
+Install the generated image artifacts:
+
+```sh
+task image:install
+```
 
 The install task copies the generated files here:
 

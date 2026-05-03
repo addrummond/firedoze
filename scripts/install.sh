@@ -80,17 +80,19 @@ cat <<EOF
 firedoze is installed.
 
 Next steps:
-  1. Build firedoze commands: task build
-  2. Install firecracker: task firecracker:install
-  3. Build and install the base image: ./firedoze-image-builder build && task image:install
-  4. Create $config_dst:
+  1. To run the full host setup from scratch, use: task setup:host
+     To do only the remaining image steps now, use:
+       task firecracker:install
+       task image:build
+       task image:install
+  2. Create $config_dst:
      If you have a domain name:
        sudo firedozed -init-config -init-host <DOMAIN_NAME>
      If you have only an IP address:
        sudo firedozed -init-config -init-sslip-host \$(curl -4 https://ifconfig.me)
-  5. Ask the client to run 'firedoze wg keygen', then add their public key:
+  3. Ask the client to run 'firedoze wg keygen', then add their public key:
        sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
-  6. Start the daemon:
+  4. Start the daemon:
        sudo systemctl enable --now firedozed
 
 EOF

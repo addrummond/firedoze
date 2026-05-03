@@ -26,6 +26,20 @@ tasks:
       - task: fmt
       - task: test
 
+  setup:host:
+    desc: Install firedoze, Firecracker, and the default base image on this host
+    cmds:
+      - task: install
+      - task: firecracker:install
+      - task: build
+      - task: image:build
+      - task: image:install
+
+  install:
+    desc: Build and install firedoze binaries, docs, config example, and systemd unit
+    cmds:
+      - ./scripts/install.sh
+
   build:
     desc: Build all local binaries into the repo root
     deps:
@@ -56,7 +70,8 @@ tasks:
   image:build:
     desc: Build the Ubuntu base image into dist/base-image
     cmds:
-      - go run ./cmd/firedoze-image-builder build {{.CLI_ARGS}}
+      - task: build:image-builder
+      - ./firedoze-image-builder build {{.CLI_ARGS}}
 
   image:install:
     desc: Install dist/base-image artifacts into /var/lib/firedoze/images
