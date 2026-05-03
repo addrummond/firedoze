@@ -443,7 +443,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
-		} else if errors.Is(err, firecracker.ErrNotRunning) || errors.Is(err, firecracker.ErrRunning) {
+		} else if errors.Is(err, firecracker.ErrNotRunning) || errors.Is(err, firecracker.ErrRunning) || errors.Is(err, firecracker.ErrAlreadyRunning) {
 			status = http.StatusConflict
 		}
 		writeError(w, status, err)

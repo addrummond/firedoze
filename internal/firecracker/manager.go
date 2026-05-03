@@ -382,18 +382,10 @@ func readImageManifest(p string) (map[string]string, error) {
 }
 
 func (m *Manager) DeleteVM(ctx context.Context, name string) error {
-	m.mu.Lock()
-	if _, ok := m.vmOps[name]; ok {
-		m.mu.Unlock()
-		return ErrAlreadyRunning
+	if err := m.beginVMOperation(name); err != nil {
+		return err
 	}
-	m.vmOps[name] = struct{}{}
-	m.mu.Unlock()
-	defer func() {
-		m.mu.Lock()
-		delete(m.vmOps, name)
-		m.mu.Unlock()
-	}()
+	defer m.endVMOperation(name)
 
 	if _, err := m.store.GetVM(ctx, name); err != nil {
 		return err
@@ -425,6 +417,22 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, name string) error {
 	return m.store.DeleteSnapshot(ctx, name)
 }
 
+func (m *Manager) beginVMOperation(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.vmOps[name]; ok {
+		return ErrAlreadyRunning
+	}
+	m.vmOps[name] = struct{}{}
+	return nil
+}
+
+func (m *Manager) endVMOperation(name string) {
+	m.mu.Lock()
+	delete(m.vmOps, name)
+	m.mu.Unlock()
+}
+
 func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	m.mu.Lock()
 	if _, ok := m.running[name]; ok {
@@ -437,11 +445,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	}
 	m.vmOps[name] = struct{}{}
 	m.mu.Unlock()
-	defer func() {
-		m.mu.Lock()
-		delete(m.vmOps, name)
-		m.mu.Unlock()
-	}()
+	defer m.endVMOperation(name)
 
 	vm, err := m.store.GetVM(ctx, name)
 	if err != nil {
@@ -651,18 +655,20 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	if exists {
 		return store.Snapshot{}, fmt.Errorf("snapshot %q already exists", params.Name)
 	}
+	if err := m.beginVMOperation(params.SourceVM); err != nil {
+		return store.Snapshot{}, err
+	}
+	defer m.endVMOperation(params.SourceVM)
+
 	vm, err := m.store.GetVM(ctx, params.SourceVM)
 	if err != nil {
 		return store.Snapshot{}, err
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if vm.State == "running" {
-		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm sleep %s` first", ErrRunning, vm.Name, vm.Name)
-	}
-	if _, ok := m.running[vm.Name]; ok {
+	_, running := m.running[vm.Name]
+	m.mu.Unlock()
+	if vm.State == "running" || running {
 		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm sleep %s` first", ErrRunning, vm.Name, vm.Name)
 	}
 	if vm.State != "sleeping" && vm.State != "stopped" {

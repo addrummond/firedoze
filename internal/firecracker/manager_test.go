@@ -142,6 +142,17 @@ func TestSaveSnapshotRejectsRunningVM(t *testing.T) {
 	}
 }
 
+func TestSaveSnapshotRejectsVMOperationInProgress(t *testing.T) {
+	m, st := newTestManager(t)
+	createSnapshotTestVM(t, m, st, "demo", "sleeping")
+	m.vmOps["demo"] = struct{}{}
+
+	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	if !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("SaveSnapshot error = %v, want ErrAlreadyRunning", err)
+	}
+}
+
 func TestSaveSnapshotFromStoppedVMCopiesDiskOnly(t *testing.T) {
 	m, st := newTestManager(t)
 	createSnapshotTestVM(t, m, st, "demo", "stopped")
