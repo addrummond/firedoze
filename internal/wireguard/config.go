@@ -271,8 +271,8 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	if clientPrivateKey == "<client-private-key>" {
 		fmt.Fprintf(&b, "# WireGuard client config template for %s.\n", peer.Name)
 		fmt.Fprintf(&b, "# Save this on the client laptop and replace <client-private-key> locally.\n\n")
-		fmt.Fprintf(&b, "# After connecting WireGuard, set:\n")
-		fmt.Fprintf(&b, "#   export FIREDOZE_API=%s\n\n", apiURL)
+		fmt.Fprintf(&b, "# After connecting WireGuard, register this server with the firedoze client:\n")
+		fmt.Fprintf(&b, "#   firedoze server add firedoze %s -default\n\n", apiURL)
 	}
 	fmt.Fprintf(&b, "[Interface]\n")
 	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)

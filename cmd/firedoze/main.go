@@ -66,10 +66,12 @@ func main() {
 
 func run(args []string) int {
 	apiURL := os.Getenv("FIREDOZE_API")
+	serverName := os.Getenv("FIREDOZE_SERVER")
 
 	flags := flag.NewFlagSet("firedoze", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&apiURL, "api", apiURL, "firedoze API URL")
+	flags.StringVar(&serverName, "server", serverName, "configured firedoze server name")
 	jsonOutput := flags.Bool("json", false, "print raw JSON responses")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -87,12 +89,12 @@ func run(args []string) int {
 
 	var c *client
 	if commandNeedsAPI(flags.Args()) {
-		if apiURL == "" {
-			fmt.Fprintln(os.Stderr, "missing API URL: set FIREDOZE_API or pass -api")
+		resolvedAPIURL, err := resolveClientAPIURL(apiURL, serverName)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		var err error
-		c, err = newClient(apiURL)
+		c, err = newClient(resolvedAPIURL)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
@@ -115,28 +117,38 @@ func commandNeedsAPI(args []string) bool {
 		return false
 	case "wg":
 		return false
+	case "server":
+		return false
 	default:
 		return true
 	}
 }
 
 func newClient(rawURL string) (*client, error) {
-	u, err := url.Parse(rawURL)
+	normalizedURL, err := normalizeAPIURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	if u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("API URL must include scheme and host: %s", rawURL)
-	}
-	if u.Port() == "" {
-		u.Host = net.JoinHostPort(u.Hostname(), defaultAPIPort)
-	}
 	return &client{
-		baseURL: strings.TrimRight(u.String(), "/"),
+		baseURL: normalizedURL,
 		http: &http.Client{
 			Timeout: 10 * time.Minute,
 		},
 	}, nil
+}
+
+func normalizeAPIURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("API URL must include scheme and host: %s", rawURL)
+	}
+	if u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), defaultAPIPort)
+	}
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 func (a app) dispatch(args []string) error {
@@ -196,6 +208,8 @@ func (a app) dispatch(args []string) error {
 		return a.route(args[1:])
 	case "wg":
 		return a.wg(args[1:])
+	case "server":
+		return a.server(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
 	case "exec":
@@ -1274,11 +1288,17 @@ func pastTense(verb string) string {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage: firedoze [-api URL] [-json] <command>
+	fmt.Fprint(os.Stderr, `usage: firedoze [-api URL] [-server NAME] [-json] <command>
 
 Commands:
   health
   config
+  server add <name> <api-url> [-default]
+  server list
+  server use <name>
+  server current
+  server remove <name> [name...]
+  server path
   start <vm>
   reboot <vm>
   publish <vm>
@@ -1308,7 +1328,11 @@ Commands:
   with-vm-ip <vm> <command> [args...]
 
 Environment:
-  FIREDOZE_API  API URL. Required for daemon commands unless -api is passed.
-                Port 8081 is added if omitted.
+  FIREDOZE_API     API URL override.
+  FIREDOZE_SERVER  configured server name override.
+
+Client config:
+  Use "firedoze server add <name> <api-url> -default" once, then daemon
+  commands use that server automatically. Port 8081 is added if omitted.
 `)
 }
