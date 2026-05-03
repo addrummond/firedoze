@@ -53,13 +53,20 @@ type Manager struct {
 	store  *store.Store
 	logger *slog.Logger
 
-	mu      sync.Mutex
-	running map[string]*Process
-	vmOps   map[string]struct{}
+	mu           sync.Mutex
+	running      map[string]*Process
+	vmOps        map[string]struct{}
+	coldArchives map[string]*coldArchiveOperation
+	copyColdFile func(context.Context, string, string) error
 
 	metadataMu    sync.Mutex
 	baseMetadata  BaseImageMetadata
 	baseSignature string
+}
+
+type coldArchiveOperation struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 type Process struct {
@@ -77,11 +84,13 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:     cfg,
-		store:   st,
-		logger:  logger,
-		running: make(map[string]*Process),
-		vmOps:   make(map[string]struct{}),
+		cfg:          cfg,
+		store:        st,
+		logger:       logger,
+		running:      make(map[string]*Process),
+		vmOps:        make(map[string]struct{}),
+		coldArchives: make(map[string]*coldArchiveOperation),
+		copyColdFile: copyRegularFile,
 	}
 }
 
@@ -393,7 +402,7 @@ func readImageManifest(p string) (map[string]string, error) {
 }
 
 func (m *Manager) DeleteVM(ctx context.Context, name string) error {
-	if err := m.beginVMOperation(name); err != nil {
+	if err := m.beginVMOperationCancelingColdArchive(ctx, name); err != nil {
 		return err
 	}
 	defer m.endVMOperation(name)
@@ -455,18 +464,103 @@ func (m *Manager) endVMOperation(name string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
-	m.mu.Lock()
-	if _, ok := m.running[name]; ok {
+func (m *Manager) beginVMOperationCancelingColdArchive(ctx context.Context, name string) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		m.mu.Lock()
+		if archive := m.coldArchives[name]; archive != nil {
+			archive.cancel()
+			done := archive.done
+			m.mu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if _, ok := m.vmOps[name]; ok {
+			m.mu.Unlock()
+			return ErrAlreadyRunning
+		}
+		m.vmOps[name] = struct{}{}
 		m.mu.Unlock()
-		return store.VM{}, ErrAlreadyRunning
+		return nil
 	}
+}
+
+func (m *Manager) beginStartOperationCancelingColdArchive(ctx context.Context, name string) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		m.mu.Lock()
+		if _, ok := m.running[name]; ok {
+			m.mu.Unlock()
+			return ErrAlreadyRunning
+		}
+		if archive := m.coldArchives[name]; archive != nil {
+			archive.cancel()
+			done := archive.done
+			m.mu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if _, ok := m.vmOps[name]; ok {
+			m.mu.Unlock()
+			return ErrAlreadyRunning
+		}
+		m.vmOps[name] = struct{}{}
+		m.mu.Unlock()
+		return nil
+	}
+}
+
+func (m *Manager) beginColdArchiveOperation(ctx context.Context, name string) (context.Context, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	archiveCtx, cancel := context.WithCancel(ctx)
+	archive := &coldArchiveOperation{
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+
+	m.mu.Lock()
 	if _, ok := m.vmOps[name]; ok {
 		m.mu.Unlock()
-		return store.VM{}, ErrAlreadyRunning
+		cancel()
+		return nil, nil, ErrAlreadyRunning
 	}
 	m.vmOps[name] = struct{}{}
+	m.coldArchives[name] = archive
 	m.mu.Unlock()
+
+	end := func() {
+		cancel()
+		m.mu.Lock()
+		if current := m.coldArchives[name]; current == archive {
+			delete(m.coldArchives, name)
+		}
+		delete(m.vmOps, name)
+		close(archive.done)
+		m.mu.Unlock()
+	}
+	return archiveCtx, end, nil
+}
+
+func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
+	if err := m.beginStartOperationCancelingColdArchive(ctx, name); err != nil {
+		return store.VM{}, err
+	}
 	defer m.endVMOperation(name)
 
 	vm, err := m.store.GetVM(ctx, name)
@@ -727,7 +821,7 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	if exists {
 		return store.Snapshot{}, fmt.Errorf("snapshot %q already exists", params.Name)
 	}
-	if err := m.beginVMOperation(params.SourceVM); err != nil {
+	if err := m.beginVMOperationCancelingColdArchive(ctx, params.SourceVM); err != nil {
 		return store.Snapshot{}, err
 	}
 	defer m.endVMOperation(params.SourceVM)
@@ -1195,7 +1289,7 @@ func copyFile(dst string, src string) error {
 	return out.Close()
 }
 
-func copyRegularFile(dst string, src string) error {
+func copyRegularFile(ctx context.Context, dst string, src string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -1205,10 +1299,34 @@ func copyRegularFile(dst string, src string) error {
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.CopyBuffer(out, in, make([]byte, 1024*1024))
-	syncErr := out.Sync()
+	copyErr := copyFileDenseContext(ctx, out, in)
+	syncErr := error(nil)
+	if copyErr == nil {
+		syncErr = out.Sync()
+	}
 	closeErr := out.Close()
 	return errors.Join(copyErr, syncErr, closeErr)
+}
+
+func copyFileDenseContext(ctx context.Context, out *os.File, in *os.File) error {
+	buf := make([]byte, 1024*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := in.Read(buf)
+		if n > 0 {
+			if _, err := out.Write(buf[:n]); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
 }
 
 func copySparseFile(out *os.File, in *os.File) error {

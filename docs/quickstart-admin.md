@@ -578,6 +578,8 @@ to:
 
 and records that path in SQLite before removing the hot copy. Starting the VM copies the disk back before booting. Saving a snapshot of an archived stopped VM copies directly from the archived disk. Deleting the VM removes the archived disk too.
 
+If a start, snapshot, or delete command arrives while an archive copy is still in progress, firedoze cancels the archive, removes the partial temporary file, and lets the explicit command continue.
+
 Cold storage is not a backup system. It is just a way to reclaim faster local disk from stopped VMs you are not actively using.
 
 ## Reference Config

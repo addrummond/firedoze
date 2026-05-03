@@ -294,3 +294,72 @@ func TestHydrateColdDiskFailsWhenRecordedArchiveIsMissing(t *testing.T) {
 		t.Fatalf("hydrateColdDisk error = %v, want not exist", err)
 	}
 }
+
+func TestBeginStartOperationCancelsColdArchive(t *testing.T) {
+	m, _ := newTestManager(t)
+	archiveCtx, endArchive, err := m.beginColdArchiveOperation(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled := make(chan struct{})
+	go func() {
+		<-archiveCtx.Done()
+		close(canceled)
+		endArchive()
+	}()
+
+	if err := m.beginStartOperationCancelingColdArchive(context.Background(), "demo"); err != nil {
+		t.Fatal(err)
+	}
+	defer m.endVMOperation("demo")
+
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("start operation did not cancel cold archive")
+	}
+}
+
+func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+
+	copyStarted := make(chan struct{})
+	m.copyColdFile = func(ctx context.Context, dst string, src string) error {
+		close(copyStarted)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	archiveDone := make(chan error, 1)
+	go func() {
+		archiveDone <- m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second))
+	}()
+
+	select {
+	case <-copyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("archive copy did not start")
+	}
+
+	if err := m.DeleteVM(context.Background(), "demo"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-archiveDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("archive error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("delete did not wait for archive cancellation")
+	}
+
+	if _, err := st.GetVM(context.Background(), "demo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetVM after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := os.Stat(m.coldDiskPath("demo")); !os.IsNotExist(err) {
+		t.Fatalf("cold disk stat error = %v, want not exist", err)
+	}
+}

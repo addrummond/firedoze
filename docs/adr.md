@@ -380,6 +380,8 @@ Fast cloning can use ordinary filesystem reflinks when the configured state dire
 
 Cold storage is opt-in. If `cold_storage.dir` is configured, firedoze can move disks from VMs that have been stopped longer than `cold_storage.archive_stopped_after_seconds` to that directory using a regular file copy, then remove the hot copy. The SQLite VM record stores the archived disk path, so starts can restore the disk before booting, snapshots can copy from the archived disk, and deletes can reclaim it.
 
+Cold-storage archive copies are cancellable. Explicit VM operations such as start, snapshot, and delete should preempt an in-progress archive, wait for temporary-file cleanup, and then continue.
+
 Only stopped VM disks are eligible for cold storage. Sleeping VMs are not moved because their exact runtime state belongs to the hot VM state directory.
 
 ## Resource Management

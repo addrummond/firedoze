@@ -64,6 +64,10 @@ func (m *ColdStorageMonitor) check(ctx context.Context, now time.Time) {
 				m.logger.Debug("cold storage skipped busy vm", "vm", vm.Name)
 				continue
 			}
+			if errors.Is(err, context.Canceled) {
+				m.logger.Debug("cold storage archive canceled", "vm", vm.Name)
+				continue
+			}
 			m.logger.Warn("cold storage archive failed", "vm", vm.Name, "error", err)
 		}
 	}
@@ -77,10 +81,11 @@ func (m *Manager) ArchiveStoppedVM(ctx context.Context, name string, now time.Ti
 	if !m.coldStorageEnabled() {
 		return nil
 	}
-	if err := m.beginVMOperation(name); err != nil {
+	archiveCtx, endArchive, err := m.beginColdArchiveOperation(ctx, name)
+	if err != nil {
 		return err
 	}
-	defer m.endVMOperation(name)
+	defer endArchive()
 
 	vm, err := m.store.GetVM(ctx, name)
 	if err != nil {
@@ -122,7 +127,10 @@ func (m *Manager) ArchiveStoppedVM(ctx context.Context, name string, now time.Ti
 		_ = os.Remove(tmpPath)
 	}()
 
-	if err := copyRegularFile(tmpPath, layout.diskPath); err != nil {
+	if err := m.copyColdFile(archiveCtx, tmpPath, layout.diskPath); err != nil {
+		return err
+	}
+	if err := archiveCtx.Err(); err != nil {
 		return err
 	}
 	if err := os.Remove(coldPath); err != nil && !os.IsNotExist(err) {
@@ -131,7 +139,7 @@ func (m *Manager) ArchiveStoppedVM(ctx context.Context, name string, now time.Ti
 	if err := os.Rename(tmpPath, coldPath); err != nil {
 		return err
 	}
-	if err := m.store.SetVMArchivedDiskPath(ctx, name, coldPath); err != nil {
+	if err := m.store.SetVMArchivedDiskPath(context.Background(), name, coldPath); err != nil {
 		return err
 	}
 	if err := os.Remove(layout.diskPath); err != nil {
@@ -207,7 +215,7 @@ func (m *Manager) hydrateColdDisk(ctx context.Context, vm store.VM) error {
 		_ = os.Remove(tmpPath)
 	}()
 
-	if err := copyRegularFile(tmpPath, coldPath); err != nil {
+	if err := m.copyColdFile(ctx, tmpPath, coldPath); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpPath, layout.diskPath); err != nil {
