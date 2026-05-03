@@ -11,7 +11,7 @@ firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 **Spin a VM up in seconds. Work in it normally. When it goes idle, it sleeps automatically, consuming only disk space. If it has a public link, a click weeks later can wake it right back up.**
 
-> ⚠️ firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or infrastructure you'd be upset to lose.
+> ⚠️ firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts.
 
 ---
 
