@@ -828,7 +828,27 @@ fi
 
 echo "firedoze-hello listening on [::]:$port" >&2
 while :; do
-  {
+  fifo="/tmp/firedoze-hello.$$.fifo"
+  rm -f "$fifo"
+  mkfifo "$fifo"
+  exec 3<>"$fifo"
+  nc -6 -l -p "$port" -q 1 <"$fifo" | {
+    IFS= read -r request_line || true
+    request_line="$(printf '%s\n' "$request_line" | tr -d '\r')"
+    request_path="$(printf '%s\n' "$request_line" | awk '{print $2}')"
+    if [ "$request_path" = "/favicon.ico" ] || [ "$request_path" = "/favicon.svg" ]; then
+      favicon='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111827"/><text x="32" y="43" text-anchor="middle" font-size="38">😴</text></svg>'
+      {
+        printf 'HTTP/1.1 200 OK\r\n'
+        printf 'Content-Type: image/svg+xml; charset=utf-8\r\n'
+        printf 'Cache-Control: public, max-age=86400\r\n'
+        printf 'Connection: close\r\n'
+        printf '\r\n'
+        printf '%s\n' "$favicon"
+      } >&3
+      exit 0
+    fi
+
     uptime_seconds="$(cut -d' ' -f1 /proc/uptime 2>/dev/null | cut -d. -f1 || true)"
     if [ -n "$uptime_seconds" ]; then
       days=$((uptime_seconds / 86400))
@@ -866,7 +886,9 @@ while :; do
     printf '\n'
     printf 'Routes\n'
     ip -6 route 2>/dev/null | awk '/^default / {print "  default via " $3 " dev " $5; next} {print "  " $0}' || true
-  } | nc -6 -l -p "$port" -q 1
+  } >&3
+  exec 3>&-
+  rm -f "$fifo"
 done
 `,
 		},
