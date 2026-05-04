@@ -345,6 +345,47 @@ func TestManagerListAndGetWrappers(t *testing.T) {
 	}
 }
 
+func TestReconcileStartupMarksRunningVMsLostAndIgnoresCleanupErrors(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "stopped", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "running", PrivateIP: "fd00::5", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(ctx, "running", "running"); err != nil {
+		t.Fatal(err)
+	}
+	var cleaned []string
+	restore := stubDeleteTap(t, func(name string) error {
+		cleaned = append(cleaned, name)
+		return errors.New("cleanup failed")
+	})
+	defer restore()
+
+	if err := m.ReconcileStartup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	running, err := st.GetVM(ctx, "running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running.State != "lost" {
+		t.Fatalf("running state = %q, want lost", running.State)
+	}
+	stopped, err := st.GetVM(ctx, "stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.State != "stopped" {
+		t.Fatalf("stopped state = %q, want stopped", stopped.State)
+	}
+	if strings.Join(cleaned, ",") != "fdtap-running,fdtap-stopped" {
+		t.Fatalf("cleanup taps = %#v", cleaned)
+	}
+}
+
 func TestStopVMWithoutRunningProcessMarksStopped(t *testing.T) {
 	m, st := newTestManager(t)
 	createSnapshotTestVM(t, m, st, "demo", "running")
@@ -1101,4 +1142,304 @@ func TestCopyDenseAndSmallHelpers(t *testing.T) {
 	if value == nil || *value != "x" {
 		t.Fatalf("stringPtr = %#v", value)
 	}
+}
+
+func TestRunAndDeleteTapSmallHelpers(t *testing.T) {
+	if err := run(context.Background(), "/bin/sh", "-c", "exit 0"); err != nil {
+		t.Fatalf("run success: %v", err)
+	}
+	err := run(context.Background(), "/bin/sh", "-c", "printf firedoze-error; exit 7")
+	if err == nil || !strings.Contains(err.Error(), "firedoze-error") {
+		t.Fatalf("run failure error = %v, want command output", err)
+	}
+	if err := deleteTap(""); err != nil {
+		t.Fatalf("deleteTap empty: %v", err)
+	}
+}
+
+func TestRewriteGuestIdentityWritesGuestFilesAndSSHKeys(t *testing.T) {
+	m, _ := newTestManager(t)
+	diskPath := filepath.Join(t.TempDir(), "rootfs.ext4")
+	writes := map[string]string{}
+	modes := map[string]string{}
+	keyTypes := map[string]bool{}
+	restore := stubRunCommand(t, func(_ context.Context, name string, args ...string) error {
+		switch name {
+		case sshKeygenPath:
+			keyType, outPath := sshKeygenArgs(t, args)
+			keyTypes[keyType] = true
+			if err := os.WriteFile(outPath, []byte("private-"+keyType), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(outPath+".pub", []byte("public-"+keyType), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		case debugfsPath:
+			op, guestPath := debugfsOperation(t, args, diskPath)
+			switch {
+			case strings.HasPrefix(op, "rm "):
+				return errors.New("missing guest file")
+			case strings.HasPrefix(op, "write "):
+				fields := strings.Fields(op)
+				if len(fields) != 3 {
+					t.Fatalf("debugfs write op = %q", op)
+				}
+				data, err := os.ReadFile(fields[1])
+				if err != nil {
+					t.Fatal(err)
+				}
+				writes[guestPath] = string(data)
+				return nil
+			case strings.HasPrefix(op, "set_inode_field "):
+				fields := strings.Fields(op)
+				if len(fields) != 4 || fields[2] != "mode" {
+					t.Fatalf("debugfs mode op = %q", op)
+				}
+				modes[guestPath] = fields[3]
+				return nil
+			default:
+				t.Fatalf("unexpected debugfs op %q", op)
+			}
+		default:
+			t.Fatalf("unexpected command %s %v", name, args)
+		}
+		return nil
+	})
+	defer restore()
+
+	if err := m.rewriteGuestIdentity(context.Background(), diskPath, "demo-vm"); err != nil {
+		t.Fatal(err)
+	}
+	if got := writes["/etc/hostname"]; got != "demo-vm\n" {
+		t.Fatalf("/etc/hostname = %q, want demo-vm newline", got)
+	}
+	if hosts := writes["/etc/hosts"]; !strings.Contains(hosts, "127.0.1.1 demo-vm") || !strings.Contains(hosts, "::1 localhost") {
+		t.Fatalf("/etc/hosts = %q", hosts)
+	}
+	machineID := writes["/etc/machine-id"]
+	if len(strings.TrimSpace(machineID)) != 32 || !strings.HasSuffix(machineID, "\n") {
+		t.Fatalf("/etc/machine-id = %q, want 32 hex chars plus newline", machineID)
+	}
+	if writes["/var/lib/dbus/machine-id"] != machineID {
+		t.Fatalf("dbus machine-id = %q, want %q", writes["/var/lib/dbus/machine-id"], machineID)
+	}
+	for _, guestPath := range []string{"/etc/hostname", "/etc/hosts"} {
+		if got := modes[guestPath]; got != "0100644" {
+			t.Fatalf("%s mode = %q, want 0100644", guestPath, got)
+		}
+	}
+	for _, guestPath := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
+		if got := modes[guestPath]; got != "0100444" {
+			t.Fatalf("%s mode = %q, want 0100444", guestPath, got)
+		}
+	}
+	for _, keyType := range []string{"rsa", "ecdsa", "ed25519"} {
+		if !keyTypes[keyType] {
+			t.Fatalf("ssh-keygen was not called for %s", keyType)
+		}
+		privatePath := "/etc/ssh/ssh_host_" + keyType + "_key"
+		publicPath := privatePath + ".pub"
+		if got := writes[privatePath]; got != "private-"+keyType {
+			t.Fatalf("%s = %q", privatePath, got)
+		}
+		if got := writes[publicPath]; got != "public-"+keyType {
+			t.Fatalf("%s = %q", publicPath, got)
+		}
+		if got := modes[privatePath]; got != "0100600" {
+			t.Fatalf("%s mode = %q, want 0100600", privatePath, got)
+		}
+		if got := modes[publicPath]; got != "0100644" {
+			t.Fatalf("%s mode = %q, want 0100644", publicPath, got)
+		}
+	}
+}
+
+func TestGuestFileCommandErrors(t *testing.T) {
+	diskPath := filepath.Join(t.TempDir(), "rootfs.ext4")
+	writeErr := errors.New("debugfs write failed")
+	restore := stubRunCommand(t, func(_ context.Context, name string, args ...string) error {
+		if name != debugfsPath {
+			t.Fatalf("unexpected command %s", name)
+		}
+		op, _ := debugfsOperation(t, args, diskPath)
+		if strings.HasPrefix(op, "write ") {
+			return writeErr
+		}
+		return nil
+	})
+	err := writeGuestFile(context.Background(), diskPath, "/etc/example", []byte("data"))
+	restore()
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("writeGuestFile error = %v, want %v", err, writeErr)
+	}
+
+	modeErr := errors.New("debugfs mode failed")
+	restore = stubRunCommand(t, func(_ context.Context, name string, args ...string) error {
+		if name != debugfsPath {
+			t.Fatalf("unexpected command %s", name)
+		}
+		op, _ := debugfsOperation(t, args, diskPath)
+		if strings.HasPrefix(op, "set_inode_field ") {
+			return modeErr
+		}
+		return nil
+	})
+	err = replaceGuestFile(context.Background(), diskPath, "/etc/example", filepath.Join(t.TempDir(), "missing-local"), "0100644")
+	restore()
+	if !errors.Is(err, modeErr) {
+		t.Fatalf("replaceGuestFile error = %v, want %v", err, modeErr)
+	}
+
+	keygenErr := errors.New("ssh-keygen failed")
+	restore = stubRunCommand(t, func(_ context.Context, name string, args ...string) error {
+		if name == sshKeygenPath {
+			return keygenErr
+		}
+		return nil
+	})
+	err = rewriteSSHHostKeys(context.Background(), diskPath)
+	restore()
+	if !errors.Is(err, keygenErr) {
+		t.Fatalf("rewriteSSHHostKeys error = %v, want %v", err, keygenErr)
+	}
+}
+
+func TestStartAndRebootEarlyErrorPaths(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	configureTestBaseImage(t, m)
+	m.rewriteGuestIdentityFunc = func(context.Context, string, string) error {
+		return nil
+	}
+
+	if _, err := m.StartVM(ctx, "missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("StartVM missing error = %v, want ErrNotFound", err)
+	}
+	if _, err := m.RebootVM(ctx, "missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("RebootVM missing error = %v, want ErrNotFound", err)
+	}
+
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "badip", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := m.StartVM(ctx, "badip")
+	if err == nil || !strings.Contains(err.Error(), "prepare network") || !strings.Contains(err.Error(), "private_ip must be an IP address") {
+		t.Fatalf("StartVM bad IP error = %v", err)
+	}
+
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "sleepy", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(ctx, "sleepy", "sleeping"); err != nil {
+		t.Fatal(err)
+	}
+	layout := m.layout("sleepy")
+	if err := os.MkdirAll(layout.sleepDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.sleepStatePath, []byte("state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.sleepMemPath, []byte("mem"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RebootVM(ctx, "sleepy"); err == nil {
+		t.Fatal("RebootVM sleeping VM succeeded despite missing base rootfs setup for start")
+	}
+	updated, err := st.GetVM(ctx, "sleepy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != "stopped" {
+		t.Fatalf("sleepy state = %q, want stopped after reboot converts sleeping VM", updated.State)
+	}
+	if _, err := os.Stat(layout.sleepDir); !os.IsNotExist(err) {
+		t.Fatalf("sleep dir stat = %v, want removed", err)
+	}
+}
+
+func TestPrepareNetworkInputValidation(t *testing.T) {
+	m, _ := newTestManager(t)
+	tests := []struct {
+		name string
+		vm   store.VM
+		want string
+	}{
+		{name: "missing", vm: store.VM{Name: "demo"}, want: "no private_ip"},
+		{name: "bad ip", vm: store.VM{Name: "demo", PrivateIP: "bad"}, want: "must be an IP address"},
+		{name: "ipv4", vm: store.VM{Name: "demo", PrivateIP: "10.0.0.2"}, want: "must be IPv6"},
+		{name: "underflow", vm: store.VM{Name: "demo", PrivateIP: "::"}, want: "invalid /127 host peer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := m.prepareNetwork(context.Background(), tt.vm)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("prepareNetwork error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func stubRunCommand(t *testing.T, fn func(context.Context, string, ...string) error) func() {
+	t.Helper()
+	old := runCommand
+	runCommand = fn
+	return func() {
+		runCommand = old
+	}
+}
+
+func stubDeleteTap(t *testing.T, fn func(string) error) func() {
+	t.Helper()
+	old := deleteTapCmd
+	deleteTapCmd = fn
+	return func() {
+		deleteTapCmd = old
+	}
+}
+
+func sshKeygenArgs(t *testing.T, args []string) (keyType string, outPath string) {
+	t.Helper()
+	for i := 0; i < len(args)-1; i++ {
+		switch args[i] {
+		case "-t":
+			keyType = args[i+1]
+		case "-f":
+			outPath = args[i+1]
+		}
+	}
+	if keyType == "" || outPath == "" {
+		t.Fatalf("ssh-keygen args missing type or output path: %v", args)
+	}
+	return keyType, outPath
+}
+
+func debugfsOperation(t *testing.T, args []string, diskPath string) (op string, guestPath string) {
+	t.Helper()
+	if len(args) != 4 || args[0] != "-w" || args[1] != "-R" || args[3] != diskPath {
+		t.Fatalf("debugfs args = %v, want -w -R <op> %s", args, diskPath)
+	}
+	op = args[2]
+	fields := strings.Fields(op)
+	if len(fields) < 2 {
+		t.Fatalf("debugfs op = %q", op)
+	}
+	switch fields[0] {
+	case "rm":
+		guestPath = fields[1]
+	case "write":
+		if len(fields) != 3 {
+			t.Fatalf("debugfs write op = %q", op)
+		}
+		guestPath = fields[2]
+	case "set_inode_field":
+		if len(fields) != 4 {
+			t.Fatalf("debugfs mode op = %q", op)
+		}
+		guestPath = fields[1]
+	default:
+		t.Fatalf("unexpected debugfs op = %q", op)
+	}
+	return op, guestPath
 }

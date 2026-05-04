@@ -48,6 +48,11 @@ const (
 	sshKeygenPath = "/usr/bin/ssh-keygen"
 )
 
+var (
+	runCommand   = run
+	deleteTapCmd = deleteTap
+)
+
 type Manager struct {
 	cfg    config.Config
 	store  *store.Store
@@ -942,7 +947,7 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 }
 
 func (m *Manager) cleanupNetwork(proc *Process) error {
-	return deleteTap(proc.TapName)
+	return deleteTapCmd(proc.TapName)
 }
 
 func (m *Manager) nextPrivateIP(ctx context.Context) (net.IP, error) {
@@ -1436,16 +1441,16 @@ func writeGuestFileMode(ctx context.Context, diskPath string, guestPath string, 
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
+	if err := runCommand(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
 		// Missing files are fine; the following write creates the replacement.
 	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" "+guestPath, diskPath); err != nil {
+	if err := runCommand(ctx, debugfsPath, "-w", "-R", "write "+tmpPath+" "+guestPath, diskPath); err != nil {
 		return err
 	}
 	if mode == "" {
 		return nil
 	}
-	return run(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
+	return runCommand(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
 }
 
 func rewriteSSHHostKeys(ctx context.Context, diskPath string) error {
@@ -1465,7 +1470,7 @@ func rewriteSSHHostKeys(ctx context.Context, diskPath string) error {
 	}
 	for _, key := range keys {
 		localPath := filepath.Join(tmpDir, filepath.Base(key.path))
-		if err := run(ctx, sshKeygenPath, "-q", "-N", "", "-t", key.keyType, "-f", localPath); err != nil {
+		if err := runCommand(ctx, sshKeygenPath, "-q", "-N", "", "-t", key.keyType, "-f", localPath); err != nil {
 			return err
 		}
 		if err := replaceGuestFile(ctx, diskPath, key.path, localPath, "0100600"); err != nil {
@@ -1479,13 +1484,13 @@ func rewriteSSHHostKeys(ctx context.Context, diskPath string) error {
 }
 
 func replaceGuestFile(ctx context.Context, diskPath string, guestPath string, localPath string, mode string) error {
-	if err := run(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
+	if err := runCommand(ctx, debugfsPath, "-w", "-R", "rm "+guestPath, diskPath); err != nil {
 		// Missing files are fine; write creates the replacement.
 	}
-	if err := run(ctx, debugfsPath, "-w", "-R", "write "+localPath+" "+guestPath, diskPath); err != nil {
+	if err := runCommand(ctx, debugfsPath, "-w", "-R", "write "+localPath+" "+guestPath, diskPath); err != nil {
 		return err
 	}
-	return run(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
+	return runCommand(ctx, debugfsPath, "-w", "-R", "set_inode_field "+guestPath+" mode "+mode, diskPath)
 }
 
 func randomMachineID() (string, error) {
