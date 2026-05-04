@@ -29,6 +29,8 @@ type WakeProxy struct {
 	gate    *wakeGate
 }
 
+var wakeProxyTransport http.RoundTripper = http.DefaultTransport
+
 func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger *slog.Logger) *WakeProxy {
 	if logger == nil {
 		logger = slog.Default()
@@ -131,6 +133,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Host:   net.JoinHostPort(vm.PrivateIP, strconv.Itoa(port)),
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = wakeProxyTransport
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		p.logger.Warn("proxy vm http route", "vm", vm.Name, "host", req.Host, "target", target.Host, "error", err)
 		http.Error(w, "firedoze proxy failed", http.StatusBadGateway)

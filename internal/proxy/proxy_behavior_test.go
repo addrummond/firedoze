@@ -9,11 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +27,12 @@ type fakeStarter struct {
 	vm     store.VM
 	err    error
 	starts []string
+}
+
+type proxyRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f proxyRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func (s *fakeStarter) StartVM(_ context.Context, name string) (store.VM, error) {
@@ -144,34 +148,33 @@ func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
 }
 
 func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	oldTransport := wakeProxyTransport
+	wakeProxyTransport = proxyRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Host != "demo.example.test" && r.Host != "api.example.test" {
 			t.Fatalf("unexpected forwarded host: %s", r.Host)
 		}
-		w.Header().Set("X-Upstream", "yes")
-		_, _ = io.WriteString(w, "hello from upstream")
-	}))
-	defer upstream.Close()
-	upstreamURL, err := url.Parse(upstream.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	host, portText, err := net.SplitHostPort(upstreamURL.Host)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := mustAtoi(t, portText)
+		if r.URL.Scheme != "http" || r.URL.Host != "192.0.2.10:8080" || r.URL.Path != "/path" {
+			t.Fatalf("unexpected upstream URL: %s", r.URL.String())
+		}
+		resp := httptest.NewRecorder()
+		resp.Header().Set("X-Upstream", "yes")
+		_, _ = io.WriteString(resp, "hello from upstream")
+		return resp.Result(), nil
+	})
+	t.Cleanup(func() {
+		wakeProxyTransport = oldTransport
+	})
 
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "demo", PrivateIP: host, VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: port, AutoWake: true, PublicHTTP: true,
+		Name: "demo", PrivateIP: "192.0.2.10", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true, PublicHTTP: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(context.Background(), "demo", "running"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: port}); err != nil {
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
@@ -402,6 +405,9 @@ func TestTCPWakeVMByPrivateIPAndRunSSHIPv6Noop(t *testing.T) {
 func TestWaitForTCPAndProxyCopy(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			t.Skipf("tcp sockets unavailable: %v", err)
+		}
 		t.Fatal(err)
 	}
 	defer listener.Close()
@@ -451,15 +457,6 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return data
-}
-
-func mustAtoi(t *testing.T, raw string) int {
-	t.Helper()
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value
 }
 
 type bufferConn struct {

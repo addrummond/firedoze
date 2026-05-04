@@ -6,7 +6,6 @@ import (
 	"flag"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,22 +257,17 @@ func TestParseCopyEndpointsRequiresExactlyOneRemote(t *testing.T) {
 }
 
 func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","private_ip":"fd7a:115c:a1e0::3"}]}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	outputPath := filepath.Join(t.TempDir(), "env")
-	err = (app{client: c}).withVMIP([]string{"demo", "sh", "-c", "printf %s \"$FIREDOZE_VM_IP\" > \"$1\"", "sh", outputPath})
-	if err != nil {
+	if err := (app{client: c}).withVMIP([]string{"demo", "sh", "-c", "printf %s \"$FIREDOZE_VM_IP\" > \"$1\"", "sh", outputPath}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(outputPath)
@@ -286,7 +280,7 @@ func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 }
 
 func TestVMListUsesPublicURLColumn(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -295,13 +289,9 @@ func TestVMListUsesPublicURLColumn(t *testing.T) {
 			{"name":"public","state":"running","private_ip":"fd7a:115c:a1e0::3","public_http":true,"urls":{"default":"https://public.example.test"}},
 			{"name":"hidden","state":"stopped","private_ip":"fd7a:115c:a1e0::5","public_http":false,"urls":{"default":"https://hidden.example.test"}}
 		]}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	var out bytes.Buffer
 	stdout := os.Stdout
 	r, w, err := os.Pipe()
@@ -334,7 +324,7 @@ func TestVMListUsesPublicURLColumn(t *testing.T) {
 }
 
 func TestVMListNamesOnlyPrintsOneNamePerLine(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -346,13 +336,9 @@ func TestVMListNamesOnlyPrintsOneNamePerLine(t *testing.T) {
 			{"name":"demo-one","state":"running","private_ip":"fd7a:115c:a1e0::3"},
 			{"name":"test-two","state":"stopped","private_ip":"fd7a:115c:a1e0::5"}
 		]}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	var out bytes.Buffer
 	stdout := os.Stdout
 	r, w, err := os.Pipe()
@@ -386,20 +372,16 @@ func TestVMListNamesOnlyRejectsJSON(t *testing.T) {
 
 func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	var requests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"status":"slept"}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	if err := (app{client: c, json: true}).vm([]string{"sleep", "alpha", "beta"}); err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +396,7 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 
 func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 	var requests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
@@ -422,13 +404,9 @@ func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/vms/"), "/reboot")
 		_, _ = io.WriteString(w, `{"vm":{"name":"`+name+`","state":"running"}}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	if err := (app{client: c, json: true}).vm([]string{"reboot", "alpha", "beta"}); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +422,7 @@ func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 func TestVMPublishAndHidePatchSettings(t *testing.T) {
 	var requests []string
 	var bodies []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		data, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -456,13 +434,9 @@ func TestVMPublishAndHidePatchSettings(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	app := app{client: c, json: true}
 	if err := app.vm([]string{"publish", "demo"}); err != nil {
 		t.Fatal(err)
@@ -527,7 +501,7 @@ func TestVMCreatePublishFlag(t *testing.T) {
 
 func TestVMCreateWarmsBaseImageMetadataOnce(t *testing.T) {
 	requests := []string{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -544,13 +518,9 @@ func TestVMCreateWarmsBaseImageMetadataOnce(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	stdout := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -620,20 +590,16 @@ func TestFoundFlag(t *testing.T) {
 
 func TestVMListPassesNameGlobs(t *testing.T) {
 	var gotPath string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.String()
 		if r.Method != http.MethodGet {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"vms":[]}`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := testClient(t, handler)
 	if err := (app{client: c, json: true}).vm([]string{"list", "dev-*", "test?"}); err != nil {
 		t.Fatal(err)
 	}

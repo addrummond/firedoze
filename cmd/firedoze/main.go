@@ -32,6 +32,12 @@ type client struct {
 	http    *http.Client
 }
 
+var newHTTPClient = func() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Minute,
+	}
+}
+
 type app struct {
 	client       *client
 	json         bool
@@ -136,9 +142,7 @@ func newClient(rawURL string) (*client, error) {
 	}
 	return &client{
 		baseURL: normalizedURL,
-		http: &http.Client{
-			Timeout: 10 * time.Minute,
-		},
+		http:    newHTTPClient(),
 	}, nil
 }
 

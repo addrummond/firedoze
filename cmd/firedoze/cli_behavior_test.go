@@ -23,7 +23,7 @@ type cliRequest struct {
 
 func TestVMCreatePostsOptionsForEachName(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -40,10 +40,9 @@ func TestVMCreatePostsOptionsForEachName(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
-	err := (app{client: testClient(t, server), json: true}).vm([]string{
+	err := (app{client: testClient(t, handler), json: true}).vm([]string{
 		"create", "alpha", "beta",
 		"-vcpus", "2",
 		"-memory-mib", "1024",
@@ -81,7 +80,7 @@ func TestVMCreatePostsOptionsForEachName(t *testing.T) {
 
 func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -94,10 +93,9 @@ func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
-	a := app{client: testClient(t, server), json: true}
+	a := app{client: testClient(t, handler), json: true}
 	for _, args := range [][]string{
 		{"start", "demo"},
 		{"stop", "demo"},
@@ -122,17 +120,16 @@ func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 
 func TestVMSettingsPatchBody(t *testing.T) {
 	var request cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request = readCLIRequest(t, r)
 		if request.method != http.MethodPatch || request.path != "/vms/demo/settings" {
 			t.Fatalf("unexpected request: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
-	}))
-	defer server.Close()
+	})
 
-	err := (app{client: testClient(t, server), json: true}).vm([]string{
+	err := (app{client: testClient(t, handler), json: true}).vm([]string{
 		"settings", "demo",
 		"-http-port", "3000",
 		"-idle-sleep-after", "60",
@@ -156,7 +153,7 @@ func TestVMSettingsPatchBody(t *testing.T) {
 
 func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -173,10 +170,9 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
-	a := app{client: testClient(t, server), json: true}
+	a := app{client: testClient(t, handler), json: true}
 	commands := [][]string{
 		{"list"},
 		{"inspect", "snap"},
@@ -223,7 +219,7 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 
 func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -236,10 +232,9 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
-	a := app{client: testClient(t, server), json: true}
+	a := app{client: testClient(t, handler), json: true}
 	for _, args := range [][]string{
 		{"list"},
 		{"create", "web", "demo", "8080"},
@@ -265,7 +260,7 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 
 func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -276,13 +271,12 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
 	var waitedIP string
 	var cmdArgs []string
 	a := app{
-		client: testClient(t, server),
+		client: testClient(t, handler),
 		runCommand: func(cmd *exec.Cmd) error {
 			cmdArgs = append([]string(nil), cmd.Args...)
 			return nil
@@ -308,19 +302,18 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 }
 
 func TestExecCpAndWithVMIPUseCommandRunner(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
-	}))
-	defer server.Close()
+	})
 
 	var commands [][]string
 	var withVMIPEnv []string
 	a := app{
-		client: testClient(t, server),
+		client: testClient(t, handler),
 		runCommand: func(cmd *exec.Cmd) error {
 			commands = append(commands, append([]string(nil), cmd.Args...))
 			if cmd.Args[0] == "printenv" {
@@ -354,7 +347,7 @@ func TestExecCpAndWithVMIPUseCommandRunner(t *testing.T) {
 
 func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 	var requests []cliRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := readCLIRequest(t, r)
 		requests = append(requests, req)
 		w.Header().Set("Content-Type", "application/json")
@@ -372,13 +365,12 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-	}))
-	defer server.Close()
+	})
 
 	var waitedIP string
 	var command []string
 	a := app{
-		client: testClient(t, server),
+		client: testClient(t, handler),
 		runCommand: func(cmd *exec.Cmd) error {
 			command = append([]string(nil), cmd.Args...)
 			return nil
@@ -412,13 +404,12 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 }
 
 func TestClientDoErrorResponseMapping(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = io.WriteString(w, `{"error":"already exists"}`)
-	}))
-	defer server.Close()
+	})
 
-	err := testClient(t, server).do(t.Context(), http.MethodPost, "/vms", map[string]any{"name": "demo"}, nil)
+	err := testClient(t, handler).do(t.Context(), http.MethodPost, "/vms", map[string]any{"name": "demo"}, nil)
 	apiErr, ok := err.(apiError)
 	if !ok {
 		t.Fatalf("error = %T %v, want apiError", err, err)
@@ -488,15 +479,14 @@ func TestServerCommandErrors(t *testing.T) {
 func TestRunHealthUsesAPIEnvironment(t *testing.T) {
 	t.Setenv("FIREDOZE_SERVER", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/health" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"status":"ok"}`)
-	}))
-	defer server.Close()
-	t.Setenv("FIREDOZE_API", server.URL)
+	})
+	t.Setenv("FIREDOZE_API", installTestHTTPClient(t, handler))
 
 	if got := run([]string{"health"}); got != 0 {
 		t.Fatalf("run health = %d, want 0", got)
@@ -529,20 +519,59 @@ func TestParseNameAndFlagsAllowsFlagsBeforeName(t *testing.T) {
 	}
 }
 
-func testClient(t *testing.T, server *httptest.Server) *client {
+const testClientBaseURL = "http://firedoze.test"
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func testClient(t *testing.T, handler http.Handler) *client {
 	t.Helper()
-	c, err := newClient(server.URL)
-	if err != nil {
-		t.Fatal(err)
+	return &client{
+		baseURL: testClientBaseURL,
+		http:    testHTTPClient(handler),
 	}
-	return c
+}
+
+func installTestHTTPClient(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	old := newHTTPClient
+	newHTTPClient = func() *http.Client {
+		return testHTTPClient(handler)
+	}
+	t.Cleanup(func() {
+		newHTTPClient = old
+	})
+	return testClientBaseURL
+}
+
+func testHTTPClient(handler http.Handler) *http.Client {
+	return &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			rec := httptest.NewRecorder()
+			serverReq := req.Clone(req.Context())
+			u := *req.URL
+			u.Scheme = ""
+			u.Host = ""
+			serverReq.URL = &u
+			serverReq.RequestURI = u.RequestURI()
+			handler.ServeHTTP(rec, serverReq)
+			return rec.Result(), nil
+		}),
+	}
 }
 
 func readCLIRequest(t *testing.T, r *http.Request) cliRequest {
 	t.Helper()
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		t.Fatal(err)
+	var data []byte
+	if r.Body != nil {
+		var err error
+		data, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	return cliRequest{
 		method: r.Method,
