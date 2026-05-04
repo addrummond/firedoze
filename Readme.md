@@ -17,7 +17,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Snapshot and clone VMs to quickly create reproducible dev environments.**
 
-⚠️ _Firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts._
+⚠️ _Firedoze is early-stage software. Don't use it for production workloads or in production infrastructure accounts._
 
 ## Why not just use containers?
 
