@@ -30,6 +30,7 @@ func TestRunCommandDispatch(t *testing.T) {
 		{name: "dash help", args: []string{"-h"}, want: 0, err: "Usage:"},
 		{name: "unknown", args: []string{"bogus"}, want: 2, err: "unknown command: bogus"},
 		{name: "build error", args: []string{"build", "-arch", "arm64"}, want: 1, err: "only amd64 is supported"},
+		{name: "install error", args: []string{"install", "-src", t.TempDir(), "-dst", t.TempDir(), "-user", "", "-group", ""}, want: 1, err: "open"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,6 +44,56 @@ func TestRunCommandDispatch(t *testing.T) {
 				t.Fatalf("stderr = %q, want substring %q", stderr, tt.err)
 			}
 		})
+	}
+}
+
+func TestInstallImage(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	files := map[string]string{
+		"vmlinux.bin":  "kernel",
+		"initrd.img":   "initrd",
+		"rootfs.ext4":  "rootfs",
+		"manifest.txt": "manifest",
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stdout, stderr, code := captureOutput(t, func() int {
+		return run([]string{"install", "-src", src, "-dst", dst, "-user", "", "-group", ""})
+	})
+	if code != 0 {
+		t.Fatalf("install code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "Installed firedoze base image artifacts") {
+		t.Fatalf("stdout = %q, want install summary", stdout)
+	}
+	for name, want := range files {
+		path := filepath.Join(dst, name)
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read installed %s: %v", name, err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s = %q, want %q", name, got, want)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat installed %s: %v", name, err)
+		}
+		if got := info.Mode().Perm(); got != 0o644 {
+			t.Fatalf("%s mode = %o, want 0644", name, got)
+		}
+	}
+}
+
+func TestInstallImageRejectsUnexpectedArgs(t *testing.T) {
+	err := installImage([]string{"extra"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected arguments: extra") {
+		t.Fatalf("installImage unexpected arg error = %v", err)
 	}
 }
 

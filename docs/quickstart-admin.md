@@ -69,10 +69,7 @@ tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = 
   /usr/local/bin/firecracker --version && rm -rf "$tmp"
 
 firedoze-image-builder build -out /var/tmp/firedoze-base-image
-sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
 
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
@@ -164,10 +161,7 @@ The image builder downloads pinned Ubuntu cloud image artifacts, verifies their 
 Install the generated image artifacts:
 
 ```sh
-sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
-sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
+sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
 ```
 
 These files are installed here:
@@ -176,6 +170,7 @@ These files are installed here:
 /var/lib/firedoze/images/vmlinux.bin
 /var/lib/firedoze/images/initrd.img
 /var/lib/firedoze/images/rootfs.ext4
+/var/lib/firedoze/images/manifest.txt
 ```
 
 The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. Firedoze relies on WireGuard for access control; do not expose VM SSH publicly.

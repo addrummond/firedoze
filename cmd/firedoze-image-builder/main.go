@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	osuser "os/user"
 	"path"
 	"path/filepath"
 	"sort"
@@ -27,10 +28,11 @@ import (
 )
 
 const (
-	defaultRelease = "noble"
-	defaultArch    = "amd64"
-	defaultSize    = "4G"
-	defaultOutDir  = "dist/base-image"
+	defaultRelease         = "noble"
+	defaultArch            = "amd64"
+	defaultSize            = "4G"
+	defaultOutDir          = "dist/base-image"
+	defaultImageInstallDir = "/var/lib/firedoze/images"
 
 	nobleRootSHA256   = "13dc3c9ed4e76688ce3efaee45551dd4b5d706c2579bd91fd0de5464e34dd777"
 	nobleKernelSHA256 = "5b2a4fe174dacb18281f8f7d72ae32ac4b92801f0b7b5cb43ea55dee29fb789d"
@@ -60,6 +62,12 @@ func run(args []string) int {
 			return 1
 		}
 		return 0
+	case "install":
+		if err := installImage(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		usage()
@@ -70,10 +78,11 @@ func run(args []string) int {
 func usage() {
 	fmt.Fprint(os.Stderr, `Usage:
   firedoze-image-builder build [options]
+  firedoze-image-builder install [options]
 
 Build a Firecracker-ready Ubuntu root filesystem and matching boot artifacts.
 
-Options:
+Build options:
   -out DIR        Output directory. Default: dist/base-image
   -release NAME   Ubuntu cloud image release. Default: noble
   -arch ARCH      Ubuntu architecture. Default: amd64
@@ -90,6 +99,12 @@ Options:
   -insecure-skip-checksums
                     Allow unverified artifact overrides
   -h               Show this help
+
+Install options:
+  -src DIR        Built artifact directory. Default: dist/base-image
+  -dst DIR        Image install directory. Default: /var/lib/firedoze/images
+  -user USER      Installed file owner. Default: firedoze
+  -group GROUP    Installed file group. Default: firedoze
 
 The builder is native Go. It does not require Docker, Podman, root, mounting,
 or host ext4 support. Release packages include the small Linux guest helper
@@ -290,6 +305,135 @@ builder=firedoze-image-builder native-go
 	fmt.Println("  vmlinux.bin")
 	fmt.Println("  initrd.img")
 	fmt.Println("  manifest.txt")
+	return nil
+}
+
+func installImage(args []string) error {
+	fs := flag.NewFlagSet("firedoze-image-builder install", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	srcDir := fs.String("src", defaultOutDir, "built artifact directory")
+	dstDir := fs.String("dst", defaultImageInstallDir, "image install directory")
+	userName := fs.String("user", "firedoze", "installed file owner")
+	groupName := fs.String("group", "firedoze", "installed file group")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			usage()
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	uid, gid, err := lookupInstallOwner(*userName, *groupName)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*dstDir, 0o755); err != nil {
+		return fmt.Errorf("create image install directory: %w", err)
+	}
+	if err := os.Chown(*dstDir, uid, gid); err != nil {
+		return fmt.Errorf("set ownership on %s: %w", *dstDir, err)
+	}
+	if err := os.Chmod(*dstDir, 0o755); err != nil {
+		return fmt.Errorf("set permissions on %s: %w", *dstDir, err)
+	}
+
+	for _, name := range []string{"vmlinux.bin", "initrd.img", "rootfs.ext4", "manifest.txt"} {
+		src := filepath.Join(*srcDir, name)
+		dst := filepath.Join(*dstDir, name)
+		if err := copyInstallArtifact(src, dst, 0o644, uid, gid); err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("Installed firedoze base image artifacts in %s:\n", *dstDir)
+	fmt.Println("  vmlinux.bin")
+	fmt.Println("  initrd.img")
+	fmt.Println("  rootfs.ext4")
+	fmt.Println("  manifest.txt")
+	return nil
+}
+
+func lookupInstallOwner(userName string, groupName string) (int, int, error) {
+	uid := -1
+	gid := -1
+	if userName != "" {
+		userInfo, err := osuser.Lookup(userName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("lookup user %q: %w", userName, err)
+		}
+		parsed, err := strconv.Atoi(userInfo.Uid)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse uid for %q: %w", userName, err)
+		}
+		uid = parsed
+	}
+	if groupName != "" {
+		groupInfo, err := osuser.LookupGroup(groupName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("lookup group %q: %w", groupName, err)
+		}
+		parsed, err := strconv.Atoi(groupInfo.Gid)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse gid for %q: %w", groupName, err)
+		}
+		gid = parsed
+	}
+	return uid, gid, nil
+}
+
+func copyInstallArtifact(src string, dst string, mode os.FileMode, uid int, gid int) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", src, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("create install directory for %s: %w", dst, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary install file for %s: %w", dst, err)
+	}
+	tmpPath := tmp.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("copy %s to %s: %w", src, dst, err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set permissions on %s: %w", tmpPath, err)
+	}
+	if err := tmp.Chown(uid, gid); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("set ownership on %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return fmt.Errorf("install %s to %s: %w", src, dst, err)
+	}
+	removeTmp = false
 	return nil
 }
 
