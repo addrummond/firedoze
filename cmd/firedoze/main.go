@@ -33,8 +33,10 @@ type client struct {
 }
 
 type app struct {
-	client *client
-	json   bool
+	client       *client
+	json         bool
+	runCommand   func(*exec.Cmd) error
+	waitForSSHFn func(string, time.Duration) error
 }
 
 type vmInfo struct {
@@ -725,7 +727,7 @@ func (a app) up(args []string) error {
 		fmt.Fprintf(os.Stderr, "VM %s is already running\n", name)
 	}
 	if err := runWithSpinner(os.Stderr, "waiting for SSH on "+vm.PrivateIP, func() error {
-		return waitForSSH(vm.PrivateIP, 2*time.Minute)
+		return a.waitForSSH(vm.PrivateIP, 2*time.Minute)
 	}); err != nil {
 		return err
 	}
@@ -827,7 +829,7 @@ func (a app) ssh(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return a.run(cmd)
 }
 
 func (a app) exec(args []string) error {
@@ -851,7 +853,7 @@ func (a app) exec(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return a.run(cmd)
 }
 
 func (a app) cp(args []string) error {
@@ -874,7 +876,7 @@ func (a app) cp(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return a.run(cmd)
 }
 
 func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
@@ -889,7 +891,7 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 	if err != nil {
 		return vmInfo{}, err
 	}
-	if err := waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
+	if err := a.waitForSSH(vm.PrivateIP, 2*time.Minute); err != nil {
 		return vmInfo{}, err
 	}
 	return vm, nil
@@ -977,7 +979,21 @@ func (a app) withVMIP(args []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), "FIREDOZE_VM_IP="+vm.PrivateIP)
+	return a.run(cmd)
+}
+
+func (a app) run(cmd *exec.Cmd) error {
+	if a.runCommand != nil {
+		return a.runCommand(cmd)
+	}
 	return cmd.Run()
+}
+
+func (a app) waitForSSH(ip string, timeout time.Duration) error {
+	if a.waitForSSHFn != nil {
+		return a.waitForSSHFn(ip, timeout)
+	}
+	return waitForSSH(ip, timeout)
 }
 
 func (a app) lookupVM(name string) (vmInfo, error) {
