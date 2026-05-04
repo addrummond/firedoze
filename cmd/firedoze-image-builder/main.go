@@ -39,7 +39,7 @@ const (
 	baseKernelSHA256 = "6f11cd68fc0d181bb4f9a72e2d0ec6a1c2a69a59f7b9bd6bf9538630d1102456"
 	baseInitrdSHA256 = "b47e3fcd0a1409b1720e68262e88535c685189ba94a0fa931978901b806a80bc"
 
-	baseBusyBoxStaticURL    = "https://mirror.archive.ubuntu.com/ubuntu/pool/main/b/busybox/busybox-static_1.37.0-7ubuntu1_amd64.deb"
+	baseBusyBoxStaticURL    = "https://ubuntu.mirror.constant.com/pool/main/b/busybox/busybox-static_1.37.0-7ubuntu1_amd64.deb"
 	baseBusyBoxStaticSHA256 = "fd605342f62268753076aa7d9321ff098b36ba53e47434145a9aedc28fd141a4"
 )
 
