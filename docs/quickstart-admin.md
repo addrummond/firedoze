@@ -272,10 +272,12 @@ backend = "ip6tables"
 ```
 
 When enabled, `backend` is required. Only `ip6tables` is implemented for now.
-The rules allow WireGuard clients, VM-to-VM traffic, local host proxying, and
-established replies, while blocking new traffic from ordinary LAN/public
-interfaces into the VM private subnet. Set `enabled = false` only if you are
-managing equivalent firewall policy yourself.
+The rules allow WireGuard clients, VM-to-VM traffic, VM outbound internet
+traffic, local host proxying, and established replies, while blocking new
+traffic from ordinary LAN/public interfaces into the VM private subnet. Because
+Firedoze VMs use private IPv6 addresses, this also installs IPv6 masquerading
+for outbound VM traffic. Set `enabled = false` only if you are managing
+equivalent firewall and outbound NAT policy yourself.
 
 Set public wildcard DNS for web routes:
 

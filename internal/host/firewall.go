@@ -40,6 +40,9 @@ func (o *LinuxOps) EnsureFirewall(ctx context.Context, cfg config.Config) error 
 	if err := ensureFirewallChain(ctx, cfg.WireGuard.Interface, vmSubnet); err != nil {
 		return err
 	}
+	if err := ensureOutboundNAT(ctx, vmSubnet); err != nil {
+		return err
+	}
 	o.logger.InfoContext(ctx, "reconciled firedoze host firewall", "chain", firewallChainName, "wireguard_interface", cfg.WireGuard.Interface, "vm_subnet", vmSubnet)
 	return nil
 }
@@ -66,6 +69,7 @@ func ensureFirewallChain(ctx context.Context, wireGuardInterface string, vmSubne
 		{"-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
 		{"-i", wireGuardInterface, "-d", vmSubnet, "-j", "ACCEPT"},
 		{"-i", tapInterfaceMatch, "-d", vmSubnet, "-j", "ACCEPT"},
+		{"-i", tapInterfaceMatch, "-s", vmSubnet, "-j", "ACCEPT"},
 		{"-i", "lo", "-d", vmSubnet, "-j", "ACCEPT"},
 		{"-d", vmSubnet, "-j", "DROP"},
 		{"-j", "RETURN"},
@@ -90,6 +94,18 @@ func ensureFirewallHook(ctx context.Context, chain string) error {
 	}
 	if err := runIP6Tables(ctx, "-I", chain, "1", "-j", firewallChainName); err != nil {
 		return fmt.Errorf("install firewall hook in %s: %w", chain, err)
+	}
+	return nil
+}
+
+func ensureOutboundNAT(ctx context.Context, vmSubnet string) error {
+	rule := []string{"-t", "nat", "-C", "POSTROUTING", "-s", vmSubnet, "!", "-d", vmSubnet, "-j", "MASQUERADE"}
+	if err := runIP6Tables(ctx, rule...); err == nil {
+		return nil
+	}
+	rule = []string{"-t", "nat", "-A", "POSTROUTING", "-s", vmSubnet, "!", "-d", vmSubnet, "-j", "MASQUERADE"}
+	if err := runIP6Tables(ctx, rule...); err != nil {
+		return fmt.Errorf("install outbound nat rule: %w", err)
 	}
 	return nil
 }

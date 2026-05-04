@@ -110,9 +110,11 @@ Firedoze should make WireGuard easy without asking admins to generate or see dev
 ## Host Firewall
 
 The daemon can manage a small host firewall boundary for the private IPv6 VM
-subnet. It allows WireGuard clients, VM-to-VM traffic, host-local proxy traffic,
-and established replies. It drops new traffic from ordinary LAN/public
-interfaces into the VM subnet.
+subnet. It allows WireGuard clients, VM-to-VM traffic, VM outbound internet
+traffic, host-local proxy traffic, and established replies. It drops new traffic
+from ordinary LAN/public interfaces into the VM subnet. Because VM addresses are
+private IPv6 ULA addresses, it also installs IPv6 masquerading for outbound VM
+traffic.
 
 Host firewalling is configured explicitly:
 

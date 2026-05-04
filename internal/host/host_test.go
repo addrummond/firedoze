@@ -121,7 +121,7 @@ func TestEnsureFirewallConfiguresIP6Tables(t *testing.T) {
 	var commands []string
 	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		commands = append(commands, name+" "+strings.Join(args, " "))
-		if len(args) >= 1 && args[0] == "-C" {
+		if containsArg(args, "-C") {
 			return []byte("missing rule"), errors.New("missing rule")
 		}
 		return nil, nil
@@ -141,6 +141,7 @@ func TestEnsureFirewallConfiguresIP6Tables(t *testing.T) {
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -i fdwg-test -d fd7a:115c:a1e0::/64 -j ACCEPT",
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -i fdtap+ -d fd7a:115c:a1e0::/64 -j ACCEPT",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -i fdtap+ -s fd7a:115c:a1e0::/64 -j ACCEPT",
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -i lo -d fd7a:115c:a1e0::/64 -j ACCEPT",
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -d fd7a:115c:a1e0::/64 -j DROP",
 		"/usr/sbin/ip6tables -A FIREDOZE-VM -j RETURN",
@@ -148,10 +149,21 @@ func TestEnsureFirewallConfiguresIP6Tables(t *testing.T) {
 		"/usr/sbin/ip6tables -I INPUT 1 -j FIREDOZE-VM",
 		"/usr/sbin/ip6tables -C FORWARD -j FIREDOZE-VM",
 		"/usr/sbin/ip6tables -I FORWARD 1 -j FIREDOZE-VM",
+		"/usr/sbin/ip6tables -t nat -C POSTROUTING -s fd7a:115c:a1e0::/64 ! -d fd7a:115c:a1e0::/64 -j MASQUERADE",
+		"/usr/sbin/ip6tables -t nat -A POSTROUTING -s fd7a:115c:a1e0::/64 ! -d fd7a:115c:a1e0::/64 -j MASQUERADE",
 	}
 	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands:\n%s\n\nwant:\n%s", strings.Join(commands, "\n"), strings.Join(want, "\n"))
 	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEnsureFirewallKeepsExistingChainAndHooks(t *testing.T) {
