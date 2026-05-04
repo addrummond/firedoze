@@ -173,6 +173,7 @@ firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 Tools such as VS Code Remote SSH usually want a normal OpenSSH host entry. Use
 `firedoze ssh-proxy <vm>` as a `ProxyCommand`. The proxy starts or wakes the VM
 if needed, waits for guest SSH, then pipes OpenSSH to the VM private address.
+See [ssh-proxy.md](ssh-proxy.md) for the concise reference guide.
 
 First find the absolute path to your trusted `firedoze` binary:
 
