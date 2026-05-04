@@ -1,0 +1,117 @@
+# yaml-language-server: $schema=https://nfpm.goreleaser.com/schema.json
+name: firedoze
+arch: ${FIREDOZE_PACKAGE_ARCH}
+platform: linux
+version: ${FIREDOZE_VERSION}
+version_schema: semver
+release: ${FIREDOZE_PACKAGE_RELEASE}
+section: utils
+priority: optional
+maintainer: Firedoze maintainers <noreply@firedoze.dev>
+vendor: Firedoze
+homepage: https://github.com/addrummond/firedoze
+license: MIT
+description: |-
+  Persistent Firecracker dev environments on one Linux host.
+  Firedoze runs small persistent dev VMs, exposes public HTTPS routes, and keeps
+  management access behind WireGuard.
+
+depends:
+  - ca-certificates
+  - iptables
+  - systemd
+
+contents:
+  - src: ${FIREDOZE_PACKAGE_ROOT}/usr/bin/firedoze
+    dst: /usr/bin/firedoze
+    expand: true
+    file_info:
+      mode: 0755
+
+  - src: ${FIREDOZE_PACKAGE_ROOT}/usr/bin/firedozed
+    dst: /usr/bin/firedozed
+    expand: true
+    file_info:
+      mode: 0755
+
+  - src: ${FIREDOZE_PACKAGE_ROOT}/usr/bin/firedoze-image-builder
+    dst: /usr/bin/firedoze-image-builder
+    expand: true
+    file_info:
+      mode: 0755
+
+  - src: packaging/firedozed.service
+    dst: /usr/lib/systemd/system/firedozed.service
+    file_info:
+      mode: 0644
+
+  - src: config/firedoze.example.toml
+    dst: /etc/firedoze/firedoze.example.toml
+    type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: firedoze
+
+  - src: docs/quickstart-admin.md
+    dst: /usr/share/doc/firedoze/quickstart-admin.md
+    file_info:
+      mode: 0644
+
+  - src: docs/quickstart-user.md
+    dst: /usr/share/doc/firedoze/quickstart-user.md
+    file_info:
+      mode: 0644
+
+  - src: docs/aws-guide.md
+    dst: /usr/share/doc/firedoze/aws-guide.md
+    file_info:
+      mode: 0644
+
+  - src: docs/adr.md
+    dst: /usr/share/doc/firedoze/adr.md
+    file_info:
+      mode: 0644
+
+  - src: LICENSE
+    dst: /usr/share/doc/firedoze/LICENSE
+    file_info:
+      mode: 0644
+
+  - src: Readme.md
+    dst: /usr/share/doc/firedoze/Readme.md
+    file_info:
+      mode: 0644
+
+  - dst: /etc/firedoze
+    type: dir
+    file_info:
+      mode: 02770
+      owner: root
+      group: firedoze
+
+  - dst: /var/lib/firedoze
+    type: dir
+    file_info:
+      mode: 0750
+      owner: firedoze
+      group: firedoze
+
+  - dst: /var/lib/firedoze/images
+    type: dir
+    file_info:
+      mode: 0755
+      owner: firedoze
+      group: firedoze
+
+  - dst: /var/log/firedoze
+    type: dir
+    file_info:
+      mode: 0750
+      owner: firedoze
+      group: firedoze
+
+scripts:
+  preinstall: packaging/scripts/preinstall.sh
+  postinstall: packaging/scripts/postinstall.sh
+  postremove: packaging/scripts/postremove.sh

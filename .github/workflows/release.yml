@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -37,6 +38,18 @@ jobs:
 
       - name: Build release artifacts
         run: ./scripts/build-release-artifacts.sh "$TAG_NAME"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.1
+
+      - name: Sign release checksums
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          checksum_file="dist/release/firedoze_${version}_checksums.txt"
+          cosign sign-blob --yes \
+            --bundle "${checksum_file}.bundle" \
+            "$checksum_file"
 
       - name: Create or update GitHub release
         env:

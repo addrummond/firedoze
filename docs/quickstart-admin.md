@@ -82,6 +82,11 @@ The rest of this section explains the above steps in order.
 
 ### 2.1 Install Firedoze
 
+This quickstart uses the source installer because you need the checkout for the
+base image build. If you are installing from a release `.deb` or `.rpm`, see
+[Release Packages](release-packages.md), then continue from the Firecracker
+step below.
+
 The installer:
 
 - Builds `firedoze`, `firedozed`, and `firedoze-image-builder` from the checked-out source.

@@ -10,6 +10,7 @@ if [[ -z "$version" ]]; then
 fi
 
 version="${version#v}"
+nfpm_version="${NFPM_VERSION:-v2.46.1}"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 tmp_dir="$(mktemp -d)"
@@ -25,6 +26,14 @@ build_binary() {
   local out="$4"
 
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$out" "$pkg"
+}
+
+run_nfpm() {
+  if command -v nfpm >/dev/null 2>&1; then
+    nfpm "$@"
+  else
+    go run "github.com/goreleaser/nfpm/v2/cmd/nfpm@$nfpm_version" "$@"
+  fi
 }
 
 build_bundle() {
@@ -55,17 +64,36 @@ build_bundle() {
   tar -C "$tmp_dir" -czf "$out_dir/$bundle.tar.gz" "$bundle"
 }
 
+build_linux_packages() {
+  local package_root="$tmp_dir/package-root-linux-amd64"
+
+  mkdir -p "$package_root/usr/bin"
+  build_binary linux amd64 ./cmd/firedoze "$package_root/usr/bin/firedoze"
+  build_binary linux amd64 ./cmd/firedozed "$package_root/usr/bin/firedozed"
+  build_binary linux amd64 ./cmd/firedoze-image-builder "$package_root/usr/bin/firedoze-image-builder"
+
+  export FIREDOZE_VERSION="$version"
+  export FIREDOZE_PACKAGE_RELEASE="${FIREDOZE_PACKAGE_RELEASE:-1}"
+  export FIREDOZE_PACKAGE_ARCH=amd64
+  export FIREDOZE_PACKAGE_ROOT="$package_root"
+
+  run_nfpm package --config packaging/nfpm.yaml --packager deb --target "$out_dir/firedoze_${version}_linux_amd64.deb"
+  run_nfpm package --config packaging/nfpm.yaml --packager rpm --target "$out_dir/firedoze_${version}_linux_amd64.rpm"
+}
+
 build_bundle darwin amd64
 build_bundle darwin arm64
 build_bundle linux amd64
 build_bundle linux arm64
+build_linux_packages
 
 (
   cd "$out_dir"
+  artifacts=( *.deb *.rpm *.tar.gz )
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum *.tar.gz > "firedoze_${version}_checksums.txt"
+    sha256sum "${artifacts[@]}" > "firedoze_${version}_checksums.txt"
   elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 *.tar.gz > "firedoze_${version}_checksums.txt"
+    shasum -a 256 "${artifacts[@]}" > "firedoze_${version}_checksums.txt"
   else
     echo "sha256sum or shasum is required to write checksums" >&2
     exit 1

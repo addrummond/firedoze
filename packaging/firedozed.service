@@ -1,0 +1,59 @@
+[Unit]
+Description=Firedoze Firecracker dev environment daemon
+Documentation=file:/usr/share/doc/firedoze/quickstart-admin.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/firedozed -config /etc/firedoze/firedoze.toml -setup-wireguard -serve
+Restart=on-failure
+RestartSec=5s
+WatchdogSec=30s
+TimeoutStopSec=180s
+KillSignal=SIGTERM
+# Let firedozed snapshot/sleep Firecracker children during shutdown.
+KillMode=process
+
+# firedozed needs ongoing network privileges, but it does not need to run as
+# UID 0. The package creates this system user and grants access to /dev/kvm.
+User=firedoze
+Group=firedoze
+SupplementaryGroups=kvm
+UMask=0077
+
+# Keep Caddy's managed certificate/cache state inside Firedoze's writable tree.
+Environment=HOME=/var/lib/firedoze
+Environment=XDG_DATA_HOME=/var/lib/firedoze/xdg-data
+Environment=XDG_CONFIG_HOME=/var/lib/firedoze/xdg-config
+
+# firedozed needs CAP_NET_ADMIN for WireGuard/TAP/firewall setup and
+# CAP_NET_BIND_SERVICE for public HTTP/HTTPS ports.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+# The daemon should only mutate its config/state/log trees. /etc/firedoze is
+# writable because first boot may generate the WireGuard private key there.
+ProtectSystem=strict
+ReadWritePaths=/etc/firedoze /var/lib/firedoze /var/log/firedoze
+PrivateTmp=true
+
+# Conservative process/kernel hardening that does not block netlink, KVM, or
+# Firecracker's normal process model.
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectClock=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+# Keep logs in journald.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

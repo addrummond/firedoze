@@ -69,3 +69,20 @@ jobs:
             name="${package##*/}"
             CGO_ENABLED=0 go build -trimpath -o "dist/ci/${name}_${GOOS}_${GOARCH}" "$package"
           done
+
+  package:
+    name: Package release artifacts
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release artifacts
+        run: ./scripts/build-release-artifacts.sh v0.0.0-ci dist/ci-release

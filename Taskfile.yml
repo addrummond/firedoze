@@ -3,6 +3,7 @@ version: '3'
 vars:
   FIRECRACKER_VERSION: v1.15.1
   FIRECRACKER_X86_64_SHA256: d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a
+  PACKAGE_VERSION: 0.0.0-dev
 
 tasks:
   default:
@@ -87,6 +88,11 @@ tasks:
     desc: Build ./firedoze-image-builder
     cmds:
       - CGO_ENABLED=0 go build -o firedoze-image-builder ./cmd/firedoze-image-builder
+
+  package:
+    desc: Build release tarballs plus Linux .deb and .rpm packages into dist/release
+    cmds:
+      - ./scripts/build-release-artifacts.sh {{.PACKAGE_VERSION}} {{.CLI_ARGS}}
 
   clean:
     desc: Remove local build outputs
