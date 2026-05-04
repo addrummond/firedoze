@@ -277,10 +277,7 @@ func staleBrokerLock(lockPath string) bool {
 	if err == nil {
 		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
 		if parseErr == nil {
-			if !brokerProcessAlive(pid) {
-				return true
-			}
-			return brokerLockOlderThan(lockPath, 30*time.Second)
+			return !brokerProcessAlive(pid)
 		}
 	}
 	return brokerLockOlderThan(lockPath, 2*time.Second)

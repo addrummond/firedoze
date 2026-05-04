@@ -46,6 +46,30 @@ func TestAcquireBrokerLockWaitsForLiveOwner(t *testing.T) {
 	}
 }
 
+func TestAcquireBrokerLockDoesNotStealOldLockFromLiveOwner(t *testing.T) {
+	socketPath := testSocketPath(t)
+	release, err := acquireBrokerLock(context.Background(), socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	lockPath := socketPath + ".lock"
+	oldTime := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(lockPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_, err = acquireBrokerLock(ctx, socketPath)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("acquireBrokerLock error = %v, want context deadline exceeded", err)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("live broker lock was removed: %v", err)
+	}
+}
+
 func TestAcquireBrokerLockDetectsRunningBroker(t *testing.T) {
 	socketPath := testSocketPath(t)
 	lockPath := socketPath + ".lock"
