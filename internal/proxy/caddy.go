@@ -23,6 +23,11 @@ type Manager struct {
 	mu     sync.Mutex
 }
 
+var (
+	caddyLoad = caddy.Load
+	caddyStop = caddy.Stop
+)
+
 func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
@@ -52,7 +57,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := caddy.Load(data, true); err != nil {
+	if err := caddyLoad(data, true); err != nil {
 		return err
 	}
 	m.logger.Info("reconciled caddy routes", "routes", routeCount, "http_port", m.cfg.Caddy.HTTPPort, "https_port", m.cfg.Caddy.HTTPSPort)
@@ -62,7 +67,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return caddy.Stop()
+	return caddyStop()
 }
 
 func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string]any, int) {

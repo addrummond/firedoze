@@ -1,0 +1,510 @@
+package proxy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"firedoze/internal/config"
+	"firedoze/internal/firecracker"
+	"firedoze/internal/store"
+
+	"github.com/dchest/captcha"
+)
+
+type fakeStarter struct {
+	vm     store.VM
+	err    error
+	starts []string
+}
+
+func (s *fakeStarter) StartVM(_ context.Context, name string) (store.VM, error) {
+	s.starts = append(s.starts, name)
+	return s.vm, s.err
+}
+
+func TestDefaultHostAndCaddyFallbackRoute(t *testing.T) {
+	if got, want := DefaultHost("demo", "dev.example.test"), "demo.dev.example.test"; got != want {
+		t.Fatalf("DefaultHost = %q, want %q", got, want)
+	}
+	cfg := config.Default()
+	cfg.BaseDomain = "example.test"
+	cfg.Caddy.InternalProxyPort = 18082
+	manager := NewManager(cfg, nil, nil)
+	raw, routeCount := manager.caddyConfig([]store.VM{
+		{Name: "public", PrivateIP: "fd00::3", PublicHTTP: true},
+		{Name: "empty-ip", PublicHTTP: true},
+	}, nil)
+	if routeCount != 1 {
+		t.Fatalf("routeCount = %d, want 1", routeCount)
+	}
+	servers := caddyServers(t, raw)
+	httpsServer := servers["firedoze_https"]
+	last := httpsServer.Routes[len(httpsServer.Routes)-1]
+	data := mustJSON(t, last)
+	if !strings.Contains(string(data), "firedoze route not found") {
+		t.Fatalf("fallback route = %s", data)
+	}
+	if !strings.Contains(string(mustJSON(t, httpsServer.Routes[0])), "127.0.0.1:18082") {
+		t.Fatalf("public route does not use wake proxy upstream: %s", mustJSON(t, httpsServer.Routes[0]))
+	}
+}
+
+func TestCaddyReconcileAndStopUseAdapter(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+		Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	var loaded []byte
+	var force bool
+	stopped := false
+	oldLoad := caddyLoad
+	oldStop := caddyStop
+	caddyLoad = func(data []byte, forceReload bool) error {
+		loaded = append([]byte(nil), data...)
+		force = forceReload
+		return nil
+	}
+	caddyStop = func() error {
+		stopped = true
+		return nil
+	}
+	t.Cleanup(func() {
+		caddyLoad = oldLoad
+		caddyStop = oldStop
+	})
+
+	manager := NewManager(testConfig(), st, nil)
+	if err := manager.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !force {
+		t.Fatal("caddyLoad forceReload = false, want true")
+	}
+	if !strings.Contains(string(loaded), "demo.example.test") || !strings.Contains(string(loaded), "api.example.test") {
+		t.Fatalf("loaded Caddy config missing routes: %s", loaded)
+	}
+	if err := manager.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if !stopped {
+		t.Fatal("caddyStop was not called")
+	}
+}
+
+func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 9000}); err != nil {
+		t.Fatal(err)
+	}
+	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
+
+	vm, port, ok := proxy.routeForHost(context.Background(), "DEMO.EXAMPLE.TEST:443")
+	if !ok || vm.Name != "demo" || port != 8080 {
+		t.Fatalf("default route = %#v/%d/%v", vm, port, ok)
+	}
+	vm, port, ok = proxy.routeForHost(context.Background(), "api.example.test.")
+	if !ok || vm.Name != "demo" || port != 9000 {
+		t.Fatalf("alias route = %#v/%d/%v", vm, port, ok)
+	}
+	for _, host := range []string{"demo.other.test", "nested.demo.example.test", "example.test"} {
+		if _, _, ok := proxy.routeForHost(context.Background(), host); ok {
+			t.Fatalf("routeForHost(%q) matched unexpectedly", host)
+		}
+	}
+	if got := routeHost("DEMO.EXAMPLE.TEST:443."); got != "demo.example.test" {
+		t.Fatalf("routeHost with malformed trailing dot = %q", got)
+	}
+	if got := routeHost("DEMO.EXAMPLE.TEST:443"); got != "demo.example.test" {
+		t.Fatalf("routeHost = %q, want demo.example.test", got)
+	}
+}
+
+func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "demo.example.test" && r.Host != "api.example.test" {
+			t.Fatalf("unexpected forwarded host: %s", r.Host)
+		}
+		w.Header().Set("X-Upstream", "yes")
+		_, _ = io.WriteString(w, "hello from upstream")
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, portText, err := net.SplitHostPort(upstreamURL.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := mustAtoi(t, portText)
+
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+		Name: "demo", PrivateIP: host, VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: port, AutoWake: true, PublicHTTP: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(context.Background(), "demo", "running"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: port}); err != nil {
+		t.Fatal(err)
+	}
+	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
+
+	for _, host := range []string{"demo.example.test", "api.example.test"} {
+		req := httptest.NewRequest(http.MethodGet, "https://"+host+"/path", nil)
+		req.Host = host
+		resp := httptest.NewRecorder()
+		proxy.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200; body: %s", host, resp.Code, resp.Body.String())
+		}
+		if resp.Header().Get("X-Upstream") != "yes" || resp.Body.String() != "hello from upstream" {
+			t.Fatalf("%s response = headers %v body %q", host, resp.Header(), resp.Body.String())
+		}
+	}
+}
+
+func TestWakeProxySleepingStartFailuresAndPostCaptcha(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 1, AutoWake: true, PublicHTTP: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	key, err := ensureWakeGateKey(filepath.Join(cfg.StateDir, "wake_gate.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	starter := &fakeStarter{err: errors.New("boom")}
+	proxy := NewWakeProxy(cfg, st, starter, nil)
+	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.Host = "demo.example.test"
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "demo.example.test", time.Now().Add(time.Hour))})
+	resp := httptest.NewRecorder()
+	proxy.ServeHTTP(resp, req)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("start failure status = %d, want 503; body: %s", resp.Code, resp.Body.String())
+	}
+
+	starter.err = firecracker.ErrAlreadyRunning
+	resp = httptest.NewRecorder()
+	proxy.ServeHTTP(resp, req)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("already-running stale state status = %d, want 503; body: %s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "https://demo.example.test/not-wake", nil)
+	req.Host = "demo.example.test"
+	resp = httptest.NewRecorder()
+	proxy.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("captcha-required POST status = %d, want 403", resp.Code)
+	}
+}
+
+func TestWakeGateKeysCookiesAndHandlers(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "wake_gate.key")
+	key, err := ensureWakeGateKey(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(key) != wakeGateKeySize {
+		t.Fatalf("key len = %d, want %d", len(key), wakeGateKeySize)
+	}
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("key mode = %o, want 600", info.Mode().Perm())
+	}
+	keyAgain, err := ensureWakeGateKey(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(key, keyAgain) {
+		t.Fatal("ensureWakeGateKey did not reuse existing key")
+	}
+	badKeyPath := filepath.Join(dir, "bad.key")
+	if err := os.WriteFile(badKeyPath, []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ensureWakeGateKey(badKeyPath); err == nil {
+		t.Fatal("ensureWakeGateKey accepted short key")
+	}
+
+	gate := &wakeGate{keyPath: keyPath}
+	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.Host = "demo.example.test"
+	if gate.approved(req, "demo.example.test") {
+		t.Fatal("request without cookie was approved")
+	}
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "other.example.test", time.Now().Add(time.Hour))})
+	if gate.approved(req, "demo.example.test") {
+		t.Fatal("wrong-host cookie was approved")
+	}
+	req = httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "demo.example.test", time.Now().Add(-time.Hour))})
+	if gate.approved(req, "demo.example.test") {
+		t.Fatal("expired cookie was approved")
+	}
+	req = httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: "bad.cookie.parts"})
+	if gate.approved(req, "demo.example.test") {
+		t.Fatal("malformed cookie was approved")
+	}
+
+	resp := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "https://demo.example.test/_firedoze/wake-captcha/missing.png", nil)
+	if !gate.handle(resp, req, "demo.example.test") {
+		t.Fatal("gate did not handle captcha route")
+	}
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("missing captcha status = %d, want 404", resp.Code)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "https://demo.example.test/_firedoze/wake", strings.NewReader("id=missing&answer=wrong&next=//evil.test"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	gate.verify(resp, req, "demo.example.test")
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("bad captcha verify status = %d, want 403", resp.Code)
+	}
+
+	if decoded, err := decodeCookiePart(encodeCookiePart("demo")); err != nil || decoded != "demo" {
+		t.Fatalf("cookie part round trip = %q/%v", decoded, err)
+	}
+	if _, err := decodeCookiePart("not valid base64"); err == nil {
+		t.Fatal("decodeCookiePart accepted invalid base64")
+	}
+	if validSignature(key, "message", "not valid") {
+		t.Fatal("validSignature accepted invalid signature encoding")
+	}
+}
+
+func TestWakeGateVerifySuccessSetsCookieAndRedirects(t *testing.T) {
+	store := captcha.NewMemoryStore(10, time.Minute)
+	store.Set("known", []byte{1, 2, 3, 4, 5})
+	captcha.SetCustomStore(store)
+	defer captcha.SetCustomStore(captcha.NewMemoryStore(captcha.CollectNum, captcha.Expiration))
+
+	keyPath := filepath.Join(t.TempDir(), "wake_gate.key")
+	gate := &wakeGate{keyPath: keyPath}
+	body := strings.NewReader("id=known&answer=12345&next=/hello")
+	req := httptest.NewRequest(http.MethodPost, "https://demo.example.test/_firedoze/wake", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+
+	gate.verify(resp, req, "demo.example.test")
+
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body: %s", resp.Code, resp.Body.String())
+	}
+	if location := resp.Header().Get("Location"); location != "/hello" {
+		t.Fatalf("Location = %q, want /hello", location)
+	}
+	cookies := resp.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != wakeGateCookieName {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+	approvedReq := httptest.NewRequest(http.MethodGet, "https://demo.example.test/hello", nil)
+	approvedReq.AddCookie(cookies[0])
+	if !gate.approved(approvedReq, "demo.example.test") {
+		t.Fatal("fresh verify cookie was not approved")
+	}
+}
+
+func TestTCPWakeHelpers(t *testing.T) {
+	cfg := testConfig()
+	cfg.WireGuard.Interface = "fdwg-test"
+	cfg.VMNetwork.Subnet = "10.88.0.0/16"
+	cfg.SSH.WakeProxyPort = 18022
+	proxy := NewTCPWakeProxy(cfg, testStore(t), &fakeStarter{}, nil)
+
+	if !isIPv4CIDR("10.88.0.0/16") {
+		t.Fatal("isIPv4CIDR returned false for IPv4 CIDR")
+	}
+	if isIPv4CIDR("fd00::/64") || isIPv4CIDR("not-cidr") {
+		t.Fatal("isIPv4CIDR accepted non-IPv4 CIDR")
+	}
+	wantRule := []string{
+		"-t", "nat", "-A", "PREROUTING",
+		"-i", "fdwg-test",
+		"-p", "tcp",
+		"-d", "10.88.0.0/16",
+		"--dport", "22",
+		"-j", "REDIRECT",
+		"--to-ports", "18022",
+	}
+	if got := proxy.sshRedirectRule("-A"); !reflect.DeepEqual(got, wantRule) {
+		t.Fatalf("sshRedirectRule = %#v, want %#v", got, wantRule)
+	}
+}
+
+func TestTCPWakeVMByPrivateIPAndRunSSHIPv6Noop(t *testing.T) {
+	st := testStore(t)
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.VMNetwork.Subnet = "fd00::/64"
+	proxy := NewTCPWakeProxy(cfg, st, &fakeStarter{}, nil)
+	vm, err := proxy.vmByPrivateIP(context.Background(), "fd00::3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.Name != "demo" {
+		t.Fatalf("vmByPrivateIP = %#v", vm)
+	}
+	if _, err := proxy.vmByPrivateIP(context.Background(), "fd00::5"); err == nil {
+		t.Fatal("vmByPrivateIP accepted missing IP")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := proxy.RunSSH(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitForTCPAndProxyCopy(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	if err := waitForTCP(context.Background(), listener.Addr().String(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case conn := <-accepted:
+		_ = conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("listener did not accept waitForTCP connection")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := waitForTCP(ctx, "127.0.0.1:1", 10*time.Millisecond); err == nil {
+		t.Fatal("waitForTCP succeeded for closed port")
+	}
+
+	src := &bufferConn{reader: strings.NewReader("hello")}
+	dst := &bufferConn{}
+	errCh := make(chan error, 1)
+	go proxyCopy(errCh, dst, src)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("proxyCopy did not finish")
+	}
+	if dst.writer.String() != "hello" {
+		t.Fatalf("proxyCopy wrote %q, want hello", dst.writer.String())
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func mustAtoi(t *testing.T, raw string) int {
+	t.Helper()
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+type bufferConn struct {
+	reader *strings.Reader
+	writer bytes.Buffer
+	closed bool
+}
+
+func (c *bufferConn) Read(p []byte) (int, error) {
+	if c.reader == nil {
+		return 0, io.EOF
+	}
+	return c.reader.Read(p)
+}
+
+func (c *bufferConn) Write(p []byte) (int, error) {
+	return c.writer.Write(p)
+}
+
+func (c *bufferConn) Close() error {
+	c.closed = true
+	return nil
+}
+
+func (c *bufferConn) LocalAddr() net.Addr {
+	return dummyAddr("local")
+}
+
+func (c *bufferConn) RemoteAddr() net.Addr {
+	return dummyAddr("remote")
+}
+
+func (c *bufferConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *bufferConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *bufferConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type dummyAddr string
+
+func (a dummyAddr) Network() string { return string(a) }
+func (a dummyAddr) String() string  { return string(a) }
