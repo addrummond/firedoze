@@ -63,12 +63,16 @@ sudo apt install "./firedoze_${version}_linux_amd64.deb"
 # OR
 sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 
+# install required firecracker version
 tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
   curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
   printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c - && \
   tar -xzf "$tmp/$tarball" -C "$tmp" && \
   sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker && \
   /usr/local/bin/firecracker --version && rm -rf "$tmp"
+
+# Optional, but recommended before installing the base image:
+# set up XFS at /var/lib/firedoze (see ‘Fast VM Disk Clones’ below).
 
 firedoze-image-builder build -out /var/tmp/firedoze-base-image
 sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
@@ -77,13 +81,13 @@ sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # Alice runs this on her laptop and sends you only the printed public key:
-firedoze server request alice-laptop
+#     firedoze server request alice-laptop
 
 # You add Alice's laptop as a WireGuard peer on the server. This prints a
 # Firedoze client import config with no client private key in it.
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > alice.firedoze.toml
 # Send alice.firedoze.toml back to Alice. She imports it with:
-# firedoze server import alice.firedoze.toml -default
+#     firedoze server import alice.firedoze.toml -default
 
 sudo systemctl enable --now firedozed
 ```
@@ -622,6 +626,8 @@ sudo systemctl stop firedozed 2>/dev/null || true
 sudo mkfs.xfs -m reflink=1 /dev/disk/by-id/<DISK_OR_PARTITION_ID>
 sudo mkdir -p /var/lib/firedoze
 sudo mount /dev/disk/by-id/<DISK_OR_PARTITION_ID> /var/lib/firedoze
+sudo install -d -o firedoze -g firedoze -m 0750 /var/lib/firedoze
+sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
 ```
 
 Then add an `/etc/fstab` entry appropriate for that disk or partition, for example:
@@ -631,6 +637,11 @@ Then add an `/etc/fstab` entry appropriate for that disk or partition, for examp
 ```
 
 If `/var/lib/firedoze` already contains data, copy it aside before mounting the XFS filesystem, then copy it back into the mounted filesystem.
+
+The ownership step matters: mounting a fresh filesystem at `/var/lib/firedoze`
+hides the package-created directory underneath it. The mounted directory itself
+must be writable by the `firedoze` service user, or the daemon will fail to open
+`/var/lib/firedoze/firedoze.db`.
 
 ### Option B: XFS Loopback File
 
@@ -646,6 +657,8 @@ sudo truncate -s 64G /var/lib/firedoze.xfs.img
 sudo mkfs.xfs -f -m reflink=1 /var/lib/firedoze.xfs.img
 sudo mkdir -p /var/lib/firedoze
 sudo mount -o loop /var/lib/firedoze.xfs.img /var/lib/firedoze
+sudo install -d -o firedoze -g firedoze -m 0750 /var/lib/firedoze
+sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
 ```
 
 Make it persistent across reboots:
@@ -665,6 +678,9 @@ sudo mv /var/lib/firedoze /var/lib/firedoze.before-xfs.$stamp
 sudo mkdir -p /var/lib/firedoze
 sudo mount -o loop /var/lib/firedoze.xfs.img /var/lib/firedoze
 sudo rsync -aHAX --numeric-ids /var/lib/firedoze.before-xfs.$stamp/ /var/lib/firedoze/
+sudo chown firedoze:firedoze /var/lib/firedoze
+sudo chmod 0750 /var/lib/firedoze
+sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
 sudo systemctl start firedozed
 ```
 
