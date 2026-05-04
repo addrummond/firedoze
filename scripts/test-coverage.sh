@@ -4,7 +4,7 @@ set -euo pipefail
 out_dir="${1:-dist/coverage}"
 profile_dir="$out_dir/profiles"
 summary="$out_dir/summary.tsv"
-threshold_file="${FIREDOZE_COVERAGE_THRESHOLDS:-scripts/coverage-thresholds.tsv}"
+threshold_file="${FIREDOZE_COVERAGE_THRESHOLDS:-config/coverage-thresholds.tsv}"
 
 mkdir -p "$profile_dir"
 : > "$summary"

@@ -303,7 +303,7 @@ These are specific bugs/design decisions that should become tests:
 
 ## Current Coverage Enforcement
 
-`scripts/test-coverage.sh` now enforces conservative package-level floors from `scripts/coverage-thresholds.tsv`. The thresholds are intentionally below the current measured coverage, so they catch accidental regressions without turning coverage into a brittle target.
+`scripts/test-coverage.sh` now enforces conservative package-level floors from `config/coverage-thresholds.tsv`. The thresholds are intentionally below the current measured coverage, so they catch accidental regressions without turning coverage into a brittle target.
 
 ## Exit Criteria
 
