@@ -13,9 +13,9 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Idle VMs sleep automatically, consuming only disk space.**
 
-🛠️ **Give your VMs public HTTPS URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
+🛠️ **Give your VMs public https URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
 
-🛠️ **Hit A sleeping VM's public HTTPS URL and it automatically resumes (subject to human test).**
+🛠️ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
 
 🛠️ **Snapshot and clone VMs to quickly create reproducible dev environments.**
 
@@ -43,7 +43,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 
 - **Firecracker-backed VMs** that boot fast and act like real Linux machines.
 - **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint.
-- **Public HTTPS routes** for sharing a dev service with someone outside the tunnel.
+- **Public HTTPS** for sharing a dev service with someone outside the tunnel.
 - **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk.
 - **Optional cold storage** for long-stopped VMs.
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team.
@@ -65,7 +65,7 @@ busybox httpd -p 8080 -h .'
 firedoze vm list launchpad
 ```
 
-Open the `PUBLIC URL` from `firedoze vm list` in your browser. It is a real HTTPS URL for the service running inside that VM.
+Open the `PUBLIC URL` from `firedoze vm list` in your browser. It is a real https URL for the service running inside that VM.
 
 Start a second VM and call the first one by name over the private VM network:
 
