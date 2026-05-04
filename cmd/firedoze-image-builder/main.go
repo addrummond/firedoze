@@ -28,18 +28,19 @@ import (
 )
 
 const (
-	defaultRelease         = "noble"
-	defaultArch            = "amd64"
+	baseImageRelease       = "resolute"
+	baseImageVersion       = "26.04"
+	baseImageArch          = "amd64"
 	defaultSize            = "4G"
 	defaultOutDir          = "dist/base-image"
 	defaultImageInstallDir = "/var/lib/firedoze/images"
 
-	nobleRootSHA256   = "13dc3c9ed4e76688ce3efaee45551dd4b5d706c2579bd91fd0de5464e34dd777"
-	nobleKernelSHA256 = "5b2a4fe174dacb18281f8f7d72ae32ac4b92801f0b7b5cb43ea55dee29fb789d"
-	nobleInitrdSHA256 = "cd0b64a5498e583a820a5b842369df83d036b4200b33bc51cadc58176184aaca"
+	baseRootSHA256   = "f5e922907ca6da7de57ee22044a399f497c89e84cf6eaa4ca5cff342bd286582"
+	baseKernelSHA256 = "6f11cd68fc0d181bb4f9a72e2d0ec6a1c2a69a59f7b9bd6bf9538630d1102456"
+	baseInitrdSHA256 = "b47e3fcd0a1409b1720e68262e88535c685189ba94a0fa931978901b806a80bc"
 
-	nobleBusyBoxStaticURL    = "http://archive.ubuntu.com/ubuntu/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_amd64.deb"
-	nobleBusyBoxStaticSHA256 = "944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed"
+	baseBusyBoxStaticURL    = "https://mirror.archive.ubuntu.com/ubuntu/pool/main/b/busybox/busybox-static_1.37.0-7ubuntu1_amd64.deb"
+	baseBusyBoxStaticSHA256 = "fd605342f62268753076aa7d9321ff098b36ba53e47434145a9aedc28fd141a4"
 )
 
 var packagedGuestHelloBinaries = map[string]string{
@@ -84,20 +85,7 @@ Build a Firecracker-ready Ubuntu root filesystem and matching boot artifacts.
 
 Build options:
   -out DIR        Output directory. Default: dist/base-image
-  -release NAME   Ubuntu cloud image release. Default: noble
-  -arch ARCH      Ubuntu architecture. Default: amd64
   -size SIZE      Root filesystem image size. Default: 4G
-  -url URL        Override the Ubuntu root tarball URL
-  -tar PATH       Use a local Ubuntu root tarball instead of downloading one
-  -kernel PATH    Use a local kernel image instead of downloading one
-  -initrd PATH    Use a local initrd image instead of downloading one
-  -kernel-url URL Override the kernel image URL
-  -initrd-url URL Override the initrd image URL
-  -root-sha256 SUM   Expected SHA-256 for the root tarball
-  -kernel-sha256 SUM Expected SHA-256 for the kernel image
-  -initrd-sha256 SUM Expected SHA-256 for the initrd image
-  -insecure-skip-checksums
-                    Allow unverified artifact overrides
   -h               Show this help
 
 Install options:
@@ -118,20 +106,8 @@ func build(args []string) error {
 	fs := flag.NewFlagSet("firedoze-image-builder build", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	release := fs.String("release", defaultRelease, "Ubuntu cloud image release")
-	arch := fs.String("arch", defaultArch, "Ubuntu architecture")
 	sizeText := fs.String("size", defaultSize, "root filesystem image size")
 	outDir := fs.String("out", defaultOutDir, "output directory")
-	imageURL := fs.String("url", "", "Ubuntu root tarball URL")
-	tarPath := fs.String("tar", "", "local Ubuntu root tarball")
-	kernelPath := fs.String("kernel", "", "local kernel image")
-	initrdPath := fs.String("initrd", "", "local initrd image")
-	kernelURL := fs.String("kernel-url", "", "kernel image URL")
-	initrdURL := fs.String("initrd-url", "", "initrd image URL")
-	rootSHA256 := fs.String("root-sha256", "", "expected root tarball SHA-256")
-	kernelSHA256 := fs.String("kernel-sha256", "", "expected kernel image SHA-256")
-	initrdSHA256 := fs.String("initrd-sha256", "", "expected initrd image SHA-256")
-	insecureSkipChecksums := fs.Bool("insecure-skip-checksums", false, "allow unverified artifact overrides")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -142,24 +118,6 @@ func build(args []string) error {
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if *arch != "amd64" {
-		return errors.New("only amd64 is supported for now; firedoze currently targets x86_64 hosts")
-	}
-	rootURLSet := *imageURL != ""
-	if *imageURL == "" {
-		*imageURL = defaultImageURL(*release)
-	}
-	kernelURLSet := *kernelURL != ""
-	initrdURLSet := *initrdURL != ""
-	if *kernelURL == "" {
-		*kernelURL = defaultKernelURL(*release)
-	}
-	if *initrdURL == "" {
-		*initrdURL = defaultInitrdURL(*release)
-	}
-	if err := applyDefaultChecksums(*release, rootURLSet, kernelURLSet, initrdURLSet, *tarPath, *kernelPath, *initrdPath, rootSHA256, kernelSHA256, initrdSHA256, *insecureSkipChecksums); err != nil {
-		return err
 	}
 	size, err := parseSize(*sizeText)
 	if err != nil {
@@ -196,7 +154,7 @@ func build(args []string) error {
 		return err
 	}
 
-	source, err := readArtifact(*tarPath, *imageURL, *rootSHA256, *insecureSkipChecksums)
+	source, err := readArtifact("", defaultImageURL(), baseRootSHA256, false)
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
@@ -217,13 +175,13 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	helloBinary, err := buildGuestHelloBinary(*arch)
+	helloBinary, err := buildGuestHelloBinary(baseImageArch)
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	busyBoxBinary, err := readBusyBoxStatic(*release, *arch, *insecureSkipChecksums)
+	busyBoxBinary, err := readBusyBoxStatic()
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
@@ -244,8 +202,8 @@ func build(args []string) error {
 		return err
 	}
 
-	if artifacts.kernel == nil || *kernelPath != "" || kernelURLSet {
-		kernel, err := readBootArtifact(*kernelPath, *kernelURL, *kernelSHA256, *insecureSkipChecksums)
+	if artifacts.kernel == nil {
+		kernel, err := readBootArtifact("", defaultKernelURL(), baseKernelSHA256, false)
 		if err != nil {
 			_ = os.Remove(tmpRootfsPath)
 			return fmt.Errorf("read kernel image: %w", err)
@@ -258,8 +216,8 @@ func build(args []string) error {
 		return fmt.Errorf("extract kernel ELF: %w", err)
 	}
 	artifacts.kernel.data = kernelELF
-	if artifacts.initrd == nil || *initrdPath != "" || initrdURLSet {
-		initrd, err := readBootArtifact(*initrdPath, *initrdURL, *initrdSHA256, *insecureSkipChecksums)
+	if artifacts.initrd == nil {
+		initrd, err := readBootArtifact("", defaultInitrdURL(), baseInitrdSHA256, false)
 		if err != nil {
 			_ = os.Remove(tmpRootfsPath)
 			return fmt.Errorf("read initrd image: %w", err)
@@ -276,6 +234,7 @@ func build(args []string) error {
 		return err
 	}
 	manifest := fmt.Sprintf(`release=%s
+ubuntu_version=%s
 arch=%s
 source=%s
 rootfs=rootfs.ext4
@@ -290,7 +249,7 @@ size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
 network=IPv6-only private VM network configured from firedoze kernel args
 builder=firedoze-image-builder native-go
-`, *release, *arch, source.name, *rootSHA256, artifacts.kernel.path, *kernelSHA256, artifacts.initrd.path, *initrdSHA256, *sizeText)
+`, baseImageRelease, baseImageVersion, baseImageArch, source.name, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -437,52 +396,16 @@ func copyInstallArtifact(src string, dst string, mode os.FileMode, uid int, gid 
 	return nil
 }
 
-func defaultImageURL(release string) string {
-	if release == "noble" {
-		return "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64-root.tar.xz"
-	}
-	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/current/%s-server-cloudimg-amd64-root.tar.xz", release, release)
+func defaultImageURL() string {
+	return "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64-root.tar.xz"
 }
 
-func defaultKernelURL(release string) string {
-	if release == "noble" {
-		return "https://cloud-images.ubuntu.com/releases/noble/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic"
-	}
-	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/current/unpacked/%s-server-cloudimg-amd64-vmlinuz-generic", release, release)
+func defaultKernelURL() string {
+	return "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-vmlinuz-generic"
 }
 
-func defaultInitrdURL(release string) string {
-	if release == "noble" {
-		return "https://cloud-images.ubuntu.com/releases/noble/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic"
-	}
-	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/current/unpacked/%s-server-cloudimg-amd64-initrd-generic", release, release)
-}
-
-func applyDefaultChecksums(release string, rootURLSet bool, kernelURLSet bool, initrdURLSet bool, tarPath string, kernelPath string, initrdPath string, rootSHA256 *string, kernelSHA256 *string, initrdSHA256 *string, insecure bool) error {
-	if release == "noble" {
-		if !rootURLSet && tarPath == "" && *rootSHA256 == "" {
-			*rootSHA256 = nobleRootSHA256
-		}
-		if !kernelURLSet && kernelPath == "" && *kernelSHA256 == "" {
-			*kernelSHA256 = nobleKernelSHA256
-		}
-		if !initrdURLSet && initrdPath == "" && *initrdSHA256 == "" {
-			*initrdSHA256 = nobleInitrdSHA256
-		}
-	}
-	if insecure {
-		return nil
-	}
-	if *rootSHA256 == "" {
-		return errors.New("root artifact checksum is required for overrides; pass -root-sha256 or -insecure-skip-checksums")
-	}
-	if *kernelSHA256 == "" && (kernelPath != "" || kernelURLSet) {
-		return errors.New("kernel artifact checksum is required for overrides; pass -kernel-sha256 or -insecure-skip-checksums")
-	}
-	if *initrdSHA256 == "" && (initrdPath != "" || initrdURLSet) {
-		return errors.New("initrd artifact checksum is required for overrides; pass -initrd-sha256 or -insecure-skip-checksums")
-	}
-	return nil
+func defaultInitrdURL() string {
+	return "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-initrd-generic"
 }
 
 func parseSize(value string) (int64, error) {
@@ -561,11 +484,8 @@ func readBootArtifact(localPath string, url string, expectedSHA256 string, insec
 	return &bootArtifact{path: artifact.name, data: artifact.data}, nil
 }
 
-func readBusyBoxStatic(release string, arch string, insecure bool) ([]byte, error) {
-	if release != "noble" || arch != "amd64" {
-		return nil, fmt.Errorf("busybox-static is pinned only for release=%s arch=%s", defaultRelease, defaultArch)
-	}
-	artifact, err := readArtifact("", nobleBusyBoxStaticURL, nobleBusyBoxStaticSHA256, insecure)
+func readBusyBoxStatic() ([]byte, error) {
+	artifact, err := readArtifact("", baseBusyBoxStaticURL, baseBusyBoxStaticSHA256, false)
 	if err != nil {
 		return nil, fmt.Errorf("read busybox-static package: %w", err)
 	}

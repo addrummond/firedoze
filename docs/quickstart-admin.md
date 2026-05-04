@@ -150,7 +150,7 @@ This downloads Firecracker `v1.15.1`, validates the pinned SHA-256 checksum, and
 
 ### 2.3 Build and install base images
 
-Build the Firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, a source checkout, or host ext4 support.
+Build the Firedoze Ubuntu 26.04 LTS base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, a source checkout, or host ext4 support.
 
 Run:
 
@@ -158,7 +158,7 @@ Run:
 firedoze-image-builder build -out /var/tmp/firedoze-base-image
 ```
 
-The image builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
+The image builder downloads pinned Ubuntu 26.04 cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
 
 Install the generated image artifacts:
 

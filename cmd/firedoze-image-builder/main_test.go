@@ -29,7 +29,7 @@ func TestRunCommandDispatch(t *testing.T) {
 		{name: "help", args: []string{"help"}, want: 0, err: "Usage:"},
 		{name: "dash help", args: []string{"-h"}, want: 0, err: "Usage:"},
 		{name: "unknown", args: []string{"bogus"}, want: 2, err: "unknown command: bogus"},
-		{name: "build error", args: []string{"build", "-arch", "arm64"}, want: 1, err: "only amd64 is supported"},
+		{name: "build error", args: []string{"build", "-does-not-exist"}, want: 1, err: "flag provided but not defined"},
 		{name: "install error", args: []string{"install", "-src", t.TempDir(), "-dst", t.TempDir(), "-user", "", "-group", ""}, want: 1, err: "open"},
 	}
 	for _, tt := range tests {
@@ -105,12 +105,8 @@ func TestBuildFlagValidation(t *testing.T) {
 	}{
 		{name: "help", args: []string{"-h"}, want: ""},
 		{name: "unexpected args", args: []string{"extra"}, want: "unexpected arguments: extra"},
-		{name: "unsupported arch", args: []string{"-arch", "arm64"}, want: "only amd64 is supported"},
 		{name: "unsupported size suffix", args: []string{"-size", "5T"}, want: "unsupported size suffix"},
 		{name: "too small", args: []string{"-size", "128M"}, want: "image size must be at least 512M"},
-		{name: "root override checksum", args: []string{"-url", "https://example.test/root.tar.xz"}, want: "root artifact checksum is required"},
-		{name: "kernel override checksum", args: []string{"-kernel-url", "https://example.test/vmlinuz"}, want: "kernel artifact checksum is required"},
-		{name: "initrd override checksum", args: []string{"-initrd-url", "https://example.test/initrd"}, want: "initrd artifact checksum is required"},
 		{name: "bad flag", args: []string{"-does-not-exist"}, want: "flag provided but not defined"},
 	}
 	for _, tt := range tests {
@@ -130,23 +126,14 @@ func TestBuildFlagValidation(t *testing.T) {
 }
 
 func TestDefaultArtifactURLs(t *testing.T) {
-	if got := defaultImageURL("noble"); got != "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64-root.tar.xz" {
-		t.Fatalf("defaultImageURL(noble) = %q", got)
+	if got := defaultImageURL(); got != "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64-root.tar.xz" {
+		t.Fatalf("defaultImageURL() = %q", got)
 	}
-	if got := defaultImageURL("oracular"); got != "https://cloud-images.ubuntu.com/oracular/current/oracular-server-cloudimg-amd64-root.tar.xz" {
-		t.Fatalf("defaultImageURL(oracular) = %q", got)
+	if got := defaultKernelURL(); got != "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-vmlinuz-generic" {
+		t.Fatalf("defaultKernelURL() = %q", got)
 	}
-	if got := defaultKernelURL("noble"); got != "https://cloud-images.ubuntu.com/releases/noble/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic" {
-		t.Fatalf("defaultKernelURL(noble) = %q", got)
-	}
-	if got := defaultKernelURL("oracular"); got != "https://cloud-images.ubuntu.com/oracular/current/unpacked/oracular-server-cloudimg-amd64-vmlinuz-generic" {
-		t.Fatalf("defaultKernelURL(oracular) = %q", got)
-	}
-	if got := defaultInitrdURL("noble"); got != "https://cloud-images.ubuntu.com/releases/noble/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic" {
-		t.Fatalf("defaultInitrdURL(noble) = %q", got)
-	}
-	if got := defaultInitrdURL("oracular"); got != "https://cloud-images.ubuntu.com/oracular/current/unpacked/oracular-server-cloudimg-amd64-initrd-generic" {
-		t.Fatalf("defaultInitrdURL(oracular) = %q", got)
+	if got := defaultInitrdURL(); got != "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-initrd-generic" {
+		t.Fatalf("defaultInitrdURL() = %q", got)
 	}
 }
 
@@ -177,64 +164,6 @@ func TestParseSizeErrors(t *testing.T) {
 				t.Fatalf("parseSize(%q) succeeded, want error", value)
 			}
 		})
-	}
-}
-
-func TestApplyDefaultChecksums(t *testing.T) {
-	root := ""
-	kernel := ""
-	initrd := ""
-	if err := applyDefaultChecksums("noble", false, false, false, "", "", "", &root, &kernel, &initrd, false); err != nil {
-		t.Fatalf("applyDefaultChecksums(default noble): %v", err)
-	}
-	if root != nobleRootSHA256 {
-		t.Fatalf("root checksum = %q, want noble default", root)
-	}
-	if kernel != nobleKernelSHA256 {
-		t.Fatalf("kernel checksum = %q, want noble default", kernel)
-	}
-	if initrd != nobleInitrdSHA256 {
-		t.Fatalf("initrd checksum = %q, want noble default", initrd)
-	}
-
-	root, kernel, initrd = "", "", ""
-	err := applyDefaultChecksums("noble", true, false, false, "", "", "", &root, &kernel, &initrd, false)
-	if err == nil || !strings.Contains(err.Error(), "root artifact checksum is required") {
-		t.Fatalf("override without root checksum err = %v, want checksum error", err)
-	}
-
-	root, kernel, initrd = "", "", ""
-	if err := applyDefaultChecksums("mantic", false, false, false, "", "", "", &root, &kernel, &initrd, true); err != nil {
-		t.Fatalf("insecure checksum override returned error: %v", err)
-	}
-	if root != "" || kernel != "" || initrd != "" {
-		t.Fatalf("insecure non-default release checksums = %q/%q/%q, want empty", root, kernel, initrd)
-	}
-}
-
-func TestApplyDefaultChecksumsOverrideCases(t *testing.T) {
-	root, kernel, initrd := "", "", ""
-	err := applyDefaultChecksums("noble", false, true, false, "", "", "", &root, &kernel, &initrd, false)
-	if err == nil || !strings.Contains(err.Error(), "kernel artifact checksum is required") {
-		t.Fatalf("kernel override err = %v, want checksum error", err)
-	}
-	if root != nobleRootSHA256 {
-		t.Fatalf("root checksum = %q, want default even with kernel override", root)
-	}
-
-	root, kernel, initrd = "", "", ""
-	err = applyDefaultChecksums("noble", false, false, true, "", "", "", &root, &kernel, &initrd, false)
-	if err == nil || !strings.Contains(err.Error(), "initrd artifact checksum is required") {
-		t.Fatalf("initrd override err = %v, want checksum error", err)
-	}
-
-	root, kernel, initrd = strings.Repeat("1", 64), "", ""
-	err = applyDefaultChecksums("noble", false, true, true, "", "", "", &root, &kernel, &initrd, true)
-	if err != nil {
-		t.Fatalf("insecure overrides: %v", err)
-	}
-	if root != strings.Repeat("1", 64) || kernel != "" || initrd != "" {
-		t.Fatalf("insecure checksums = %q/%q/%q, want custom root and empty overrides", root, kernel, initrd)
 	}
 }
 
@@ -274,15 +203,6 @@ func TestReadBootArtifactLocal(t *testing.T) {
 	}
 	if got.path != path || !bytes.Equal(got.data, data) {
 		t.Fatalf("boot artifact = %#v, want path %q data %q", got, path, data)
-	}
-}
-
-func TestReadBusyBoxStaticRejectsUnsupportedTarget(t *testing.T) {
-	if _, err := readBusyBoxStatic("oracular", "amd64", false); err == nil || !strings.Contains(err.Error(), "busybox-static is pinned only") {
-		t.Fatalf("readBusyBoxStatic(oracular) error = %v", err)
-	}
-	if _, err := readBusyBoxStatic("noble", "arm64", false); err == nil || !strings.Contains(err.Error(), "busybox-static is pinned only") {
-		t.Fatalf("readBusyBoxStatic(arm64) error = %v", err)
 	}
 }
 

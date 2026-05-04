@@ -352,9 +352,9 @@ Snapshots can be exported and imported as portable gzip tar bundles. A bundle co
 
 The base image is non-configurable in v1.
 
-Default guest OS should be Ubuntu LTS cloud image or equivalent. The VM should feel like a normal human-usable Linux computer, not a minimal appliance.
+Default guest OS is the pinned Ubuntu 26.04 LTS cloud image. The VM should feel like a normal human-usable Linux computer, not a minimal appliance.
 
-The base image should be built from pinned Ubuntu cloud image artifacts rather than from the minimal Firecracker quickstart image. Firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts. Default artifacts are version-pinned in source and SHA-256 verified; overrides must provide checksums or explicitly opt into an insecure build.
+The base image should be built from pinned Ubuntu cloud image artifacts rather than from the minimal Firecracker quickstart image. Firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts. Artifact URLs and SHA-256 checksums are version-pinned in source; the builder has no release-selection option.
 
 The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
@@ -405,7 +405,8 @@ Example metadata:
       "sha256": "sha256-of-initrd"
     },
     "manifest": {
-      "release": "noble",
+      "release": "resolute",
+      "ubuntu_version": "26.04",
       "arch": "amd64",
       "builder": "firedoze-image-builder native-go"
     }
