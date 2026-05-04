@@ -564,7 +564,7 @@ func extractBusyBoxFromDeb(deb []byte) ([]byte, error) {
 		if size%2 != 0 {
 			offset++
 		}
-		if strings.HasPrefix(name, "data.tar.") {
+		if isDebDataMember(name) {
 			return extractBusyBoxFromDataTar(name, data)
 		}
 	}
@@ -661,11 +661,15 @@ func extractDebDataTarToRootfs(efs *ext4.FileSystem, deb []byte, include func(st
 		if size%2 != 0 {
 			offset++
 		}
-		if strings.HasPrefix(name, "data.tar.") {
+		if isDebDataMember(name) {
 			return extractDataTarToRootfs(efs, name, data, include)
 		}
 	}
 	return errors.New("deb package has no data.tar member")
+}
+
+func isDebDataMember(name string) bool {
+	return name == "data.tar" || strings.HasPrefix(name, "data.tar.")
 }
 
 func extractDataTarToRootfs(efs *ext4.FileSystem, name string, data []byte, include func(string) bool) error {
@@ -741,6 +745,8 @@ func extractDataTarToRootfs(efs *ext4.FileSystem, name string, data []byte, incl
 
 func compressedTarReader(name string, data []byte) (io.Reader, func(), error) {
 	switch {
+	case name == "data.tar":
+		return bytes.NewReader(data), func() {}, nil
 	case strings.HasSuffix(name, ".zst"):
 		dec, err := zstd.NewReader(bytes.NewReader(data))
 		if err != nil {
