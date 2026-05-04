@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -30,9 +32,10 @@ const (
 )
 
 type client struct {
-	baseURL string
-	http    *http.Client
-	wg      *clientwg.Client
+	baseURL      string
+	http         *http.Client
+	wg           *clientwg.Client
+	brokerSocket string
 }
 
 var newHTTPClient = func() *http.Client {
@@ -44,6 +47,7 @@ var newHTTPClient = func() *http.Client {
 type app struct {
 	client       *client
 	serverName   string
+	serverConfig clientServerConfig
 	json         bool
 	runCommand   func(*exec.Cmd) error
 	waitForSSHFn func(string, time.Duration) error
@@ -105,13 +109,16 @@ func run(args []string) int {
 
 	var c *client
 	var resolvedServer clientServerConfig
-	if commandNeedsAPI(flags.Args()) {
+	if commandNeedsAPI(flags.Args()) || commandNeedsServerConfig(flags.Args()) {
 		var err error
 		resolvedServer, err = resolveClientServer(apiURL, serverName)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
+	}
+	if commandNeedsAPI(flags.Args()) {
+		var err error
 		c, err = newClientForServer(context.Background(), resolvedServer)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -119,7 +126,7 @@ func run(args []string) int {
 		}
 		defer c.Close()
 	}
-	a := app{client: c, serverName: resolvedServer.Name, json: *jsonOutput}
+	a := app{client: c, serverName: resolvedServer.Name, serverConfig: resolvedServer, json: *jsonOutput}
 	if err := a.dispatch(flags.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -145,6 +152,10 @@ func commandNeedsAPI(args []string) bool {
 	}
 }
 
+func commandNeedsServerConfig(args []string) bool {
+	return len(args) > 0 && args[0] == "tunnel-daemon"
+}
+
 func newClient(rawURL string) (*client, error) {
 	normalizedURL, err := normalizeAPIURL(rawURL)
 	if err != nil {
@@ -163,19 +174,21 @@ func newClientForServer(ctx context.Context, server clientServerConfig) (*client
 	}
 	httpClient := newHTTPClient()
 	var wgClient *clientwg.Client
+	brokerSocket := ""
 	if server.WireGuard != nil {
-		wgClient, err = clientwg.New(ctx, server.WireGuard.clientWGConfig())
+		brokerSocket, err = ensureWireGuardBroker(ctx, server)
 		if err != nil {
 			return nil, err
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.DialContext = wgClient.DialContext
+		transport.DialContext = clientwg.BrokerDialer{SocketPath: brokerSocket}.DialContext
 		httpClient.Transport = transport
 	}
 	return &client{
-		baseURL: normalizedURL,
-		http:    httpClient,
-		wg:      wgClient,
+		baseURL:      normalizedURL,
+		http:         httpClient,
+		wg:           wgClient,
+		brokerSocket: brokerSocket,
 	}, nil
 }
 
@@ -202,6 +215,9 @@ func (c *client) CloseWireGuard() error {
 }
 
 func (c *client) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	if c != nil && c.brokerSocket != "" {
+		return (clientwg.BrokerDialer{SocketPath: c.brokerSocket}).DialContext(ctx, network, address)
+	}
 	if c != nil && c.wg != nil {
 		return c.wg.DialContext(ctx, network, address)
 	}
@@ -260,6 +276,8 @@ func (a app) dispatch(args []string) error {
 		return a.cp(args[1:])
 	case "with-vm-ip":
 		return a.withVMIP(args[1:])
+	case "tunnel-daemon":
+		return a.tunnelDaemon(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -1256,6 +1274,20 @@ func (a app) withVMIP(args []string) error {
 	return a.run(cmd)
 }
 
+func (a app) tunnelDaemon(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: firedoze tunnel-daemon")
+	}
+	if a.serverConfig.WireGuard == nil {
+		return errors.New("selected server has no imported WireGuard config")
+	}
+	socketPath, err := wireGuardBrokerSocketPath(a.serverConfig)
+	if err != nil {
+		return err
+	}
+	return clientwg.RunBroker(context.Background(), a.serverConfig.WireGuard.clientWGConfig(), socketPath, 10*time.Minute)
+}
+
 func (a app) run(cmd *exec.Cmd) error {
 	if a.runCommand != nil {
 		return a.runCommand(cmd)
@@ -1367,7 +1399,7 @@ func (a app) sshProxyCommand(vmName string) string {
 }
 
 func (a app) usesEmbeddedWireGuard() bool {
-	return a.client != nil && a.client.wg != nil
+	return a.client != nil && (a.client.wg != nil || a.client.brokerSocket != "")
 }
 
 func (a app) closeEmbeddedWireGuardBeforeProxyCommand() error {
@@ -1406,6 +1438,63 @@ func shellQuote(arg string) string {
 		return arg
 	}
 	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
+}
+
+func ensureWireGuardBroker(ctx context.Context, server clientServerConfig) (string, error) {
+	socketPath, err := wireGuardBrokerSocketPath(server)
+	if err != nil {
+		return "", err
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	err = clientwg.PingBroker(pingCtx, socketPath)
+	cancel()
+	if err == nil {
+		return socketPath, nil
+	}
+	if server.Name == "" {
+		return "", errors.New("imported WireGuard server has no name")
+	}
+	cmd := exec.Command(firedozeCommandPath(), "-server", server.Name, "tunnel-daemon")
+	cmd.Stdin = nil
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	detachCommand(cmd)
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	_ = cmd.Process.Release()
+	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		pingCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		lastErr = clientwg.PingBroker(pingCtx, socketPath)
+		cancel()
+		if lastErr == nil {
+			return socketPath, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return "", fmt.Errorf("start wireguard broker: %w", lastErr)
+}
+
+func wireGuardBrokerSocketPath(server clientServerConfig) (string, error) {
+	if server.WireGuard == nil {
+		return "", errors.New("server has no WireGuard config")
+	}
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if strings.TrimSpace(dir) == "" {
+		dir = os.TempDir()
+	}
+	dir = filepath.Join(dir, "firedoze")
+	key := strings.Join([]string{
+		server.Name,
+		server.APIURL,
+		server.WireGuard.Address,
+		server.WireGuard.ServerPublicKey,
+		server.WireGuard.Endpoint,
+	}, "\x00")
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(dir, "wg-"+hex.EncodeToString(sum[:8])+".sock"), nil
 }
 
 func sshUser(vm vmInfo) (string, error) {

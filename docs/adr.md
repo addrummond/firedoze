@@ -77,16 +77,16 @@ The management HTTP API must listen only on the WireGuard interface. There must 
 
 ## WireGuard
 
-The daemon should create and manage a simple WireGuard interface itself.
+The daemon should create and manage a simple host WireGuard interface itself.
 
-v1 should use kernel WireGuard via Go libraries, not an embedded userspace WireGuard implementation.
+The host side should use kernel WireGuard via Go libraries, not an embedded userspace WireGuard implementation.
 
 Expected libraries:
 
 - `wgctrl` for WireGuard configuration.
 - `vishvananda/netlink` or equivalent for interface/address setup.
 
-The host must have Linux kernel WireGuard support.
+The host must have Linux kernel WireGuard support. The laptop client may use a local userspace WireGuard broker so users do not have to manage an operating-system tunnel for normal Firedoze commands.
 
 Peer definitions are static in daemon config for v1. Adding a developer may require editing config and restarting the daemon.
 
@@ -141,7 +141,7 @@ The root endpoint returns a compact JSON resource index. Errors are JSON objects
 
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
-The client stores named server profiles in `~/.config/firedoze/config.toml`. Imported profiles can include the client-side WireGuard private key and server routing details. When those details are present, normal `firedoze` commands bring up an in-process userspace WireGuard tunnel for API calls and SSH proxying, so users do not need to run `wg-quick` for the common workflow. The `FIREDOZE_SERVER` and `-server` overrides select among stored profiles. The `FIREDOZE_API` and `-api` overrides bypass stored profiles and are useful for scripts or server-local debugging when equivalent network routing already exists.
+The client stores named server profiles in `~/.config/firedoze/config.toml`. Imported profiles can include the client-side WireGuard private key and server routing details. When those details are present, normal `firedoze` commands start or reuse a local per-server userspace WireGuard broker for API calls and SSH proxying, so users do not need to run `wg-quick` for the common workflow. The `FIREDOZE_SERVER` and `-server` overrides select among stored profiles. The `FIREDOZE_API` and `-api` overrides bypass stored profiles and are useful for scripts or server-local debugging when equivalent network routing already exists.
 
 The client should provide the friendly operational surface:
 

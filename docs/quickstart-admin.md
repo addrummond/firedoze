@@ -324,9 +324,10 @@ firedoze server import /path/to/alice.firedoze.toml -default
 
 Normal `firedoze` commands do not require the user to run `wg-quick`. The client
 stores the server API URL, the server WireGuard details, and the locally
-generated client private key in `~/.config/firedoze/config.toml`. It opens a
-userspace WireGuard transport for API calls, SSH, `exec`, and `cp`, then closes
-it when the command exits.
+generated client private key in `~/.config/firedoze/config.toml`. It starts or
+reuses a local per-server userspace WireGuard broker for API calls, SSH, `exec`,
+and `cp`. The broker exits automatically after it has been idle for several
+minutes.
 
 For scripts that deliberately use `FIREDOZE_API` instead of the client config
 file, you can print the API shell export on the Firedoze host. This bypasses the

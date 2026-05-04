@@ -392,8 +392,9 @@ firedoze snapshot delete demo-base
 ## 10. Connection Lifecycle
 
 For normal Firedoze commands there is no manual tunnel to disconnect. The client
-opens its userspace WireGuard transport when a command needs the server and
-closes it when the command exits.
+starts or reuses a local per-server WireGuard broker when a command needs the
+server. The broker exits automatically after it has been idle for several
+minutes.
 
 ## Troubleshooting
 
