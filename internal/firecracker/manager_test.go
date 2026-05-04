@@ -2,10 +2,13 @@ package firecracker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -34,6 +37,350 @@ func newTestManager(t *testing.T) (*Manager, *store.Store) {
 	cfg.StateDir = filepath.Join(dir, "state")
 	cfg.Metadata.Path = filepath.Join(dir, "firedoze.db")
 	return NewManager(cfg, st, slog.New(slog.NewTextHandler(os.Stderr, nil))), st
+}
+
+func configureTestBaseImage(t *testing.T, m *Manager) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rootfs := filepath.Join(dir, "rootfs.ext4")
+	kernel := filepath.Join(dir, "vmlinux.bin")
+	initrd := filepath.Join(dir, "initrd.img")
+	if err := os.WriteFile(rootfs, []byte("rootfs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kernel, []byte("kernel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(initrd, []byte("initrd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.txt"), []byte("# firedoze image\nubuntu_version=24.04\nimage_id=test-image\nbad-line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.cfg.Firecracker.BaseRootfsPath = rootfs
+	m.cfg.Firecracker.BaseKernelPath = kernel
+	m.cfg.Firecracker.BaseInitrdPath = initrd
+}
+
+func TestCreateVMDefaultsAndBaseImageMetadata(t *testing.T) {
+	ctx := context.Background()
+	m, _ := newTestManager(t)
+	configureTestBaseImage(t, m)
+	m.cfg.VMNetwork.Subnet = "fd00::/126"
+
+	vm, err := m.CreateVM(ctx, store.CreateVMParams{Name: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.PrivateIP != "fd00::3" {
+		t.Fatalf("PrivateIP = %q, want fd00::3", vm.PrivateIP)
+	}
+	if vm.VCPUs != m.cfg.Firecracker.DefaultVCPUs || vm.MemoryMiB != m.cfg.Firecracker.DefaultMemoryMiB || vm.DiskBytes != m.cfg.Firecracker.DefaultDiskBytes {
+		t.Fatalf("VM defaults = %#v", vm)
+	}
+	if vm.DefaultHTTPPort != m.cfg.DefaultHTTPPort {
+		t.Fatalf("DefaultHTTPPort = %d, want %d", vm.DefaultHTTPPort, m.cfg.DefaultHTTPPort)
+	}
+	if !vm.AutoWake {
+		t.Fatal("AutoWake = false, want default true")
+	}
+	if vm.BaseImageID == "" || vm.KernelID == "" {
+		t.Fatalf("metadata IDs missing: base=%q kernel=%q", vm.BaseImageID, vm.KernelID)
+	}
+	var metadata BaseImageMetadata
+	if err := json.Unmarshal([]byte(vm.BaseImageMetadata), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Manifest["ubuntu_version"] != "24.04" || metadata.Manifest["image_id"] != "test-image" {
+		t.Fatalf("manifest metadata = %#v", metadata.Manifest)
+	}
+	if metadata.Initrd == nil || metadata.Initrd.Basename != "initrd.img" {
+		t.Fatalf("initrd metadata = %#v", metadata.Initrd)
+	}
+}
+
+func TestCreateVMValidationAndExplicitAutoWake(t *testing.T) {
+	m, _ := newTestManager(t)
+	configureTestBaseImage(t, m)
+
+	_, err := m.CreateVM(context.Background(), store.CreateVMParams{Name: "bad", IdleSleepAfterSeconds: -1})
+	if err == nil {
+		t.Fatal("CreateVM accepted negative idle sleep timeout")
+	}
+	vm, err := m.CreateVM(context.Background(), store.CreateVMParams{
+		Name:        "demo",
+		PrivateIP:   "fd00::99",
+		AutoWake:    false,
+		AutoWakeSet: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.PrivateIP != "fd00::99" || vm.AutoWake {
+		t.Fatalf("VM = %#v", vm)
+	}
+}
+
+func TestBaseImageMetadataCacheAndManifestParsing(t *testing.T) {
+	m, _ := newTestManager(t)
+	configureTestBaseImage(t, m)
+
+	first, err := m.baseImageMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.baseImageMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Rootfs.SHA256 != second.Rootfs.SHA256 {
+		t.Fatalf("cached metadata changed: %q vs %q", first.Rootfs.SHA256, second.Rootfs.SHA256)
+	}
+	if first.Manifest["ubuntu_version"] != "24.04" {
+		t.Fatalf("manifest = %#v", first.Manifest)
+	}
+
+	if err := os.WriteFile(m.cfg.Firecracker.BaseRootfsPath, []byte("rootfs changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	third, err := m.baseImageMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Rootfs.SHA256 == first.Rootfs.SHA256 {
+		t.Fatalf("rootfs SHA did not change after artifact update: %s", third.Rootfs.SHA256)
+	}
+}
+
+func TestWarmBaseImageMetadataHonorsCanceledContext(t *testing.T) {
+	m, _ := newTestManager(t)
+	configureTestBaseImage(t, m)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := m.WarmBaseImageMetadata(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WarmBaseImageMetadata error = %v, want context.Canceled", err)
+	}
+}
+
+func TestApplyBaseImageMetadataFallbacks(t *testing.T) {
+	params := store.CreateVMParams{}
+	applyBaseImageMetadata(&params, BaseImageMetadata{
+		Rootfs: ArtifactMetadata{Basename: "rootfs.ext4"},
+		Kernel: ArtifactMetadata{Basename: "vmlinux.bin"},
+	})
+	if params.BaseImageID != "rootfs.ext4" || params.KernelID != "vmlinux.bin" {
+		t.Fatalf("fallback IDs = %q/%q", params.BaseImageID, params.KernelID)
+	}
+	if params.BaseImageMetadata == "" {
+		t.Fatal("BaseImageMetadata was not populated")
+	}
+}
+
+func TestNextPrivateIPSkipsUsedAndDetectsExhaustion(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	m.cfg.VMNetwork.Subnet = "fd00::/125"
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "first", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	ip, err := m.nextPrivateIP(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ip.String() != "fd00::5" {
+		t.Fatalf("next IP = %s, want fd00::5", ip)
+	}
+
+	m.cfg.VMNetwork.Subnet = "fd00::/126"
+	_, err = m.nextPrivateIP(ctx)
+	if err == nil || !strings.Contains(err.Error(), "exhausted") {
+		t.Fatalf("exhausted nextPrivateIP error = %v", err)
+	}
+
+	m.cfg.VMNetwork.Subnet = "10.0.0.0/24"
+	_, err = m.nextPrivateIP(ctx)
+	if err == nil || !strings.Contains(err.Error(), "IPv6") {
+		t.Fatalf("IPv4 nextPrivateIP error = %v", err)
+	}
+}
+
+func TestUpdateVMValidation(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	badPort := 70000
+	if _, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{DefaultHTTPPort: &badPort}); err == nil {
+		t.Fatal("UpdateVM accepted bad default_http_port")
+	}
+	badIdle := -1
+	if _, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{IdleSleepAfterSeconds: &badIdle}); err == nil {
+		t.Fatal("UpdateVM accepted negative idle timeout")
+	}
+	goodPort := 3000
+	vm, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{DefaultHTTPPort: &goodPort})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.DefaultHTTPPort != 3000 {
+		t.Fatalf("DefaultHTTPPort = %d, want 3000", vm.DefaultHTTPPort)
+	}
+}
+
+func TestRestoreSnapshotCopiesDiskAndMetadata(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	snapshotDir := filepath.Join(t.TempDir(), "snap")
+	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	snapshotDisk := filepath.Join(snapshotDir, "rootfs.ext4")
+	if err := os.WriteFile(snapshotDisk, []byte("snapshot disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSnapshot(ctx, store.CreateSnapshotParams{
+		Name:              "snap",
+		SourceVM:          "source",
+		DiskPath:          snapshotDisk,
+		BaseImageID:       "base-id",
+		KernelID:          "kernel-id",
+		BaseImageMetadata: `{"image":"metadata"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var rewrittenDisk, rewrittenName string
+	m.rewriteGuestIdentityFunc = func(_ context.Context, diskPath string, vmName string) error {
+		rewrittenDisk = diskPath
+		rewrittenName = vmName
+		return nil
+	}
+
+	vm, err := m.RestoreSnapshot(ctx, "snap", store.CreateVMParams{Name: "copy", MemoryMiB: 256, PublicHTTP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.Name != "copy" || vm.MemoryMiB != 256 || !vm.AutoWake || !vm.PublicHTTP || vm.BaseImageID != "base-id" || vm.KernelID != "kernel-id" || string(vm.BaseImageMetadata) != `{"image":"metadata"}` {
+		t.Fatalf("restored VM = %#v", vm)
+	}
+	data, err := os.ReadFile(m.layout("copy").diskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "snapshot disk" {
+		t.Fatalf("restored disk = %q, want snapshot disk", data)
+	}
+	if rewrittenDisk != m.layout("copy").diskPath || rewrittenName != "copy" {
+		t.Fatalf("rewrite called with %q/%q", rewrittenDisk, rewrittenName)
+	}
+
+	_, err = m.RestoreSnapshot(ctx, "snap", store.CreateVMParams{Name: "copy"})
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("duplicate restore error = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestRestoreSnapshotValidation(t *testing.T) {
+	m, _ := newTestManager(t)
+	if _, err := m.RestoreSnapshot(context.Background(), "", store.CreateVMParams{Name: "copy"}); err == nil {
+		t.Fatal("RestoreSnapshot accepted empty snapshot name")
+	}
+	if _, err := m.RestoreSnapshot(context.Background(), "snap", store.CreateVMParams{}); err == nil {
+		t.Fatal("RestoreSnapshot accepted empty VM name")
+	}
+}
+
+func TestManagerListAndGetWrappers(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "alpha", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "beta", PrivateIP: "fd00::5", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSnapshot(ctx, store.CreateSnapshotParams{Name: "snap", DiskPath: "/disk"}); err != nil {
+		t.Fatal(err)
+	}
+
+	vms, err := m.ListVMs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vms) != 2 {
+		t.Fatalf("ListVMs len = %d, want 2", len(vms))
+	}
+	vms, err = m.ListVMsMatching(ctx, []string{"a*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vms) != 1 || vms[0].Name != "alpha" {
+		t.Fatalf("ListVMsMatching = %#v", vms)
+	}
+	vm, err := m.GetVM(ctx, "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.Name != "beta" {
+		t.Fatalf("GetVM = %#v", vm)
+	}
+	snapshots, err := m.ListSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) != 1 || snapshots[0].Name != "snap" {
+		t.Fatalf("ListSnapshots = %#v", snapshots)
+	}
+	snapshot, err := m.GetSnapshot(ctx, "snap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Name != "snap" {
+		t.Fatalf("GetSnapshot = %#v", snapshot)
+	}
+}
+
+func TestStopVMWithoutRunningProcessMarksStopped(t *testing.T) {
+	m, st := newTestManager(t)
+	createSnapshotTestVM(t, m, st, "demo", "running")
+
+	if err := m.StopVM(context.Background(), "demo"); err != nil {
+		t.Fatal(err)
+	}
+	vm, err := st.GetVM(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", vm.State)
+	}
+}
+
+func TestSleepRunningVMsWithNoRunningVMs(t *testing.T) {
+	m, _ := newTestManager(t)
+	if err := m.SleepRunningVMs(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBeginVMOperationGuardsSameName(t *testing.T) {
+	m, _ := newTestManager(t)
+	if err := m.beginVMOperation("demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.beginVMOperation("demo"); !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("second beginVMOperation error = %v, want ErrAlreadyRunning", err)
+	}
+	m.endVMOperation("demo")
+	if err := m.beginVMOperation("demo"); err != nil {
+		t.Fatal(err)
+	}
+	m.endVMOperation("demo")
 }
 
 func TestCopySparseFilePreservesSparseRegions(t *testing.T) {
@@ -361,5 +708,397 @@ func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
 	}
 	if _, err := os.Stat(m.coldDiskPath("demo")); !os.IsNotExist(err) {
 		t.Fatalf("cold disk stat error = %v, want not exist", err)
+	}
+}
+
+func TestDeleteStoppedVMRemovesDiskArchivesColdDirAndRoutes(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	archivedPath := filepath.Join(t.TempDir(), "archived-rootfs.ext4")
+	if err := os.WriteFile(archivedPath, []byte("archived"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetVMArchivedDiskPath(ctx, "demo", archivedPath); err != nil {
+		t.Fatal(err)
+	}
+	coldDir := m.coldVMDir("demo")
+	if err := os.MkdirAll(coldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coldDir, "stale"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "web", VMName: "demo", Port: 8080}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.DeleteVM(ctx, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetVM(ctx, "demo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetVM after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := st.GetRoute(ctx, "web"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetRoute after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := os.Stat(m.layout("demo").vmDir); !os.IsNotExist(err) {
+		t.Fatalf("hot vm dir stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(archivedPath); !os.IsNotExist(err) {
+		t.Fatalf("archived disk stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(coldDir); !os.IsNotExist(err) {
+		t.Fatalf("cold dir stat error = %v, want not exist", err)
+	}
+}
+
+func TestDeleteSnapshotRemovesDirectoryAndRow(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	snapshotLayout := m.snapshotLayout("snap")
+	if err := os.MkdirAll(snapshotLayout.dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snapshotLayout.diskPath, []byte("disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSnapshot(ctx, store.CreateSnapshotParams{Name: "snap", DiskPath: snapshotLayout.diskPath}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.DeleteSnapshot(ctx, "snap"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetSnapshot(ctx, "snap"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetSnapshot after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := os.Stat(snapshotLayout.dir); !os.IsNotExist(err) {
+		t.Fatalf("snapshot dir stat error = %v, want not exist", err)
+	}
+	if err := m.DeleteSnapshot(ctx, "snap"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DeleteSnapshot missing error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSleepVMStoppedAndAlreadySleeping(t *testing.T) {
+	m, st := newTestManager(t)
+	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if _, err := m.SleepVM(context.Background(), "demo"); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("SleepVM stopped error = %v, want ErrNotRunning", err)
+	}
+	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+		t.Fatal(err)
+	}
+	vm, err := m.SleepVM(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.State != "sleeping" {
+		t.Fatalf("sleeping VM state = %q", vm.State)
+	}
+}
+
+func TestRunningVMNamesSortedAndStartVMsIgnoresAlreadyRunning(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.running["beta"] = &Process{Name: "beta"}
+	m.running["alpha"] = &Process{Name: "alpha"}
+
+	names := m.RunningVMNames()
+	if strings.Join(names, ",") != "alpha,beta" {
+		t.Fatalf("RunningVMNames = %#v", names)
+	}
+	if err := m.StartVMs(context.Background(), []string{"alpha", "beta"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBootArgsDNSAndHelpers(t *testing.T) {
+	m, _ := newTestManager(t)
+	netdev := preparedNetwork{
+		hostIP:  net.ParseIP("fd00::2"),
+		guestIP: net.ParseIP("fd00::3"),
+	}
+	m.cfg.DNS.Enabled = true
+	m.cfg.DNS.ListenIP = "fd00::1"
+	m.cfg.DNS.Domain = "firedoze"
+	args := m.bootArgs(netdev)
+	for _, want := range []string{"firedoze.guest_ip=fd00::3", "firedoze.host_ip=fd00::2", "firedoze.dns_ip=fd00::1", "firedoze.dns_domain=firedoze"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("boot args %q missing %q", args, want)
+		}
+	}
+	m.cfg.DNS.Enabled = false
+	if args := m.bootArgs(netdev); strings.Contains(args, "firedoze.dns_ip") {
+		t.Fatalf("DNS disabled boot args include DNS: %s", args)
+	}
+	if got := tapName("short"); got != "fdtap-short" {
+		t.Fatalf("tapName(short) = %q", got)
+	}
+	if got := tapName("very-long-vm-name"); len(got) > 15 {
+		t.Fatalf("tapName too long: %q", got)
+	}
+	if mac := macForVMName("demo"); !strings.HasPrefix(mac, "06:00:") || mac != macForVMName("demo") {
+		t.Fatalf("macForVMName = %q", mac)
+	}
+}
+
+func TestIPMathOverflowUnderflow(t *testing.T) {
+	ip, err := addToIP(net.ParseIP("fd00::1"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ip.String() != "fd00::3" {
+		t.Fatalf("addToIP = %s, want fd00::3", ip)
+	}
+	if _, err := decrementIP(net.ParseIP("::")); err == nil {
+		t.Fatal("decrementIP accepted underflow")
+	}
+	if _, err := addToIP(net.ParseIP("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), 1); err == nil {
+		t.Fatal("addToIP accepted overflow")
+	}
+}
+
+func TestDiskPathResolutionAndColdPaths(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	vm := store.VM{Name: "demo"}
+	if got := m.coldVMDir("demo"); got != filepath.Join(m.cfg.ColdStorage.Dir, "vms", "demo") {
+		t.Fatalf("coldVMDir = %q", got)
+	}
+	if got := m.coldDiskPath("demo"); got != filepath.Join(m.cfg.ColdStorage.Dir, "vms", "demo", "rootfs.ext4") {
+		t.Fatalf("coldDiskPath = %q", got)
+	}
+
+	if err := os.MkdirAll(m.layout("demo").vmDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.layout("demo").diskPath, []byte("hot"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path, err := m.vmDiskPath(vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != m.layout("demo").diskPath {
+		t.Fatalf("vmDiskPath hot = %q", path)
+	}
+	if err := os.Remove(m.layout("demo").diskPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(m.coldVMDir("demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.coldDiskPath("demo"), []byte("cold"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path, err = m.vmDiskPath(vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != m.coldDiskPath("demo") {
+		t.Fatalf("vmDiskPath cold = %q", path)
+	}
+	vm.ArchivedDiskPath = filepath.Join(t.TempDir(), "missing.ext4")
+	if _, err := m.vmDiskPath(vm); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing recorded archive error = %v, want not exist", err)
+	}
+}
+
+func TestEnsureDiskCopyFileAndConfigHelpers(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.ext4")
+	disk := filepath.Join(dir, "disk.ext4")
+	if err := os.WriteFile(source, []byte("base"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, err := ensureDisk(disk, source, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("ensureDisk created = false, want true")
+	}
+	info, err := os.Stat(disk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 16 {
+		t.Fatalf("disk size = %d, want 16", info.Size())
+	}
+	created, err = ensureDisk(disk, source, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("ensureDisk existing created = true, want false")
+	}
+
+	copyPath := filepath.Join(dir, "copy.ext4")
+	if err := copyFile(copyPath, source); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "base" {
+		t.Fatalf("copyFile data = %q", data)
+	}
+
+	configPath := filepath.Join(dir, "firecracker.json")
+	if err := writeFirecrackerConfig(configPath, firecrackerConfig{
+		BootSource:    bootSource{KernelImagePath: "kernel", BootArgs: "args"},
+		Drives:        []drive{{DriveID: "rootfs", PathOnHost: disk, IsRootDevice: true}},
+		MachineConfig: machineConfig{VCPUCount: 1, MemSizeMiB: 128},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configData), `"kernel_image_path": "kernel"`) {
+		t.Fatalf("firecracker config = %s", configData)
+	}
+	if err := waitForSocket(context.Background(), configPath, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCopyRegularFileHonorsCanceledContext(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(source, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := copyRegularFile(ctx, dst, source)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("copyRegularFile error = %v, want context.Canceled", err)
+	}
+}
+
+func TestColdStorageMonitorDisabledAndCheckArchivesStoppedVM(t *testing.T) {
+	m, st := newTestManager(t)
+	monitor := NewColdStorageMonitor(m, nil)
+	if monitor.manager != m {
+		t.Fatal("cold storage monitor manager not set")
+	}
+	monitor.Run(context.Background())
+
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
+	createSnapshotTestVM(t, m, st, "stopped", "stopped")
+	createSnapshotTestVM(t, m, st, "running", "running")
+
+	monitor.check(context.Background(), time.Now().Add(2*time.Second))
+	if _, err := os.Stat(m.layout("stopped").diskPath); !os.IsNotExist(err) {
+		t.Fatalf("stopped hot disk stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(m.coldDiskPath("stopped")); err != nil {
+		t.Fatalf("stopped cold disk: %v", err)
+	}
+	if _, err := os.Stat(m.layout("running").diskPath); err != nil {
+		t.Fatalf("running hot disk should remain: %v", err)
+	}
+}
+
+func TestShouldArchiveStoppedVM(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
+	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 60
+	now := time.Now().UTC()
+	vm := store.VM{Name: "demo", State: "stopped", StoppedAt: now.Add(-61 * time.Second).Format(time.RFC3339Nano)}
+	if !m.shouldArchiveStoppedVM(vm, now) {
+		t.Fatal("old stopped VM was not archive-eligible")
+	}
+	vm.StoppedAt = now.Add(-59 * time.Second).Format(time.RFC3339Nano)
+	if m.shouldArchiveStoppedVM(vm, now) {
+		t.Fatal("recently stopped VM was archive-eligible")
+	}
+	vm.State = "running"
+	if m.shouldArchiveStoppedVM(vm, now) {
+		t.Fatal("running VM was archive-eligible")
+	}
+	vm.State = "stopped"
+	vm.StoppedAt = "not-a-time"
+	if m.shouldArchiveStoppedVM(vm, now) {
+		t.Fatal("VM with bad stopped_at was archive-eligible")
+	}
+}
+
+func TestIdleMonitorThresholdAndCleanup(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	monitor := NewIdleMonitor(m, nil, nil)
+	if monitor.manager != m || monitor.seen == nil {
+		t.Fatal("idle monitor not initialized")
+	}
+	m.cfg.Idle.DefaultSleepAfterSeconds = 30
+	if got := monitor.threshold(store.VM{Name: "default"}); got != 30*time.Second {
+		t.Fatalf("default threshold = %s", got)
+	}
+	if got := monitor.threshold(store.VM{Name: "override", IdleSleepAfterSeconds: 5}); got != 5*time.Second {
+		t.Fatalf("override threshold = %s", got)
+	}
+
+	createSnapshotTestVM(t, m, st, "stopped", "stopped")
+	monitor.seen["stopped"] = idleObservation{bytes: 1, lastActive: time.Now()}
+	monitor.seen["missing"] = idleObservation{bytes: 1, lastActive: time.Now()}
+	monitor.check(ctx, time.Now())
+	if len(monitor.seen) != 0 {
+		t.Fatalf("seen after cleanup = %#v", monitor.seen)
+	}
+
+	m.cfg.Idle.DefaultSleepAfterSeconds = 0
+	monitor.Run(ctx)
+}
+
+func TestCopyDenseAndSmallHelpers(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(source, []byte("dense"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileDense(out, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "dense" {
+		t.Fatalf("dense copy = %q", data)
+	}
+	if !isSparseSeekUnsupported(syscall.EINVAL) || isSparseSeekUnsupported(syscall.EIO) {
+		t.Fatal("isSparseSeekUnsupported classification mismatch")
+	}
+	id, err := randomMachineID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(id) != 32 {
+		t.Fatalf("machine ID length = %d, want 32", len(id))
+	}
+	value := stringPtr("x")
+	if value == nil || *value != "x" {
+		t.Fatalf("stringPtr = %#v", value)
 	}
 }

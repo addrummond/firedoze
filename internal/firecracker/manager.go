@@ -53,11 +53,12 @@ type Manager struct {
 	store  *store.Store
 	logger *slog.Logger
 
-	mu           sync.Mutex
-	running      map[string]*Process
-	vmOps        map[string]struct{}
-	coldArchives map[string]*coldArchiveOperation
-	copyColdFile func(context.Context, string, string) error
+	mu                       sync.Mutex
+	running                  map[string]*Process
+	vmOps                    map[string]struct{}
+	coldArchives             map[string]*coldArchiveOperation
+	copyColdFile             func(context.Context, string, string) error
+	rewriteGuestIdentityFunc func(context.Context, string, string) error
 
 	metadataMu    sync.Mutex
 	baseMetadata  BaseImageMetadata
@@ -1393,6 +1394,9 @@ func copyFileDense(out *os.File, in *os.File) error {
 }
 
 func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmName string) error {
+	if m.rewriteGuestIdentityFunc != nil {
+		return m.rewriteGuestIdentityFunc(ctx, diskPath, vmName)
+	}
 	if err := writeGuestFileMode(ctx, diskPath, "/etc/hostname", []byte(vmName+"\n"), "0100644"); err != nil {
 		return err
 	}
