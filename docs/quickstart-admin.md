@@ -13,6 +13,7 @@ Use an x86_64 Linux box with:
 - `debugfs`, `ssh-keygen`, and `systemd`.
 - Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
 - Enough disk space to build and store base images, VM disks, and snapshots.
+- Recommended on small hosts: add a modest swap file as a memory-spike guardrail. Swap is not a substitute for real RAM, but it makes tiny test hosts less brittle.
 - Recommended: **put `state_dir` on a filesystem with reflink support for fast VM disk clones**. XFS with reflinks enabled is a good default choice (see [Fast VM Disk Clones](#fast-vm-disk-clones)).
 - Optional: configure cold storage if you want disks from long-stopped VMs moved to cheaper/slower storage automatically.
 - IPv6 egress if guests need outbound internet access. The private VM network is IPv6-only.
@@ -30,6 +31,23 @@ On Ubuntu, the host packages are roughly:
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl wireguard-tools e2fsprogs xfsprogs iptables
 ```
+
+On small hosts, add swap before building the base image or running VMs:
+
+```sh
+sudo fallocate -l 8G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-firedoze-swap.conf
+sudo sysctl --system
+```
+
+For a 4 GiB RAM test host such as `c8i.large`, 4-8 GiB of swap is reasonable.
+For larger hosts, 8-16 GiB is usually enough as a safety buffer. If active VM
+memory is regularly spilling into swap, reduce the number or size of running VMs
+or use a larger host.
 
 ## 2. Setup
 
