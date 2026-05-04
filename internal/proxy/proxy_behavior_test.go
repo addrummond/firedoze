@@ -57,13 +57,16 @@ func TestDefaultHostAndCaddyFallbackRoute(t *testing.T) {
 	}
 	servers := caddyServers(t, raw)
 	httpsServer := servers["firedoze_https"]
+	if !strings.Contains(string(mustJSON(t, httpsServer.Routes[0])), "firedoze is running") {
+		t.Fatalf("base domain route = %s", mustJSON(t, httpsServer.Routes[0]))
+	}
 	last := httpsServer.Routes[len(httpsServer.Routes)-1]
 	data := mustJSON(t, last)
 	if !strings.Contains(string(data), "firedoze route not found") {
 		t.Fatalf("fallback route = %s", data)
 	}
-	if !strings.Contains(string(mustJSON(t, httpsServer.Routes[0])), "127.0.0.1:18082") {
-		t.Fatalf("public route does not use wake proxy upstream: %s", mustJSON(t, httpsServer.Routes[0]))
+	if !routesContain(t, httpsServer.Routes, "127.0.0.1:18082") {
+		t.Fatalf("public routes do not use wake proxy upstream: %s", mustJSON(t, httpsServer.Routes))
 	}
 }
 
@@ -632,6 +635,16 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func routesContain(t *testing.T, routes []map[string]any, text string) bool {
+	t.Helper()
+	for _, route := range routes {
+		if strings.Contains(string(mustJSON(t, route)), text) {
+			return true
+		}
+	}
+	return false
 }
 
 type bufferConn struct {

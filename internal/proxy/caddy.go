@@ -71,7 +71,9 @@ func (m *Manager) Stop() error {
 }
 
 func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string]any, int) {
-	routes := make([]map[string]any, 0, len(vms)+len(aliases)+1)
+	routes := make([]map[string]any, 0, len(vms)+len(aliases)+2)
+	publicHosts := []string{m.cfg.BaseDomain}
+	routes = append(routes, baseDomainRoute(m.cfg.BaseDomain))
 	vmsByName := make(map[string]store.VM, len(vms))
 	for _, vm := range vms {
 		vmsByName[vm.Name] = vm
@@ -79,6 +81,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := vm.Name + "." + m.cfg.BaseDomain
+		publicHosts = append(publicHosts, host)
 		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
 	}
 	for _, alias := range aliases {
@@ -87,15 +90,10 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := alias.Name + "." + m.cfg.BaseDomain
+		publicHosts = append(publicHosts, host)
 		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
 	}
-	routes = append(routes, map[string]any{
-		"handle": []map[string]any{{
-			"handler":     "static_response",
-			"status_code": "404",
-			"body":        "firedoze route not found\n",
-		}},
-	})
+	routes = append(routes, routeNotFoundRoute())
 
 	servers := map[string]any{}
 	if m.cfg.Caddy.TLSMode == "behind_proxy" {
@@ -104,9 +102,14 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			"routes": routes,
 		}
 	} else {
+		redirectRoutes := make([]map[string]any, 0, len(publicHosts)+1)
+		for _, host := range publicHosts {
+			redirectRoutes = append(redirectRoutes, redirectToHTTPSRoute(host))
+		}
+		redirectRoutes = append(redirectRoutes, routeNotFoundRoute())
 		servers["firedoze_http"] = map[string]any{
 			"listen": []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPPort)},
-			"routes": []map[string]any{redirectToHTTPSRoute()},
+			"routes": redirectRoutes,
 		}
 		servers["firedoze_https"] = map[string]any{
 			"listen":                  []string{":" + strconv.Itoa(m.cfg.Caddy.HTTPSPort)},
@@ -126,7 +129,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 				"servers":    servers,
 			},
 		},
-	}, len(routes) - 1
+	}, len(routes) - 2
 }
 
 func (m *Manager) wakeProxyUpstream() string {
@@ -151,8 +154,34 @@ func reverseProxyRoute(host string, upstream string) map[string]any {
 	}
 }
 
-func redirectToHTTPSRoute() map[string]any {
+func baseDomainRoute(host string) map[string]any {
 	return map[string]any{
+		"match": []map[string]any{{
+			"host": []string{host},
+		}},
+		"handle": []map[string]any{{
+			"handler":     "static_response",
+			"status_code": "200",
+			"body":        "firedoze is running\n",
+		}},
+	}
+}
+
+func routeNotFoundRoute() map[string]any {
+	return map[string]any{
+		"handle": []map[string]any{{
+			"handler":     "static_response",
+			"status_code": "404",
+			"body":        "firedoze route not found\n",
+		}},
+	}
+}
+
+func redirectToHTTPSRoute(host string) map[string]any {
+	return map[string]any{
+		"match": []map[string]any{{
+			"host": []string{host},
+		}},
 		"handle": []map[string]any{{
 			"handler":     "static_response",
 			"status_code": "308",

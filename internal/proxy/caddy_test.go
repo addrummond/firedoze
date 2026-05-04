@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"firedoze/internal/config"
@@ -55,6 +56,12 @@ func TestCaddyConfigServesTLSOnHTTPSPort(t *testing.T) {
 	}
 	if httpServer.TLSConnectionPolicies != nil {
 		t.Fatal("http server unexpectedly has tls_connection_policies")
+	}
+	httpRoutes := string(mustJSON(t, httpServer.Routes))
+	for _, want := range []string{"example.test", "demo.example.test", "firedoze route not found"} {
+		if !strings.Contains(httpRoutes, want) {
+			t.Fatalf("http routes = %s, want substring %q", httpRoutes, want)
+		}
 	}
 }
 
