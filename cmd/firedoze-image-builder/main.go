@@ -623,7 +623,7 @@ func extractBusyBoxFromDataTar(name string, data []byte) ([]byte, error) {
 
 func installKernelModulesDeb(efs *ext4.FileSystem, deb []byte) error {
 	if err := extractDebDataTarToRootfs(efs, deb, func(clean string) bool {
-		return clean == "lib/modules" || strings.HasPrefix(clean, "lib/modules/")
+		return clean == "usr/lib/modules" || strings.HasPrefix(clean, "usr/lib/modules/")
 	}); err != nil {
 		return fmt.Errorf("extract kernel modules package: %w", err)
 	}
