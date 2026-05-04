@@ -1285,7 +1285,13 @@ func (a app) tunnelDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	return clientwg.RunBroker(context.Background(), a.serverConfig.WireGuard.clientWGConfig(), socketPath, 10*time.Minute)
+	if err := clientwg.RunBroker(context.Background(), a.serverConfig.WireGuard.clientWGConfig(), socketPath, 10*time.Minute); err != nil {
+		if errors.Is(err, clientwg.ErrBrokerAlreadyRunning) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (a app) run(cmd *exec.Cmd) error {
@@ -1481,11 +1487,7 @@ func wireGuardBrokerSocketPath(server clientServerConfig) (string, error) {
 	if server.WireGuard == nil {
 		return "", errors.New("server has no WireGuard config")
 	}
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if strings.TrimSpace(dir) == "" {
-		dir = os.TempDir()
-	}
-	dir = filepath.Join(dir, "firedoze")
+	dir := wireGuardBrokerRuntimeDir()
 	key := strings.Join([]string{
 		server.Name,
 		server.APIURL,

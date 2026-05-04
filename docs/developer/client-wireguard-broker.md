@@ -75,7 +75,10 @@ The socket path is derived from the selected server profile and lives under:
 $XDG_RUNTIME_DIR/firedoze/
 ```
 
-or the OS temp directory if `XDG_RUNTIME_DIR` is unset.
+or a per-user temp directory such as `/tmp/firedoze-1000/` if
+`XDG_RUNTIME_DIR` is unset. The broker also holds a per-socket lock while it is
+running, so concurrent client commands cannot unlink each other's broker sockets
+or start competing WireGuard clients for the same server profile.
 
 With the broker, concurrent commands look like this:
 
