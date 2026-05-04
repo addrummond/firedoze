@@ -638,11 +638,6 @@ Then add an `/etc/fstab` entry appropriate for that disk or partition, for examp
 
 If `/var/lib/firedoze` already contains data, copy it aside before mounting the XFS filesystem, then copy it back into the mounted filesystem.
 
-The ownership step matters: mounting a fresh filesystem at `/var/lib/firedoze`
-hides the package-created directory underneath it. The mounted directory itself
-must be writable by the `firedoze` service user, or the daemon will fail to open
-`/var/lib/firedoze/firedoze.db`.
-
 ### Option B: XFS Loopback File
 
 If you do not want to repartition or attach another disk, create a file-backed XFS filesystem and mount that at `/var/lib/firedoze`.
