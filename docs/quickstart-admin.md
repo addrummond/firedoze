@@ -506,6 +506,22 @@ A sleeping VM includes live memory and device state that belongs to that exact
 VM identity. A snapshot restore creates a new VM identity, so it uses a clean
 disk snapshot and boots normally.
 
+Export a snapshot to a portable file:
+
+```sh
+firedoze snapshot export demo-base demo-base.firedoze-snapshot.tgz
+```
+
+Import that file as a snapshot on another Firedoze server:
+
+```sh
+firedoze snapshot import demo-base demo-base.firedoze-snapshot.tgz
+```
+
+The imported snapshot name does not have to match the original name. Snapshot
+bundles include the cloneable disk image and lineage metadata; they do not
+include base images or exact sleep memory state.
+
 Restore a snapshot as a new VM:
 
 ```sh

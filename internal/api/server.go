@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"regexp"
@@ -42,6 +43,8 @@ type Manager interface {
 	GetSnapshot(context.Context, string) (store.Snapshot, error)
 	SaveSnapshot(context.Context, store.CreateSnapshotParams) (store.Snapshot, error)
 	RestoreSnapshot(context.Context, string, store.CreateVMParams) (store.VM, error)
+	ExportSnapshot(context.Context, string, io.Writer) error
+	ImportSnapshot(context.Context, string, io.Reader) (store.Snapshot, error)
 	DeleteSnapshot(context.Context, string) error
 }
 
@@ -87,6 +90,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /snapshots/{name}", s.handleGetSnapshot)
 	s.mux.HandleFunc("DELETE /snapshots/{name}", s.handleDeleteSnapshot)
 	s.mux.HandleFunc("POST /snapshots/{name}/restore", s.handleRestoreSnapshot)
+	s.mux.HandleFunc("GET /snapshots/{name}/export", s.handleExportSnapshot)
+	s.mux.HandleFunc("POST /snapshots/{name}/import", s.handleImportSnapshot)
 	s.mux.HandleFunc("GET /wireguard/peers", s.handleListWireGuardPeers)
 	s.mux.HandleFunc("GET /wireguard/peers/{name}/config", s.handleWireGuardPeerConfig)
 }
@@ -101,7 +106,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			"base_image":      {"POST /base-image/warmup"},
 			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
-			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore"},
+			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore", "GET /snapshots/{name}/export", "POST /snapshots/{name}/import"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
 		},
 	})
@@ -192,6 +197,8 @@ func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrUnsupportedSnapshotExport) {
+			status = http.StatusConflict
 		}
 		writeError(w, status, err)
 		return
@@ -562,6 +569,44 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"vm": s.vmInfo(vm)})
+}
+
+func (s *Server) handleExportSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validSnapshotName(name) {
+		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name+".firedoze-snapshot.tgz"))
+	if err := s.manager.ExportSnapshot(r.Context(), name, w); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+}
+
+func (s *Server) handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validSnapshotName(name) {
+		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
+		return
+	}
+	snapshot, err := s.manager.ImportSnapshot(r.Context(), name, r.Body)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, firecracker.ErrInvalidSnapshotBundle) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, firecracker.ErrAlreadyExists) || errors.Is(err, store.ErrAlreadyExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snapshot})
 }
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {

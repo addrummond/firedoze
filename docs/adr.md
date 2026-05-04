@@ -152,7 +152,7 @@ The client should provide the friendly operational surface:
 - `firedoze vm inspect <vm>`
 - `firedoze vm create/up/start/reboot/sleep/stop/delete/publish/hide/settings`
 - `firedoze ssh <vm>`
-- `firedoze snapshot list/inspect/save/restore/delete`
+- `firedoze snapshot list/inspect/save/restore/export/import/delete`
 - `firedoze route ...`
 
 For scripts that need exact API responses, the client supports `-json`. Human-readable client output can include convenience commands such as `firedoze ssh <vm>`, public URLs, and runtime/status columns, but those are client presentation choices rather than command strings embedded in the API.
@@ -338,6 +338,8 @@ A destructive in-place restore may be added later, but is not the v1 default.
 When cloning/restoring, Firedoze must rewrite guest identity so multiple VMs do not share properties such as hostname, machine-id, SSH host keys, or network identity.
 
 Restore creates a stopped VM from the snapshot disk copy, rewrites guest identity, and boots it normally when started. Exact Firecracker memory restore remains part of the sleep/resume path for the same VM, not the cloneable named snapshot model, because exact memory restore conflicts with changing guest identity.
+
+Snapshots can be exported and imported as portable gzip tar bundles. A bundle contains `manifest.json` with snapshot lineage metadata and `rootfs.ext4` with the cloneable disk image. This is deliberately snapshot-only: Firedoze does not import or export base images through this path, and bundles do not contain exact sleep memory state.
 
 ## Base Image and Kernel
 

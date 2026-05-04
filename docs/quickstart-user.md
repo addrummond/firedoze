@@ -309,6 +309,20 @@ firedoze snapshot list
 firedoze snapshot inspect demo-base
 ```
 
+Export a snapshot to a portable file:
+
+```sh
+firedoze snapshot export demo-base demo-base.firedoze-snapshot.tgz
+```
+
+Import that file as a snapshot on another Firedoze server:
+
+```sh
+firedoze snapshot import demo-base demo-base.firedoze-snapshot.tgz
+```
+
+The imported snapshot name does not have to match the original name.
+
 Restore a snapshot as a new VM:
 
 ```sh

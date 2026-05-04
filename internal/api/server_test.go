@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,8 @@ type fakeManager struct {
 	getSnapshotFunc           func(context.Context, string) (store.Snapshot, error)
 	saveSnapshotFunc          func(context.Context, store.CreateSnapshotParams) (store.Snapshot, error)
 	restoreSnapshotFunc       func(context.Context, string, store.CreateVMParams) (store.VM, error)
+	exportSnapshotFunc        func(context.Context, string, io.Writer) error
+	importSnapshotFunc        func(context.Context, string, io.Reader) (store.Snapshot, error)
 	deleteSnapshotFunc        func(context.Context, string) error
 }
 
@@ -153,6 +156,21 @@ func (m *fakeManager) RestoreSnapshot(ctx context.Context, name string, params s
 		return m.restoreSnapshotFunc(ctx, name, params)
 	}
 	return vmFromParams(params), nil
+}
+
+func (m *fakeManager) ExportSnapshot(ctx context.Context, name string, w io.Writer) error {
+	if m.exportSnapshotFunc != nil {
+		return m.exportSnapshotFunc(ctx, name, w)
+	}
+	_, err := io.WriteString(w, "snapshot bundle")
+	return err
+}
+
+func (m *fakeManager) ImportSnapshot(ctx context.Context, name string, r io.Reader) (store.Snapshot, error) {
+	if m.importSnapshotFunc != nil {
+		return m.importSnapshotFunc(ctx, name, r)
+	}
+	return testSnapshot(name), nil
 }
 
 func (m *fakeManager) DeleteSnapshot(ctx context.Context, name string) error {
@@ -663,6 +681,40 @@ func TestSnapshotHandlersValidateMapErrorsAndReconcileRestore(t *testing.T) {
 	assertStatus(t, rec, http.StatusNotFound)
 
 	rec = request(t, handler, http.MethodDelete, "/snapshots/bad%20name", nil)
+	assertStatus(t, rec, http.StatusBadRequest)
+
+	var exportName string
+	manager.exportSnapshotFunc = func(_ context.Context, name string, w io.Writer) error {
+		exportName = name
+		_, err := io.WriteString(w, "bundle")
+		return err
+	}
+	rec = request(t, handler, http.MethodGet, "/snapshots/snap.1/export", nil)
+	assertStatus(t, rec, http.StatusOK)
+	if exportName != "snap.1" || rec.Body.String() != "bundle" {
+		t.Fatalf("export = %q %q", exportName, rec.Body.String())
+	}
+
+	var importName, importBody string
+	manager.importSnapshotFunc = func(_ context.Context, name string, r io.Reader) (store.Snapshot, error) {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return store.Snapshot{}, err
+		}
+		importName = name
+		importBody = string(data)
+		return testSnapshot(name), nil
+	}
+	rec = request(t, handler, http.MethodPost, "/snapshots/imported/import", "bundle")
+	assertStatus(t, rec, http.StatusCreated)
+	if importName != "imported" || importBody != "bundle" {
+		t.Fatalf("import = %q %q", importName, importBody)
+	}
+
+	manager.importSnapshotFunc = func(context.Context, string, io.Reader) (store.Snapshot, error) {
+		return store.Snapshot{}, firecracker.ErrInvalidSnapshotBundle
+	}
+	rec = request(t, handler, http.MethodPost, "/snapshots/imported/import", "not-a-bundle")
 	assertStatus(t, rec, http.StatusBadRequest)
 }
 

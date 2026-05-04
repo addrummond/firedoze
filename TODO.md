@@ -10,6 +10,5 @@
 - Consider best default idle timeout.
 - Make sure that all API 404 responses are explicit about WHAT doesn't exist.
 - Put this in Readme, but check it's true: Ordinary SSH access, so tools like ssh, scp, rsync, and VS Code Remote SSH work as if it were a normal Linux box
-- File import and export of images.
 - CI and release building for client tool
 - Explore adopting running Firecracker processes across daemon restarts if less disruptive upgrades become important.

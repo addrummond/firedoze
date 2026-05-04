@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -153,6 +154,11 @@ func TestVMSettingsPatchBody(t *testing.T) {
 
 func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	var requests []cliRequest
+	inputPath := filepath.Join(t.TempDir(), "snap.firedoze-snapshot.tgz")
+	if err := os.WriteFile(inputPath, []byte("bundle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "exported.firedoze-snapshot.tgz")
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
@@ -165,6 +171,10 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 			_, _ = io.WriteString(w, `{"snapshot":{"name":"snap","source_vm":"demo"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/snapshots/snap/restore":
 			_, _ = io.WriteString(w, `{"vm":{"name":"copy","state":"stopped"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/snapshots/snap/export":
+			_, _ = io.WriteString(w, `bundle`)
+		case r.Method == http.MethodPost && r.URL.Path == "/snapshots/imported/import":
+			_, _ = io.WriteString(w, `{"snapshot":{"name":"imported","source_vm":"demo"}}`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/snapshots/snap":
 			_, _ = io.WriteString(w, `{"status":"deleted"}`)
 		default:
@@ -178,6 +188,8 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		{"inspect", "snap"},
 		{"save", "snap", "demo"},
 		{"restore", "snap", "copy", "-vcpus", "2", "-memory-mib", "512", "-http-port", "3000", "-publish"},
+		{"export", "snap", outputPath},
+		{"import", "imported", inputPath},
 		{"delete", "snap"},
 	}
 	for _, args := range commands {
@@ -192,6 +204,8 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		"GET /snapshots/snap",
 		"POST /snapshots",
 		"POST /snapshots/snap/restore",
+		"GET /snapshots/snap/export",
+		"POST /snapshots/imported/import",
 		"DELETE /snapshots/snap",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -214,6 +228,16 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		restoreBody["default_http_port"] != float64(3000) ||
 		restoreBody["public_http"] != true {
 		t.Fatalf("restore body = %#v", restoreBody)
+	}
+	exported, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(exported) != "bundle" {
+		t.Fatalf("exported file = %q, want bundle", exported)
+	}
+	if requests[5].body != "bundle" {
+		t.Fatalf("import body = %q, want bundle", requests[5].body)
 	}
 }
 

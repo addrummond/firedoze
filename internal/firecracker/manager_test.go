@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -622,6 +623,70 @@ func TestSaveSnapshotFromStoppedVMCopiesDiskOnly(t *testing.T) {
 	}
 	if string(data) != "disk" {
 		t.Fatalf("snapshot disk = %q, want disk", data)
+	}
+}
+
+func TestSnapshotExportImportBundlePreservesDiskAndMetadata(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	layout := m.snapshotLayout("snap")
+	if err := os.MkdirAll(layout.dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.diskPath, []byte("snapshot disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSnapshot(ctx, store.CreateSnapshotParams{
+		Name:              "snap",
+		SourceVM:          "source",
+		DiskPath:          layout.diskPath,
+		BaseImageID:       "base-id",
+		KernelID:          "kernel-id",
+		BaseImageMetadata: `{"image":"metadata"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var bundle bytes.Buffer
+	if err := m.ExportSnapshot(ctx, "snap", &bundle); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := m.ImportSnapshot(ctx, "imported", bytes.NewReader(bundle.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.Name != "imported" || imported.SourceVM != "source" || imported.BaseImageID != "base-id" || imported.KernelID != "kernel-id" {
+		t.Fatalf("imported snapshot = %#v", imported)
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal([]byte(imported.BaseImageMetadata), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["image"] != "metadata" {
+		t.Fatalf("imported metadata = %#v", metadata)
+	}
+	data, err := os.ReadFile(m.snapshotLayout("imported").diskPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "snapshot disk" {
+		t.Fatalf("imported disk = %q, want snapshot disk", data)
+	}
+
+	_, err = m.ImportSnapshot(ctx, "imported", bytes.NewReader(bundle.Bytes()))
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("duplicate import error = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestSnapshotImportRejectsInvalidBundleAndCleansDirectory(t *testing.T) {
+	m, _ := newTestManager(t)
+	_, err := m.ImportSnapshot(context.Background(), "bad", strings.NewReader("not a bundle"))
+	if !errors.Is(err, ErrInvalidSnapshotBundle) {
+		t.Fatalf("ImportSnapshot error = %v, want ErrInvalidSnapshotBundle", err)
+	}
+	if _, err := os.Stat(m.snapshotLayout("bad").dir); !os.IsNotExist(err) {
+		t.Fatalf("bad snapshot dir stat error = %v, want not exist", err)
 	}
 }
 

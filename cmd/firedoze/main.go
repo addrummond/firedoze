@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -556,7 +557,7 @@ func (a app) updatePublicHTTP(name string, public bool) (vmInfo, error) {
 
 func (a app) snapshot(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze snapshot <list|inspect|save|restore|delete>")
+		return errors.New("usage: firedoze snapshot <list|inspect|save|restore|export|import|delete>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -607,6 +608,16 @@ func (a app) snapshot(args []string) error {
 			return err
 		}
 		return a.printJSONOrLine(out, fmt.Sprintf("%s restored as %s", snapshotName, vmName))
+	case "export":
+		if len(args) != 3 {
+			return errors.New("usage: firedoze snapshot export <snapshot> <file>")
+		}
+		return a.exportSnapshot(args[1], args[2])
+	case "import":
+		if len(args) != 3 {
+			return errors.New("usage: firedoze snapshot import <snapshot> <file>")
+		}
+		return a.importSnapshot(args[1], args[2])
 	case "delete", "rm":
 		if len(args) != 2 {
 			return errors.New("usage: firedoze snapshot delete <snapshot>")
@@ -619,6 +630,57 @@ func (a app) snapshot(args []string) error {
 	default:
 		return fmt.Errorf("unknown snapshot command %q", args[0])
 	}
+}
+
+func (a app) exportSnapshot(name string, outputPath string) error {
+	if outputPath == "" {
+		return errors.New("output file is required")
+	}
+	dir := filepath.Dir(outputPath)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(outputPath)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	resp, err := a.client.doRaw(context.Background(), http.MethodGet, "/snapshots/"+url.PathEscape(name)+"/export", nil, "")
+	if err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	defer resp.Body.Close()
+	_, copyErr := io.Copy(tmp, resp.Body)
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		return err
+	}
+	cleanup = false
+	return a.printJSONOrLine(map[string]string{"snapshot": name, "file": outputPath}, fmt.Sprintf("%s exported to %s", name, outputPath))
+}
+
+func (a app) importSnapshot(name string, inputPath string) error {
+	in, err := os.Open(inputPath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	var out map[string]any
+	if err := a.client.doStreamJSON(context.Background(), http.MethodPost, "/snapshots/"+url.PathEscape(name)+"/import", "application/gzip", in, &out); err != nil {
+		return err
+	}
+	return a.printJSONOrLine(out, fmt.Sprintf("%s imported from %s", name, inputPath))
 }
 
 func (a app) route(args []string) error {
@@ -1110,21 +1172,16 @@ func formatDuration(duration time.Duration) string {
 
 func (c *client) do(ctx context.Context, method string, path string, body any, out any) error {
 	var requestBody io.Reader
+	contentType := ""
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
 		requestBody = bytes.NewReader(data)
+		contentType = "application/json"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, requestBody)
-	if err != nil {
-		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
+	resp, err := c.doRaw(ctx, method, path, requestBody, contentType)
 	if err != nil {
 		return err
 	}
@@ -1134,19 +1191,56 @@ func (c *client) do(ctx context.Context, method string, path string, body any, o
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errBody struct {
-			Error string `json:"error"`
-		}
-		if json.Unmarshal(data, &errBody) == nil && errBody.Error != "" {
-			return apiError{StatusCode: resp.StatusCode, Message: errBody.Error}
-		}
-		return apiError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(data))}
+	if out == nil || len(data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(data, out)
+}
+
+func (c *client) doStreamJSON(ctx context.Context, method string, path string, contentType string, body io.Reader, out any) error {
+	resp, err := c.doRaw(ctx, method, path, body, contentType)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
 	}
 	if out == nil || len(data) == 0 {
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+func (c *client) doRaw(ctx context.Context, method string, path string, body io.Reader, contentType string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		var errBody struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &errBody) == nil && errBody.Error != "" {
+			return nil, apiError{StatusCode: resp.StatusCode, Message: errBody.Error}
+		}
+		return nil, apiError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(data))}
+	}
+	return resp, nil
 }
 
 func (a app) printJSONOrLine(value any, line string) error {
@@ -1345,6 +1439,8 @@ Commands:
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
   snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
+  snapshot export <snapshot> <file>
+  snapshot import <snapshot> <file>
   snapshot delete <snapshot>
   route list
   route create <route> <vm> <port>
