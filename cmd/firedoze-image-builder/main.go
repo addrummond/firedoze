@@ -40,6 +40,10 @@ const (
 	nobleBusyBoxStaticSHA256 = "944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed"
 )
 
+var packagedGuestHelloBinaries = map[string]string{
+	"amd64": "/usr/lib/firedoze/firedoze-hello-linux-amd64",
+}
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -88,9 +92,10 @@ Options:
   -h               Show this help
 
 The builder is native Go. It does not require Docker, Podman, root, mounting,
-or host ext4 support. It should be run from a firedoze source checkout so it
-can compile the small Linux guest helper binaries. Default Ubuntu artifacts are
-pinned and SHA-256 verified.
+or host ext4 support. Release packages include the small Linux guest helper
+binary needed by the generated image. When running from a source checkout, the
+builder can also compile that helper itself. Default Ubuntu artifacts are pinned
+and SHA-256 verified.
 `)
 }
 
@@ -529,6 +534,19 @@ func extractBusyBoxFromDataTar(name string, data []byte) ([]byte, error) {
 }
 
 func buildGuestHelloBinary(arch string) ([]byte, error) {
+	if path := packagedGuestHelloBinaries[arch]; path != "" {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("read packaged firedoze-hello guest binary %s: %w", path, err)
+		}
+	}
+	return buildGuestHelloBinaryFromSource(arch)
+}
+
+func buildGuestHelloBinaryFromSource(arch string) ([]byte, error) {
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		return nil, err

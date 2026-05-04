@@ -68,9 +68,11 @@ build_linux_packages() {
   local package_root="$tmp_dir/package-root-linux-amd64"
 
   mkdir -p "$package_root/usr/bin"
+  mkdir -p "$package_root/usr/lib/firedoze"
   build_binary linux amd64 ./cmd/firedoze "$package_root/usr/bin/firedoze"
   build_binary linux amd64 ./cmd/firedozed "$package_root/usr/bin/firedozed"
   build_binary linux amd64 ./cmd/firedoze-image-builder "$package_root/usr/bin/firedoze-image-builder"
+  build_binary linux amd64 ./cmd/firedoze-hello "$package_root/usr/lib/firedoze/firedoze-hello-linux-amd64"
 
   export FIREDOZE_VERSION="$version"
   export FIREDOZE_PACKAGE_RELEASE="${FIREDOZE_PACKAGE_RELEASE:-1}"

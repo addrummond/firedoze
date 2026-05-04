@@ -643,6 +643,28 @@ func TestBuildGuestHelloBinaryRejectsUnsupportedArch(t *testing.T) {
 	}
 }
 
+func TestBuildGuestHelloBinaryUsesPackagedBinary(t *testing.T) {
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "firedoze-hello-linux-amd64")
+	if err := os.WriteFile(binPath, []byte("packaged-hello"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	old := packagedGuestHelloBinaries
+	packagedGuestHelloBinaries = map[string]string{"amd64": binPath}
+	t.Cleanup(func() {
+		packagedGuestHelloBinaries = old
+	})
+
+	got, err := buildGuestHelloBinary("amd64")
+	if err != nil {
+		t.Fatalf("buildGuestHelloBinary: %v", err)
+	}
+	if string(got) != "packaged-hello" {
+		t.Fatalf("buildGuestHelloBinary = %q, want packaged binary", got)
+	}
+}
+
 func TestTextHelpers(t *testing.T) {
 	if got := ensureNamedLineText("", "ubuntu", "ubuntu:x:1000"); got != "ubuntu:x:1000\n" {
 		t.Fatalf("ensureNamedLineText empty = %q", got)

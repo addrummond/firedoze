@@ -18,6 +18,7 @@ description: |-
 
 depends:
   - ca-certificates
+  - e2fsprogs
   - iptables
   - systemd
 
@@ -36,6 +37,12 @@ contents:
 
   - src: ${FIREDOZE_PACKAGE_ROOT}/usr/bin/firedoze-image-builder
     dst: /usr/bin/firedoze-image-builder
+    expand: true
+    file_info:
+      mode: 0755
+
+  - src: ${FIREDOZE_PACKAGE_ROOT}/usr/lib/firedoze/firedoze-hello-linux-amd64
+    dst: /usr/lib/firedoze/firedoze-hello-linux-amd64
     expand: true
     file_info:
       mode: 0755

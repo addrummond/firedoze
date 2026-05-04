@@ -28,30 +28,34 @@ On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs iptables
+sudo apt-get install -y ca-certificates curl wireguard-tools e2fsprogs xfsprogs iptables
 ```
 
 ## 2. Setup
 
-Install `mise` on the Linux host. The project uses `.tool-versions` to pin the Go toolchain and Task version.
+The fastest possible setup is to install a release package, install the pinned
+Firecracker binary, build the base image, create the host config, add each
+laptop as a WireGuard peer, then start `firedozed`. Replace `0.1.0` with the
+current Firedoze release:
 
 ```sh
-curl https://mise.run/bash | sh
-source ~/.bashrc
-```
+version=0.1.0
+curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+sudo apt install "./firedoze_${version}_linux_amd64.deb"
 
-Clone the private repo on the Linux host and install the pinned tools:
+tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
+  curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
+  printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c - && \
+  tar -xzf "$tmp/$tarball" -C "$tmp" && \
+  sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker && \
+  /usr/local/bin/firecracker --version && rm -rf "$tmp"
 
-```sh
-git clone REPO_URL firedoze
-cd firedoze
-mise install
-```
+firedoze-image-builder build -out /var/tmp/firedoze-base-image
+sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
 
-The fastest possible setup is:
-
-```sh
-task setup:host
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
@@ -82,15 +86,29 @@ The rest of this section explains the above steps in order.
 
 ### 2.1 Install Firedoze
 
-This quickstart uses the source installer because you need the checkout for the
-base image build. If you are installing from a release `.deb` or `.rpm`, see
-[Release Packages](release-packages.md), then continue from the Firecracker
-step below.
+Download the release package for your host. For the full Sigstore verification
+flow, see [Release Packages](release-packages.md).
 
-The installer:
+On Debian or Ubuntu:
 
-- Builds `firedoze`, `firedozed`, and `firedoze-image-builder` from the checked-out source.
-- Installs them to `/usr/local/bin`.
+```sh
+version=0.1.0
+curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+sudo apt install "./firedoze_${version}_linux_amd64.deb"
+```
+
+On RPM-based distributions:
+
+```sh
+version=0.1.0
+curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.rpm"
+sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
+```
+
+The package:
+
+- Installs `firedoze`, `firedozed`, and `firedoze-image-builder` to `/usr/bin`.
+- Installs the packaged Linux guest helper used by the base image builder.
 - Creates the `firedoze` system user and adds it to the `kvm` group when that group exists.
 - Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
 - Installs an example config at `/etc/firedoze/firedoze.example.toml`.
@@ -103,30 +121,38 @@ Existing config and VM state are left alone when you reinstall. The real config 
 Install the pinned upstream Firecracker VMM binary:
 
 ```sh
-task firecracker:install
+tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
+  curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
+  printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c - && \
+  tar -xzf "$tmp/$tarball" -C "$tmp" && \
+  sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker && \
+  /usr/local/bin/firecracker --version && rm -rf "$tmp"
 ```
 
-This downloads the release tarball declared in `Taskfile.yml`, validates its SHA-256 checksum, and installs it as `/usr/local/bin/firecracker`.
+This downloads Firecracker `v1.15.1`, validates the pinned SHA-256 checksum, and installs it as `/usr/local/bin/firecracker`.
 
 ### 2.3 Build and install base images
 
-Build the Firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support. Run it from the Firedoze source checkout so it can compile the small Linux guest helper binaries.
+Build the Firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, a source checkout, or host ext4 support.
 
-From the repo checkout, run:
+Run:
 
 ```sh
-task image:build
+firedoze-image-builder build -out /var/tmp/firedoze-base-image
 ```
 
-The `image:build` task builds `./firedoze-image-builder`, downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
+The image builder downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
 
 Install the generated image artifacts:
 
 ```sh
-task image:install
+sudo install -d -o firedoze -g firedoze -m 0755 /var/lib/firedoze/images
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/vmlinux.bin /var/lib/firedoze/images/vmlinux.bin
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/initrd.img /var/lib/firedoze/images/initrd.img
+sudo install -o firedoze -g firedoze -m 0644 /var/tmp/firedoze-base-image/rootfs.ext4 /var/lib/firedoze/images/rootfs.ext4
 ```
 
-The install task copies the generated files here:
+These files are installed here:
 
 ```text
 /var/lib/firedoze/images/vmlinux.bin
@@ -684,29 +710,36 @@ origin connection.
 
 ## Upgrade or Uninstall
 
-To upgrade from a newer checkout, run the installer again:
+To upgrade, install the newer release package, then restart the daemon:
 
 ```sh
-git pull
-mise install
-./scripts/install.sh
+version=0.1.1
+curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+sudo apt install "./firedoze_${version}_linux_amd64.deb"
 sudo systemctl restart firedozed
 ```
 
-The installer leaves existing config and VM state untouched.
+Use the matching `.rpm` with `sudo dnf install` on RPM-based distributions.
+Package upgrades leave existing config and VM state untouched.
 
 Restarting the daemon temporarily interrupts the management API and public
 proxy. Running VMs are slept during shutdown and automatically started again
 after the new daemon comes up.
 
-To remove installed binaries and the systemd unit while keeping config, images, VMs, snapshots, and logs:
+To remove installed binaries and the systemd unit while keeping config, images,
+VMs, snapshots, and logs:
 
 ```sh
-sudo ./scripts/uninstall.sh
+sudo apt remove firedoze
 ```
 
-To remove everything, including config and all VM state:
+Use `sudo dnf remove firedoze` on RPM-based distributions.
+
+To remove everything, including config and all VM state, stop the daemon, remove
+the package, and delete the state directories:
 
 ```sh
-sudo ./scripts/uninstall.sh -purge
+sudo systemctl stop firedozed
+sudo apt remove firedoze
+sudo rm -rf /etc/firedoze /var/lib/firedoze /var/log/firedoze
 ```
