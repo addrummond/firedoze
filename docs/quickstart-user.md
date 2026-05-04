@@ -12,10 +12,10 @@ Ask the Firedoze admin for:
 
 Install these local tools:
 
-- The `firedoze` client, built from this repo.
-- WireGuard, either the WireGuard app or `wg-quick`.
-- `ssh`.
-- `rsync`, if you want to use `firedoze cp`.
+- The `firedoze` client, built from this repo
+- WireGuard, either the WireGuard app or `wg-quick`
+- `ssh`
+- `rsync`, if you want to use `firedoze cp`
 
 ## 2. Generate Your WireGuard Key
 
