@@ -51,8 +51,6 @@ The generated WireGuard config includes a commented `firedoze server add ...` co
 firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
 ```
 
-The client adds the default API port, `8081`, when the URL has no port. If the generated command includes a URL with a port, use it exactly.
-
 If you use more than one Firedoze server, add each one with a different name:
 
 ```sh
