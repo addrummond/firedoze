@@ -451,6 +451,52 @@ func TestWireGuardBindIP(t *testing.T) {
 	}
 }
 
+func TestReloadWireGuardPeerConfigOnlyAppliesPeers(t *testing.T) {
+	path, cfg, _ := writeTestConfig(t, nil)
+	aliceKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded := cfg
+	reloaded.WireGuard.Interface = "fdwg-new"
+	reloaded.WireGuard.ListenPort = 51821
+	reloaded.WireGuard.Address = "fd7a:115c:a1e2::1/64"
+	reloaded.WireGuard.Endpoint = "changed.example:51820"
+	reloaded.WireGuard.PrivateKeyFile = filepath.Join(t.TempDir(), "changed.key")
+	reloaded.WireGuard.Peers = []config.WGPeer{{
+		Name:       "alice",
+		PublicKey:  aliceKey.PublicKey().String(),
+		AllowedIPs: []string{"fd7a:115c:a1e1::2/128"},
+	}}
+	if err := os.WriteFile(path, []byte(reloaded.TOML()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reconciler := &fakeWireGuardPeerReconciler{}
+	next, err := reloadWireGuardPeerConfig(context.Background(), path, cfg.WireGuard, reconciler, discardLogger())
+	if err != nil {
+		t.Fatalf("reloadWireGuardPeerConfig: %v", err)
+	}
+	if reconciler.calls != 1 {
+		t.Fatalf("reconcile calls = %d, want 1", reconciler.calls)
+	}
+	if reconciler.oldCfg.Interface != cfg.WireGuard.Interface {
+		t.Fatalf("old interface = %q, want %q", reconciler.oldCfg.Interface, cfg.WireGuard.Interface)
+	}
+	if reconciler.newCfg.Interface != cfg.WireGuard.Interface {
+		t.Fatalf("new interface = %q, want unchanged %q", reconciler.newCfg.Interface, cfg.WireGuard.Interface)
+	}
+	if got := len(reconciler.newCfg.Peers); got != 1 {
+		t.Fatalf("new peer count = %d, want 1", got)
+	}
+	if next.Interface != cfg.WireGuard.Interface || next.ListenPort != cfg.WireGuard.ListenPort || next.Address != cfg.WireGuard.Address {
+		t.Fatalf("reload changed non-peer runtime config: %#v", next)
+	}
+	if got := next.Peers[0].Name; got != "alice" {
+		t.Fatalf("reloaded peer = %q, want alice", got)
+	}
+}
+
 type fakeRestartStarter struct {
 	names []string
 	err   error
@@ -458,6 +504,20 @@ type fakeRestartStarter struct {
 
 func (f *fakeRestartStarter) StartVMs(ctx context.Context, names []string) error {
 	f.names = append(f.names, names...)
+	return f.err
+}
+
+type fakeWireGuardPeerReconciler struct {
+	calls  int
+	oldCfg config.WireGuardConfig
+	newCfg config.WireGuardConfig
+	err    error
+}
+
+func (f *fakeWireGuardPeerReconciler) ReconcileWireGuardPeers(ctx context.Context, oldCfg, newCfg config.WireGuardConfig) error {
+	f.calls++
+	f.oldCfg = oldCfg
+	f.newCfg = newCfg
 	return f.err
 }
 

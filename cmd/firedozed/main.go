@@ -232,6 +232,7 @@ func run(args []string) int {
 		defer cancelIdle()
 		go firecracker.NewIdleMonitor(manager, proxyManager, logger).Run(idleCtx)
 		go firecracker.NewColdStorageMonitor(manager, logger).Run(idleCtx)
+		go watchWireGuardPeerConfig(idleCtx, configPath, cfg.WireGuard, host.NewLinuxOps(logger), logger)
 		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
@@ -376,4 +377,98 @@ func wireGuardBindIP(address string) (net.IP, error) {
 		return nil, err
 	}
 	return ip, nil
+}
+
+var configWatchInterval = 2 * time.Second
+
+type wireGuardPeerReconciler interface {
+	ReconcileWireGuardPeers(ctx context.Context, oldCfg, newCfg config.WireGuardConfig) error
+}
+
+type fileSignature struct {
+	modTime time.Time
+	size    int64
+}
+
+func watchWireGuardPeerConfig(ctx context.Context, path string, initial config.WireGuardConfig, ops wireGuardPeerReconciler, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	current := initial
+	lastSig, err := configFileSignature(path)
+	if err != nil {
+		logger.Warn("watch wireguard config", "path", path, "error", err)
+	}
+	ticker := time.NewTicker(configWatchInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			nextSig, err := configFileSignature(path)
+			if err != nil {
+				logger.Warn("stat config for wireguard peer reload", "path", path, "error", err)
+				continue
+			}
+			if nextSig == lastSig {
+				continue
+			}
+			next, err := reloadWireGuardPeerConfig(ctx, path, current, ops, logger)
+			if err != nil {
+				logger.Warn("reload wireguard peers", "path", path, "error", err)
+				continue
+			}
+			current = next
+			lastSig = nextSig
+		}
+	}
+}
+
+func reloadWireGuardPeerConfig(ctx context.Context, path string, current config.WireGuardConfig, ops wireGuardPeerReconciler, logger *slog.Logger) (config.WireGuardConfig, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		return current, err
+	}
+	logWireGuardRestartOnlyChanges(logger, current, reloaded.WireGuard)
+	target := current
+	target.Peers = reloaded.WireGuard.Peers
+	if err := ops.ReconcileWireGuardPeers(ctx, current, target); err != nil {
+		return current, err
+	}
+	return target, nil
+}
+
+func configFileSignature(path string) (fileSignature, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileSignature{}, err
+	}
+	return fileSignature{modTime: info.ModTime(), size: info.Size()}, nil
+}
+
+func logWireGuardRestartOnlyChanges(logger *slog.Logger, current, reloaded config.WireGuardConfig) {
+	var fields []string
+	if current.Interface != reloaded.Interface {
+		fields = append(fields, "interface")
+	}
+	if current.ListenPort != reloaded.ListenPort {
+		fields = append(fields, "listen_port")
+	}
+	if current.Address != reloaded.Address {
+		fields = append(fields, "address")
+	}
+	if current.Endpoint != reloaded.Endpoint {
+		fields = append(fields, "endpoint")
+	}
+	if current.PrivateKeyFile != reloaded.PrivateKeyFile {
+		fields = append(fields, "private_key_file")
+	}
+	if len(fields) == 0 {
+		return
+	}
+	logger.Warn("wireguard config fields changed but require daemon restart", "fields", fields)
 }

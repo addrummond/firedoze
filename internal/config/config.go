@@ -70,6 +70,7 @@ func (c WireGuardConfig) Validate() error {
 		return fmt.Errorf("wireguard.address must be IPv6")
 	}
 	peerNames := map[string]int{}
+	peerPublicKeys := map[string]int{}
 	peerAllowedIPs := map[string]int{}
 	for i, peer := range c.Peers {
 		if peer.Name == "" {
@@ -82,6 +83,10 @@ func (c WireGuardConfig) Validate() error {
 		if peer.PublicKey == "" {
 			return fmt.Errorf("wireguard.peers[%d].public_key is required", i)
 		}
+		if first, ok := peerPublicKeys[peer.PublicKey]; ok {
+			return fmt.Errorf("wireguard.peers[%d].public_key duplicates wireguard.peers[%d].public_key", i, first)
+		}
+		peerPublicKeys[peer.PublicKey] = i
 		if len(peer.AllowedIPs) == 0 {
 			return fmt.Errorf("wireguard.peers[%d].allowed_ips is required", i)
 		}

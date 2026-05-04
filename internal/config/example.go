@@ -70,6 +70,8 @@ private_key_file = "/etc/firedoze/wg.key"
 #
 # firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> appends the peer block
 # automatically and prints a client config with a private-key placeholder.
+# Running daemons apply peer additions, removals, and peer address changes
+# automatically.
 
 [host_firewall]
 enabled = true

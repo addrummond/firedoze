@@ -427,6 +427,92 @@ func TestEnsureWireGuardConfiguresDevice(t *testing.T) {
 	}
 }
 
+func TestReconcileWireGuardPeersAppliesPeerDiff(t *testing.T) {
+	restoreWG := stubWG(t)
+	defer restoreWG()
+
+	oldCfg := validWireGuardConfig(t)
+	alice := oldCfg.Peers[0]
+	bobKey := generateWGPrivateKey(t)
+	carolKey := generateWGPrivateKey(t)
+	oldCfg.Peers = []config.WGPeer{
+		alice,
+		{
+			Name:       "bob",
+			PublicKey:  bobKey.PublicKey().String(),
+			AllowedIPs: []string{"fd7a:115c:a1e1::3/128"},
+		},
+	}
+	newCfg := oldCfg
+	newCfg.Peers = []config.WGPeer{
+		{
+			Name:       "bob",
+			PublicKey:  bobKey.PublicKey().String(),
+			AllowedIPs: []string{"fd7a:115c:a1e1::30/128"},
+		},
+		{
+			Name:       "carol",
+			PublicKey:  carolKey.PublicKey().String(),
+			AllowedIPs: []string{"fd7a:115c:a1e1::4/128"},
+		},
+	}
+
+	client := &fakeWGClient{}
+	wgctrlNew = func() (wgClient, error) {
+		return client, nil
+	}
+
+	if err := NewLinuxOps(nil).ReconcileWireGuardPeers(context.Background(), oldCfg, newCfg); err != nil {
+		t.Fatalf("ReconcileWireGuardPeers: %v", err)
+	}
+	if !client.closed {
+		t.Fatal("wgctrl client was not closed")
+	}
+	if client.device != oldCfg.Interface {
+		t.Fatalf("configured device = %q, want %q", client.device, oldCfg.Interface)
+	}
+	if client.configureCalls != 1 {
+		t.Fatalf("ConfigureDevice calls = %d, want 1", client.configureCalls)
+	}
+	if client.config.ReplacePeers {
+		t.Fatal("peer reload used ReplacePeers, want incremental peer update")
+	}
+	if client.config.PrivateKey != nil || client.config.ListenPort != nil {
+		t.Fatalf("peer reload changed non-peer device config: %#v", client.config)
+	}
+
+	actions := map[string]wgtypes.PeerConfig{}
+	for _, peer := range client.config.Peers {
+		actions[peer.PublicKey.String()] = peer
+	}
+	if got := len(actions); got != 3 {
+		t.Fatalf("peer action count = %d, want 3", got)
+	}
+	if action := actions[alice.PublicKey]; !action.Remove {
+		t.Fatalf("alice action = %#v, want removal", action)
+	}
+	if action := actions[bobKey.PublicKey().String()]; action.Remove || !action.ReplaceAllowedIPs || len(action.AllowedIPs) != 1 || action.AllowedIPs[0].String() != "fd7a:115c:a1e1::30/128" {
+		t.Fatalf("bob action = %#v, want allowed IP replacement", action)
+	}
+	if action := actions[carolKey.PublicKey().String()]; action.Remove || !action.ReplaceAllowedIPs || len(action.AllowedIPs) != 1 || action.AllowedIPs[0].String() != "fd7a:115c:a1e1::4/128" {
+		t.Fatalf("carol action = %#v, want add with allowed IPs", action)
+	}
+}
+
+func TestReconcileWireGuardPeersNoopsWhenUnchanged(t *testing.T) {
+	restoreWG := stubWG(t)
+	defer restoreWG()
+
+	cfg := validWireGuardConfig(t)
+	wgctrlNew = func() (wgClient, error) {
+		t.Fatal("wgctrlNew called for unchanged peers")
+		return nil, nil
+	}
+	if err := NewLinuxOps(nil).ReconcileWireGuardPeers(context.Background(), cfg, cfg); err != nil {
+		t.Fatalf("ReconcileWireGuardPeers unchanged: %v", err)
+	}
+}
+
 func TestEnsureWireGuardErrors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -687,10 +773,7 @@ func stubRunCommand(t *testing.T) func() {
 
 func validWireGuardConfig(t *testing.T) config.WireGuardConfig {
 	t.Helper()
-	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
+	peerPrivateKey := generateWGPrivateKey(t)
 	return config.WireGuardConfig{
 		Interface:      "fdwg-test",
 		ListenPort:     51820,
@@ -706,16 +789,27 @@ func validWireGuardConfig(t *testing.T) config.WireGuardConfig {
 	}
 }
 
+func generateWGPrivateKey(t *testing.T) wgtypes.Key {
+	t.Helper()
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
 type fakeWGClient struct {
-	device       string
-	config       wgtypes.Config
-	configureErr error
-	closed       bool
+	device         string
+	config         wgtypes.Config
+	configureErr   error
+	configureCalls int
+	closed         bool
 }
 
 func (c *fakeWGClient) ConfigureDevice(name string, cfg wgtypes.Config) error {
 	c.device = name
 	c.config = cfg
+	c.configureCalls++
 	return c.configureErr
 }
 

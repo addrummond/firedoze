@@ -9,6 +9,7 @@ import (
 
 type Ops interface {
 	EnsureWireGuard(ctx context.Context, cfg config.WireGuardConfig) error
+	ReconcileWireGuardPeers(ctx context.Context, oldCfg, newCfg config.WireGuardConfig) error
 	EnsureFirewall(ctx context.Context, cfg config.Config) error
 }
 

@@ -233,6 +233,8 @@ sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 
 The command picks the next free client address, updates `/etc/firedoze/firedoze.toml` automatically, and prints a WireGuard client config for Alice. The printed config contains `<client-private-key>` as a placeholder; Alice replaces that placeholder with the private key generated on her laptop.
 
+If `firedozed` is already running, it watches the config file and applies WireGuard peer additions, removals, and peer address changes automatically. Other config changes still need a service restart.
+
 To choose the client address yourself, pass a unique `/128` address inside the generated WireGuard subnet:
 
 ```sh

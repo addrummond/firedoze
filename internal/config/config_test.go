@@ -20,6 +20,19 @@ func TestWireGuardConfigRejectsDuplicatePeerNames(t *testing.T) {
 	}
 }
 
+func TestWireGuardConfigRejectsDuplicatePeerPublicKeys(t *testing.T) {
+	cfg := Default().WireGuard
+	cfg.Peers = []WGPeer{
+		{Name: "alice-laptop", PublicKey: "same-key", AllowedIPs: []string{"fd7a:115c:a1e1::2/128"}},
+		{Name: "bob-laptop", PublicKey: "same-key", AllowedIPs: []string{"fd7a:115c:a1e1::3/128"}},
+	}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "public_key duplicates") {
+		t.Fatalf("Validate error = %v, want duplicate peer public key error", err)
+	}
+}
+
 func TestWireGuardConfigRejectsDuplicatePeerAllowedIPs(t *testing.T) {
 	cfg := Default().WireGuard
 	cfg.Peers = []WGPeer{
