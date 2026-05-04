@@ -179,6 +179,7 @@ Every VM always gets its default hostname:
 ```
 
 The VM name reserves that hostname. No separate route/alias can use another VM's name.
+Likewise, no VM can be created or restored with a name already used by a route alias.
 
 ## DNS
 

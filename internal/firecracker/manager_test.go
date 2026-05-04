@@ -124,6 +124,24 @@ func TestCreateVMValidationAndExplicitAutoWake(t *testing.T) {
 	}
 }
 
+func TestCreateAndRestoreRejectRouteNameConflict(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "owner", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "alias", VMName: "owner", Port: 8080}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.CreateVM(ctx, store.CreateVMParams{Name: "alias"}); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("CreateVM route-name conflict error = %v, want ErrAlreadyExists", err)
+	}
+	if _, err := m.RestoreSnapshot(ctx, "missing-snapshot", store.CreateVMParams{Name: "alias"}); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("RestoreSnapshot route-name conflict error = %v, want ErrAlreadyExists", err)
+	}
+}
+
 func TestBaseImageMetadataCacheAndManifestParsing(t *testing.T) {
 	m, _ := newTestManager(t)
 	configureTestBaseImage(t, m)

@@ -19,11 +19,27 @@ type CreateRouteParams struct {
 }
 
 func (s *Store) CreateRoute(ctx context.Context, params CreateRouteParams) (Route, error) {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Route{}, err
+	}
+	defer tx.Rollback()
+
+	var vmExists bool
+	if err := tx.QueryRowContext(ctx, `select exists(select 1 from vms where name = ?)`, params.Name).Scan(&vmExists); err != nil {
+		return Route{}, err
+	}
+	if vmExists {
+		return Route{}, fmt.Errorf("%w: VM %q reserves route name", ErrAlreadyExists, params.Name)
+	}
+	_, err = tx.ExecContext(ctx, `
 		insert into routes (name, vm_name, port, is_default)
 		values (?, ?, ?, ?)
 	`, params.Name, params.VMName, params.Port, boolInt(params.IsDefault))
 	if err != nil {
+		return Route{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Route{}, err
 	}
 	return s.GetRoute(ctx, params.Name)
@@ -92,6 +108,14 @@ func (s *Store) DeleteRoutesForVM(ctx context.Context, vmName string) error {
 func (s *Store) VMExists(ctx context.Context, name string) (bool, error) {
 	var exists bool
 	if err := s.db.QueryRowContext(ctx, `select exists(select 1 from vms where name = ?)`, name).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (s *Store) RouteExists(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `select exists(select 1 from routes where name = ?)`, name).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil

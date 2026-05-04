@@ -35,8 +35,28 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 	if route.Name != "web" || route.VMName != "dev" || route.Port != 8080 {
 		t.Fatalf("route = %#v", route)
 	}
+	exists, err = st.RouteExists(ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("RouteExists(web) = false, want true")
+	}
+	exists, err = st.RouteExists(ctx, "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("RouteExists(missing) = true, want false")
+	}
 	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "web", VMName: "dev", Port: 8081}); err == nil {
 		t.Fatal("duplicate route create succeeded")
+	}
+	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "dev", VMName: "api", Port: 8080}); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("CreateRoute with VM name error = %v, want ErrAlreadyExists", err)
+	}
+	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "web", PrivateIP: "fd00::4", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("CreateVM with route name error = %v, want ErrAlreadyExists", err)
 	}
 
 	routes, err := st.ListRoutes(ctx)

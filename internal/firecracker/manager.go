@@ -128,6 +128,13 @@ func (m *Manager) ReconcileStartup(ctx context.Context) error {
 }
 
 func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (store.VM, error) {
+	routeExists, err := m.store.RouteExists(ctx, params.Name)
+	if err != nil {
+		return store.VM{}, err
+	}
+	if routeExists {
+		return store.VM{}, fmt.Errorf("%w: route %q reserves VM name", ErrAlreadyExists, params.Name)
+	}
 	if params.VCPUs == 0 {
 		params.VCPUs = m.cfg.Firecracker.DefaultVCPUs
 	}
@@ -158,7 +165,11 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 		return store.VM{}, err
 	}
 	applyBaseImageMetadata(&params, metadata)
-	return m.store.CreateVM(ctx, params)
+	vm, err := m.store.CreateVM(ctx, params)
+	if errors.Is(err, store.ErrAlreadyExists) {
+		return store.VM{}, fmt.Errorf("%w: %v", ErrAlreadyExists, err)
+	}
+	return vm, err
 }
 
 func (m *Manager) WarmBaseImageMetadata(ctx context.Context) (BaseImageMetadata, error) {
@@ -183,6 +194,13 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 	}
 	if exists {
 		return store.VM{}, fmt.Errorf("%w: vm %q", ErrAlreadyExists, params.Name)
+	}
+	routeExists, err := m.store.RouteExists(ctx, params.Name)
+	if err != nil {
+		return store.VM{}, err
+	}
+	if routeExists {
+		return store.VM{}, fmt.Errorf("%w: route %q reserves VM name", ErrAlreadyExists, params.Name)
 	}
 	snapshot, err := m.store.GetSnapshot(ctx, snapshotName)
 	if err != nil {
@@ -237,6 +255,9 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 		return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
 	}
 	vm, err := m.store.CreateVM(ctx, params)
+	if errors.Is(err, store.ErrAlreadyExists) {
+		return store.VM{}, fmt.Errorf("%w: %v", ErrAlreadyExists, err)
+	}
 	if err != nil {
 		return store.VM{}, err
 	}

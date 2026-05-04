@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrAlreadyExists = errors.New("already exists")
 
 type VM = model.VM
 
@@ -38,11 +39,27 @@ type UpdateVMParams struct {
 }
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return VM{}, err
+	}
+	defer tx.Rollback()
+
+	var routeExists bool
+	if err := tx.QueryRowContext(ctx, `select exists(select 1 from routes where name = ?)`, params.Name).Scan(&routeExists); err != nil {
+		return VM{}, err
+	}
+	if routeExists {
+		return VM{}, fmt.Errorf("%w: route %q reserves VM name", ErrAlreadyExists, params.Name)
+	}
+	_, err = tx.ExecContext(ctx, `
 		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
 		values (?, 'stopped', ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
 	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
 	if err != nil {
+		return VM{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return VM{}, err
 	}
 	return s.GetVM(ctx, params.Name)
