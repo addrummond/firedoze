@@ -12,3 +12,5 @@
 - Put this in Readme, but check it's true: Ordinary SSH access, so tools like ssh, scp, rsync, and VS Code Remote SSH work as if it were a normal Linux box
 - File import and export of images.
 - Will a regular Linux shutdown command inside a VM update its status accordingly?
+- Should image configure a firewall?
+- CI and release building for client tool
