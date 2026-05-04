@@ -371,6 +371,60 @@ func TestVMListNamesOnlyRejectsJSON(t *testing.T) {
 	}
 }
 
+func TestVMUsagePrintsResourceTable(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/usage" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := strings.Join(r.URL.Query()["name"], ","); got != "demo*" {
+			t.Fatalf("name query = %q, want demo*", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[{
+			"name":"demo",
+			"state":"running",
+			"vcpus":2,
+			"memory_mib":512,
+			"disk_bytes":4294967296,
+			"disk_allocated_bytes":1073741824,
+			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65},
+			"balloon":{"enabled":true,"actual_mib":128,"target_mib":256}
+		}]}`)
+	})
+
+	c := testClient(t, handler)
+	var out bytes.Buffer
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: c}).vm([]string{"usage", "demo*"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"NAME",
+		"BALLOON",
+		"demo",
+		"128MiB/256MiB",
+		"64MiB",
+		"1m5s",
+		"1.0GiB/4.0GiB",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("usage output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	var requests []string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

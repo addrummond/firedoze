@@ -1121,6 +1121,7 @@ func TestEnsureDiskCopyFileAndConfigHelpers(t *testing.T) {
 		BootSource:    bootSource{KernelImagePath: "kernel", BootArgs: "args"},
 		Drives:        []drive{{DriveID: "rootfs", PathOnHost: disk, IsRootDevice: true}},
 		MachineConfig: machineConfig{VCPUCount: 1, MemSizeMiB: 128},
+		Balloon:       &balloonDevice{AmountMiB: 0, DeflateOnOOM: true, StatsPollingIntervalSeconds: 5},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1131,8 +1132,63 @@ func TestEnsureDiskCopyFileAndConfigHelpers(t *testing.T) {
 	if !strings.Contains(string(configData), `"kernel_image_path": "kernel"`) {
 		t.Fatalf("firecracker config = %s", configData)
 	}
+	if !strings.Contains(string(configData), `"balloon"`) || !strings.Contains(string(configData), `"stats_polling_interval_s": 5`) {
+		t.Fatalf("firecracker config missing balloon device = %s", configData)
+	}
 	if err := waitForSocket(context.Background(), configPath, time.Millisecond); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBalloonTargetMiB(t *testing.T) {
+	tests := []struct {
+		name           string
+		memoryMiB      int
+		actualMiB      int64
+		availableBytes int64
+		minFreeMiB     int
+		want           int64
+	}{
+		{
+			name:           "reclaims free memory above reserve",
+			memoryMiB:      512,
+			actualMiB:      64,
+			availableBytes: 256 << 20,
+			minFreeMiB:     128,
+			want:           192,
+		},
+		{
+			name:           "deflates when guest available memory is below reserve",
+			memoryMiB:      512,
+			actualMiB:      256,
+			availableBytes: 64 << 20,
+			minFreeMiB:     128,
+			want:           192,
+		},
+		{
+			name:           "does not exceed guest memory minus reserve",
+			memoryMiB:      512,
+			actualMiB:      0,
+			availableBytes: 1024 << 20,
+			minFreeMiB:     128,
+			want:           384,
+		},
+		{
+			name:           "small guest keeps balloon deflated",
+			memoryMiB:      128,
+			actualMiB:      64,
+			availableBytes: 128 << 20,
+			minFreeMiB:     128,
+			want:           0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := balloonTargetMiB(tt.memoryMiB, tt.actualMiB, tt.availableBytes, tt.minFreeMiB)
+			if got != tt.want {
+				t.Fatalf("balloonTargetMiB = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -216,6 +216,7 @@ The main fields to check are:
 - `wireguard.endpoint`: the public host and UDP port laptops will connect to.
 - `wireguard.peers`: one peer per laptop.
 - `firecracker.default_memory_mib`: the default VM memory size.
+- `balloon.reclaim_min_free_mib`: the guest-memory reserve Firedoze keeps when reclaiming unused memory from running VMs.
 
 Each client generates their own WireGuard key pair locally:
 
@@ -386,6 +387,7 @@ List VMs and SSH to one:
 
 ```sh
 firedoze vm list
+firedoze vm usage
 firedoze vm inspect demo
 firedoze ssh demo
 ```
@@ -652,6 +654,30 @@ sudo xfs_info /var/lib/firedoze | grep reflink
 
 You should see `reflink=1`.
 
+## Memory Reclamation
+
+Firedoze enables Firecracker's balloon device by default for newly started VMs.
+This lets the daemon reclaim guest-free memory from running VMs without stopping
+them. It does not make VM memory fully elastic: each VM still has a configured
+memory size, but unused guest memory can be returned to the host.
+
+The default policy checks every 30 seconds and keeps at least 128 MiB available
+inside each guest:
+
+```toml
+[balloon]
+enabled = true
+stats_polling_interval_seconds = 5
+reclaim_interval_seconds = 30
+reclaim_min_free_mib = 128
+```
+
+Use the client to inspect what Firedoze can currently see:
+
+```sh
+firedoze vm usage
+```
+
 ## Cold Storage For Stopped VMs
 
 Cold storage is optional. If configured, Firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
@@ -738,6 +764,12 @@ default_sleep_after_seconds = 21600
 [cold_storage]
 dir = ""
 archive_stopped_after_seconds = 2592000
+
+[balloon]
+enabled = true
+stats_polling_interval_seconds = 5
+reclaim_interval_seconds = 30
+reclaim_min_free_mib = 128
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"

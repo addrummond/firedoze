@@ -109,6 +109,13 @@ Inspect one VM:
 firedoze vm inspect demo
 ```
 
+Check resource usage across VMs:
+
+```sh
+firedoze vm usage
+firedoze vm usage 'demo*'
+```
+
 Create one or more VMs (hidden from public web by default, not started):
 
 ```sh

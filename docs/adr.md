@@ -438,7 +438,9 @@ Per-VM memory, vCPU, and disk size are configurable.
 
 No hard maximums are required in daemon config for v1.
 
-Firedoze should expose simple aggregate resource usage in the API, but does not enforce resource limits.
+Firedoze exposes VM resource usage through the API and `firedoze vm usage`, but does not enforce resource limits.
+
+Newly started VMs get a Firecracker balloon device by default. The daemon polls balloon statistics and periodically inflates or deflates each running VM's balloon to reclaim guest-free memory while keeping a configurable amount of memory available inside the guest. This reduces idle memory pressure on the host; it does not make VM memory fully elastic, and each VM still has a configured memory size.
 
 ## Caddy and ACME Assumptions
 

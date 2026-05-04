@@ -644,6 +644,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 			MemSizeMiB: vm.MemoryMiB,
 			SMT:        false,
 		},
+		Balloon: m.balloonDeviceConfig(),
 	}); err != nil {
 		return store.VM{}, err
 	}
@@ -703,6 +704,17 @@ func (m *Manager) bootArgs(netdev preparedNetwork) string {
 		args += " firedoze.dns_domain=" + m.cfg.DNS.Domain
 	}
 	return args
+}
+
+func (m *Manager) balloonDeviceConfig() *balloonDevice {
+	if !m.cfg.Balloon.Enabled {
+		return nil
+	}
+	return &balloonDevice{
+		AmountMiB:                   0,
+		DeflateOnOOM:                true,
+		StatsPollingIntervalSeconds: int64(m.cfg.Balloon.StatsPollingIntervalSeconds),
+	}
 }
 
 func (m *Manager) resumeVM(ctx context.Context, vm store.VM) (store.VM, error) {
@@ -1623,6 +1635,7 @@ type firecrackerConfig struct {
 	Drives            []drive            `json:"drives"`
 	NetworkInterfaces []networkInterface `json:"network-interfaces,omitempty"`
 	MachineConfig     machineConfig      `json:"machine-config"`
+	Balloon           *balloonDevice     `json:"balloon,omitempty"`
 }
 
 type bootSource struct {
@@ -1648,4 +1661,10 @@ type machineConfig struct {
 	VCPUCount  int  `json:"vcpu_count"`
 	MemSizeMiB int  `json:"mem_size_mib"`
 	SMT        bool `json:"smt"`
+}
+
+type balloonDevice struct {
+	AmountMiB                   int64 `json:"amount_mib"`
+	DeflateOnOOM                bool  `json:"deflate_on_oom"`
+	StatsPollingIntervalSeconds int64 `json:"stats_polling_interval_s,omitempty"`
 }

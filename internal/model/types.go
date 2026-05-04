@@ -81,3 +81,34 @@ type Snapshot struct {
 	BaseImageMetadata JSONText `json:"base_image_metadata,omitempty"`
 	CreatedAt         string   `json:"created_at"`
 }
+
+type VMResourceUsage struct {
+	Name               string                `json:"name"`
+	State              string                `json:"state"`
+	VCPUs              int                   `json:"vcpus"`
+	MemoryMiB          int                   `json:"memory_mib"`
+	DiskBytes          int64                 `json:"disk_bytes"`
+	DiskAllocatedBytes int64                 `json:"disk_allocated_bytes,omitempty"`
+	Process            *ProcessResourceUsage `json:"process,omitempty"`
+	Balloon            *BalloonResourceUsage `json:"balloon,omitempty"`
+}
+
+type ProcessResourceUsage struct {
+	PID         int     `json:"pid"`
+	RSSBytes    uint64  `json:"rss_bytes,omitempty"`
+	VMSizeBytes uint64  `json:"vm_size_bytes,omitempty"`
+	CPUSeconds  float64 `json:"cpu_seconds,omitempty"`
+	Threads     int     `json:"threads,omitempty"`
+}
+
+type BalloonResourceUsage struct {
+	Enabled         bool  `json:"enabled"`
+	TargetMiB       int64 `json:"target_mib,omitempty"`
+	ActualMiB       int64 `json:"actual_mib,omitempty"`
+	AvailableBytes  int64 `json:"available_bytes,omitempty"`
+	FreeBytes       int64 `json:"free_bytes,omitempty"`
+	DiskCachesBytes int64 `json:"disk_caches_bytes,omitempty"`
+	TotalBytes      int64 `json:"total_bytes,omitempty"`
+	SwapInBytes     int64 `json:"swap_in_bytes,omitempty"`
+	SwapOutBytes    int64 `json:"swap_out_bytes,omitempty"`
+}

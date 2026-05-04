@@ -14,6 +14,7 @@ import (
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
+	"firedoze/internal/model"
 	"firedoze/internal/store"
 	wgconfig "firedoze/internal/wireguard"
 )
@@ -31,7 +32,9 @@ type Server struct {
 type Manager interface {
 	WarmBaseImageMetadata(context.Context) (firecracker.BaseImageMetadata, error)
 	ListVMsMatching(context.Context, []string) ([]store.VM, error)
+	ListVMResourceUsage(context.Context, []string) ([]model.VMResourceUsage, error)
 	GetVM(context.Context, string) (store.VM, error)
+	VMResourceUsage(context.Context, string) (model.VMResourceUsage, error)
 	CreateVM(context.Context, store.CreateVMParams) (store.VM, error)
 	UpdateVM(context.Context, string, store.UpdateVMParams) (store.VM, error)
 	DeleteVM(context.Context, string) error
@@ -73,8 +76,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /config", s.handleConfig)
 	s.mux.HandleFunc("POST /base-image/warmup", s.handleWarmBaseImage)
+	s.mux.HandleFunc("GET /usage", s.handleListUsage)
 	s.mux.HandleFunc("GET /vms", s.handleListVMs)
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
+	s.mux.HandleFunc("GET /vms/{name}/usage", s.handleGetVMUsage)
 	s.mux.HandleFunc("GET /vms/{name}", s.handleGetVM)
 	s.mux.HandleFunc("PATCH /vms/{name}/settings", s.handleUpdateVMSettings)
 	s.mux.HandleFunc("DELETE /vms/{name}", s.handleDeleteVM)
@@ -104,6 +109,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			"health":          {"GET /health"},
 			"config":          {"GET /config"},
 			"base_image":      {"POST /base-image/warmup"},
+			"usage":           {"GET /usage", "GET /vms/{name}/usage"},
 			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore", "GET /snapshots/{name}/export", "POST /snapshots/{name}/import"},
@@ -169,6 +175,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"dir":                           s.cfg.ColdStorage.Dir,
 			"archive_stopped_after_seconds": s.cfg.ColdStorage.ArchiveStoppedAfterSeconds,
 		},
+		"balloon": map[string]any{
+			"enabled":                        s.cfg.Balloon.Enabled,
+			"stats_polling_interval_seconds": s.cfg.Balloon.StatsPollingIntervalSeconds,
+			"reclaim_interval_seconds":       s.cfg.Balloon.ReclaimIntervalSeconds,
+			"reclaim_min_free_mib":           s.cfg.Balloon.ReclaimMinFreeMiB,
+		},
 		"firecracker": map[string]any{
 			"binary_path":        s.cfg.Firecracker.BinaryPath,
 			"base_kernel_path":   s.cfg.Firecracker.BaseKernelPath,
@@ -181,6 +193,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleListUsage(w http.ResponseWriter, r *http.Request) {
+	usages, err := s.manager.ListVMResourceUsage(r.Context(), r.URL.Query()["name"])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vms": usages})
+}
+
 func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 	vms, err := s.manager.ListVMsMatching(r.Context(), r.URL.Query()["name"])
 	if err != nil {
@@ -188,6 +209,20 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vms": s.vmInfos(vms)})
+}
+
+func (s *Server) handleGetVMUsage(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	usage, err := s.manager.VMResourceUsage(r.Context(), name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"usage": usage})
 }
 
 func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {

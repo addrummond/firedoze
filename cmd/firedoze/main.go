@@ -229,7 +229,7 @@ func (a app) wg(args []string) error {
 
 func (a app) vm(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze vm <list|inspect|create|up|start|reboot|sleep|stop|delete|publish|hide|settings>")
+		return errors.New("usage: firedoze vm <list|usage|inspect|create|up|start|reboot|sleep|stop|delete|publish|hide|settings>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -272,6 +272,8 @@ func (a app) vm(args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", vm.Name, vm.State, runtimeSinceStart(vm), vm.PrivateIP, displayURL(vm))
 		}
 		return w.Flush()
+	case "usage":
+		return a.vmUsage(args[1:])
 	case "inspect", "show":
 		if len(args) != 2 {
 			return errors.New("usage: firedoze vm inspect <name>")
@@ -382,6 +384,41 @@ func (a app) vm(args []string) error {
 	default:
 		return fmt.Errorf("unknown vm command %q", args[0])
 	}
+}
+
+func (a app) vmUsage(args []string) error {
+	var out struct {
+		VMs []model.VMResourceUsage `json:"vms"`
+	}
+	usageURL := "/usage"
+	if len(args) > 0 {
+		values := url.Values{}
+		for _, pattern := range args {
+			values.Add("name", pattern)
+		}
+		usageURL += "?" + values.Encode()
+	}
+	if err := a.client.do(context.Background(), http.MethodGet, usageURL, nil, &out); err != nil {
+		return err
+	}
+	if a.json {
+		return printJSON(out)
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tBALLOON\tRSS\tCPU\tDISK")
+	for _, vm := range out.VMs {
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			vm.Name,
+			vm.State,
+			vm.VCPUs,
+			formatMiB(int64(vm.MemoryMiB)),
+			displayBalloonUsage(vm),
+			displayProcessRSS(vm),
+			displayProcessCPU(vm),
+			displayDiskUsage(vm),
+		)
+	}
+	return w.Flush()
 }
 
 type vmCreateParams struct {
@@ -1226,6 +1263,41 @@ func displayURL(vm vmInfo) string {
 	return vm.URLs["default"]
 }
 
+func displayBalloonUsage(vm model.VMResourceUsage) string {
+	if vm.Balloon == nil || !vm.Balloon.Enabled {
+		return "-"
+	}
+	return fmt.Sprintf("%s/%s", formatMiB(vm.Balloon.ActualMiB), formatMiB(vm.Balloon.TargetMiB))
+}
+
+func displayProcessRSS(vm model.VMResourceUsage) string {
+	if vm.Process == nil || vm.Process.RSSBytes == 0 {
+		return "-"
+	}
+	return formatBytes(vm.Process.RSSBytes)
+}
+
+func displayProcessCPU(vm model.VMResourceUsage) string {
+	if vm.Process == nil || vm.Process.CPUSeconds == 0 {
+		return "-"
+	}
+	return formatDuration(time.Duration(vm.Process.CPUSeconds * float64(time.Second)))
+}
+
+func displayDiskUsage(vm model.VMResourceUsage) string {
+	if vm.DiskBytes == 0 && vm.DiskAllocatedBytes == 0 {
+		return "-"
+	}
+	if vm.DiskAllocatedBytes == 0 {
+		return formatBytes(uint64(vm.DiskBytes))
+	}
+	return fmt.Sprintf("%s/%s", formatBytes(uint64(vm.DiskAllocatedBytes)), formatBytes(uint64(vm.DiskBytes)))
+}
+
+func formatMiB(value int64) string {
+	return fmt.Sprintf("%dMiB", value)
+}
+
 func formatDuration(duration time.Duration) string {
 	duration = duration.Truncate(time.Second)
 	days := duration / (24 * time.Hour)
@@ -1246,6 +1318,25 @@ func formatDuration(duration time.Duration) string {
 	default:
 		return fmt.Sprintf("%ds", seconds)
 	}
+}
+
+func formatBytes(value uint64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%dB", value)
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	f := float64(value)
+	for _, suffix := range units {
+		f /= unit
+		if f < unit {
+			if f >= 10 {
+				return fmt.Sprintf("%.0f%s", f, suffix)
+			}
+			return fmt.Sprintf("%.1f%s", f, suffix)
+		}
+	}
+	return fmt.Sprintf("%.1fEiB", f/unit)
 }
 
 func (c *client) do(ctx context.Context, method string, path string, body any, out any) error {
@@ -1502,6 +1593,7 @@ Commands:
   server remove <name> [name...]
   server path
   vm list [-names] [name-glob...]
+  vm usage [name-glob...]
   vm inspect <name>
   vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]

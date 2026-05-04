@@ -232,6 +232,7 @@ func run(args []string) int {
 		defer cancelIdle()
 		go firecracker.NewIdleMonitor(manager, proxyManager, logger).Run(idleCtx)
 		go firecracker.NewColdStorageMonitor(manager, logger).Run(idleCtx)
+		go firecracker.NewBalloonMonitor(manager, logger).Run(idleCtx)
 		go watchWireGuardPeerConfig(idleCtx, configPath, cfg.WireGuard, host.NewLinuxOps(logger), logger)
 		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
 			logger.Error("serve api", "error", err)

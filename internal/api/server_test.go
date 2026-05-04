@@ -16,6 +16,7 @@ import (
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
+	"firedoze/internal/model"
 	"firedoze/internal/store"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -24,7 +25,9 @@ import (
 type fakeManager struct {
 	warmBaseImageMetadataFunc func(context.Context) (firecracker.BaseImageMetadata, error)
 	listVMsMatchingFunc       func(context.Context, []string) ([]store.VM, error)
+	listVMResourceUsageFunc   func(context.Context, []string) ([]model.VMResourceUsage, error)
 	getVMFunc                 func(context.Context, string) (store.VM, error)
+	vmResourceUsageFunc       func(context.Context, string) (model.VMResourceUsage, error)
 	createVMFunc              func(context.Context, store.CreateVMParams) (store.VM, error)
 	updateVMFunc              func(context.Context, string, store.UpdateVMParams) (store.VM, error)
 	deleteVMFunc              func(context.Context, string) error
@@ -55,11 +58,25 @@ func (m *fakeManager) ListVMsMatching(ctx context.Context, patterns []string) ([
 	return nil, nil
 }
 
+func (m *fakeManager) ListVMResourceUsage(ctx context.Context, patterns []string) ([]model.VMResourceUsage, error) {
+	if m.listVMResourceUsageFunc != nil {
+		return m.listVMResourceUsageFunc(ctx, patterns)
+	}
+	return nil, nil
+}
+
 func (m *fakeManager) GetVM(ctx context.Context, name string) (store.VM, error) {
 	if m.getVMFunc != nil {
 		return m.getVMFunc(ctx, name)
 	}
 	return testVM(name), nil
+}
+
+func (m *fakeManager) VMResourceUsage(ctx context.Context, name string) (model.VMResourceUsage, error) {
+	if m.vmResourceUsageFunc != nil {
+		return m.vmResourceUsageFunc(ctx, name)
+	}
+	return model.VMResourceUsage{Name: name, State: "running", VCPUs: 1, MemoryMiB: 128}, nil
 }
 
 func (m *fakeManager) CreateVM(ctx context.Context, params store.CreateVMParams) (store.VM, error) {
@@ -281,6 +298,56 @@ func TestWarmBaseImageError(t *testing.T) {
 
 	rec := request(t, handler, http.MethodPost, "/base-image/warmup", nil)
 	assertStatus(t, rec, http.StatusInternalServerError)
+}
+
+func TestResourceUsageEndpoints(t *testing.T) {
+	var patterns []string
+	manager := &fakeManager{
+		listVMResourceUsageFunc: func(_ context.Context, got []string) ([]model.VMResourceUsage, error) {
+			patterns = append([]string(nil), got...)
+			return []model.VMResourceUsage{{
+				Name:      "demo",
+				State:     "running",
+				VCPUs:     2,
+				MemoryMiB: 512,
+				Process:   &model.ProcessResourceUsage{PID: 123, RSSBytes: 64 << 20},
+				Balloon:   &model.BalloonResourceUsage{Enabled: true, ActualMiB: 128, TargetMiB: 256},
+			}}, nil
+		},
+		vmResourceUsageFunc: func(_ context.Context, name string) (model.VMResourceUsage, error) {
+			if name == "missing" {
+				return model.VMResourceUsage{}, store.ErrNotFound
+			}
+			return model.VMResourceUsage{Name: name, State: "stopped"}, nil
+		},
+	}
+	handler := NewServer(testConfig(t), manager, testStore(t), &fakeProxy{})
+
+	rec := request(t, handler, http.MethodGet, "/usage?name=demo*", nil)
+	assertStatus(t, rec, http.StatusOK)
+	if !reflect.DeepEqual(patterns, []string{"demo*"}) {
+		t.Fatalf("patterns = %#v", patterns)
+	}
+	var listOut struct {
+		VMs []model.VMResourceUsage `json:"vms"`
+	}
+	decode(t, rec, &listOut)
+	if len(listOut.VMs) != 1 || listOut.VMs[0].Name != "demo" || listOut.VMs[0].Balloon.TargetMiB != 256 {
+		t.Fatalf("usage list = %#v", listOut)
+	}
+
+	rec = request(t, handler, http.MethodGet, "/vms/demo/usage", nil)
+	assertStatus(t, rec, http.StatusOK)
+	var getOut struct {
+		Usage model.VMResourceUsage `json:"usage"`
+	}
+	decode(t, rec, &getOut)
+	if getOut.Usage.Name != "demo" {
+		t.Fatalf("usage = %#v", getOut.Usage)
+	}
+
+	rec = request(t, handler, http.MethodGet, "/vms/missing/usage", nil)
+	assertStatus(t, rec, http.StatusNotFound)
 }
 
 func TestWireGuardPeerConfigReturnsClientTemplate(t *testing.T) {
