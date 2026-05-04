@@ -1394,7 +1394,9 @@ usage() {
 }
 
 cmd="${1:-}"
-shift || true
+if [ "$#" -gt 0 ]; then
+  shift
+fi
 case "$cmd" in
   install|start|stop|restart|status|disable) ;;
   -h|--help|"")
