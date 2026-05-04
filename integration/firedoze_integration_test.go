@@ -67,15 +67,15 @@ func TestFiredozeVMLifecycleIntegration(t *testing.T) {
 	}
 
 	env.firedoze(t, 5*time.Minute, "vm", "start", vmName)
-	env.firedoze(t, 5*time.Minute, "exec", vmName, "--", "true")
+	env.eventuallyFiredoze(t, 3*time.Minute, "exec", vmName, "--", "true")
 	env.firedoze(t, 5*time.Minute, "vm", "sleep", vmName)
 	env.firedoze(t, 5*time.Minute, "vm", "start", vmName)
-	env.firedoze(t, 5*time.Minute, "exec", vmName, "--", "true")
+	env.eventuallyFiredoze(t, 3*time.Minute, "exec", vmName, "--", "true")
 	env.firedoze(t, 5*time.Minute, "vm", "stop", vmName)
 	env.firedoze(t, 5*time.Minute, "snapshot", "save", snapshotName, vmName)
 	env.firedoze(t, 5*time.Minute, "snapshot", "restore", snapshotName, cloneName, "-memory-mib", "512")
 	env.firedoze(t, 5*time.Minute, "vm", "start", cloneName)
-	env.firedoze(t, 5*time.Minute, "exec", cloneName, "--", "true")
+	env.eventuallyFiredoze(t, 3*time.Minute, "exec", cloneName, "--", "true")
 	env.firedoze(t, 5*time.Minute, "vm", "stop", cloneName)
 	env.firedoze(t, 5*time.Minute, "vm", "delete", vmName, cloneName)
 	env.firedoze(t, 2*time.Minute, "snapshot", "delete", snapshotName)
@@ -128,8 +128,37 @@ func (e integrationEnv) firedozeAllowFailure(t *testing.T, timeout time.Duration
 	t.Helper()
 	result, err := e.runFiredoze(timeout, args...)
 	if err != nil {
+		if strings.Contains(result.stderr, "API returned 404: not found") {
+			return
+		}
 		t.Logf("cleanup firedoze %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, result.stdout, result.stderr)
 	}
+}
+
+func (e integrationEnv) eventuallyFiredoze(t *testing.T, timeout time.Duration, args ...string) commandResult {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var lastResult commandResult
+	var lastErr error
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		attemptTimeout := 15 * time.Second
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
+		}
+		result, err := e.runFiredoze(attemptTimeout, args...)
+		if err == nil {
+			return result
+		}
+		lastResult = result
+		lastErr = err
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatalf("firedoze %s did not succeed within %s; last error: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), timeout, lastErr, lastResult.stdout, lastResult.stderr)
+	return commandResult{}
 }
 
 func (e integrationEnv) runFiredoze(timeout time.Duration, args ...string) (commandResult, error) {
