@@ -242,6 +242,13 @@ The client resolves the VM to its private IP through the management API before s
 
 The `firedoze ssh <vm>` client starts or resumes the VM when needed, waits for guest SSH, then execs OpenSSH against the VM private IPv6 address. Passive SSH wake-on-network is disabled for the IPv6-only VM network for now.
 
+Standard OpenSSH tooling can use `firedoze ssh-proxy <vm>` as a `ProxyCommand`.
+The proxy resolves the VM through the WireGuard-only management API, starts it
+if needed, waits for guest SSH, then bridges stdin/stdout to the VM private
+port 22. It does not terminate SSH or replace OpenSSH; it is just a local
+connection helper. SSH config should use an absolute path to the trusted
+`firedoze` binary.
+
 Public HTTP wake is gated by a self-hosted CAPTCHA when the target VM is sleeping. After a browser completes the challenge, Firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires. The cookie signing key is generated automatically under the Firedoze state directory and is not part of hand-written config.
 
 ## Public HTTPS

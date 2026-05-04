@@ -44,6 +44,9 @@ type app struct {
 	json         bool
 	runCommand   func(*exec.Cmd) error
 	waitForSSHFn func(string, time.Duration) error
+	proxyDial    func(context.Context, string, string) (net.Conn, error)
+	proxyInput   io.Reader
+	proxyOutput  io.Writer
 }
 
 type vmInfo struct {
@@ -129,7 +132,7 @@ func commandNeedsAPI(args []string) bool {
 		return false
 	case "server":
 		return false
-	case "health", "config", "vm", "snapshot", "route", "ssh", "exec", "cp", "with-vm-ip":
+	case "health", "config", "vm", "snapshot", "route", "ssh", "ssh-proxy", "exec", "cp", "with-vm-ip":
 		return true
 	default:
 		return false
@@ -190,6 +193,8 @@ func (a app) dispatch(args []string) error {
 		return a.server(args[1:])
 	case "ssh":
 		return a.ssh(args[1:])
+	case "ssh-proxy":
+		return a.sshProxy(args[1:])
 	case "exec":
 		return a.exec(args[1:])
 	case "cp":
@@ -898,6 +903,39 @@ func (a app) ssh(args []string) error {
 	return a.run(cmd)
 }
 
+func (a app) sshProxy(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: firedoze ssh-proxy <vm>")
+	}
+	vm, err := a.ensureVMReadyForSSH(args[0])
+	if err != nil {
+		return err
+	}
+	if vm.PrivateIP == "" {
+		return fmt.Errorf("VM %s has no private IP", args[0])
+	}
+	dial := a.proxyDial
+	if dial == nil {
+		dialer := &net.Dialer{}
+		dial = dialer.DialContext
+	}
+	conn, err := dial(context.Background(), "tcp", net.JoinHostPort(vm.PrivateIP, "22"))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	input := a.proxyInput
+	if input == nil {
+		input = os.Stdin
+	}
+	output := a.proxyOutput
+	if output == nil {
+		output = os.Stdout
+	}
+	return proxyConnection(conn, input, output)
+}
+
 func (a app) exec(args []string) error {
 	if len(args) < 2 {
 		return errors.New("usage: firedoze exec <vm> -- <command> [args...]")
@@ -1027,6 +1065,46 @@ func rsyncCopyCommand(vm vmInfo, src copyEndpoint, dst copyEndpoint) ([]string, 
 
 func rsyncRemote(user string, ip string, path string) string {
 	return fmt.Sprintf("%s@[%s]:%s", user, ip, path)
+}
+
+func proxyConnection(conn net.Conn, input io.Reader, output io.Writer) error {
+	errs := make(chan error, 2)
+	go func() {
+		_, err := io.Copy(conn, input)
+		if closeWriter, ok := conn.(interface{ CloseWrite() error }); ok {
+			if closeErr := closeWriter.CloseWrite(); err == nil {
+				err = closeErr
+			}
+		} else {
+			_ = conn.Close()
+		}
+		errs <- err
+	}()
+	go func() {
+		_, err := io.Copy(output, conn)
+		_ = conn.Close()
+		errs <- err
+	}()
+
+	var joined error
+	for i := 0; i < 2; i++ {
+		err := <-errs
+		if ignoreProxyCopyError(err) {
+			continue
+		}
+		joined = errors.Join(joined, err)
+	}
+	return joined
+}
+
+func ignoreProxyCopyError(err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+		return true
+	}
+	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
 func (a app) withVMIP(args []string) error {
@@ -1447,6 +1525,7 @@ Commands:
   route delete <route>
   wg keygen
   ssh <vm> [ssh args...]
+  ssh-proxy <vm>
   exec <vm> -- <command> [args...]
   cp <src> <dst>
   with-vm-ip <vm> <command> [args...]

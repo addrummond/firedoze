@@ -168,6 +168,44 @@ Run a local command with the VM private IP available as `FIREDOZE_VM_IP`:
 firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 ```
 
+### OpenSSH And Editor Integrations
+
+Tools such as VS Code Remote SSH usually want a normal OpenSSH host entry. Use
+`firedoze ssh-proxy <vm>` as a `ProxyCommand`. The proxy starts or wakes the VM
+if needed, waits for guest SSH, then pipes OpenSSH to the VM private address.
+
+First find the absolute path to your trusted `firedoze` binary:
+
+```sh
+command -v firedoze
+```
+
+Then add a host entry like this to `~/.ssh/config`, replacing the
+`ProxyCommand` path with the absolute path from the previous command:
+
+```sshconfig
+Host demo.firedoze
+  HostName demo.firedoze
+  User ubuntu
+  ProxyCommand /usr/local/bin/firedoze ssh-proxy demo
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel ERROR
+  PubkeyAuthentication no
+  PreferredAuthentications none,password
+  NumberOfPasswordPrompts 1
+```
+
+Then connect with standard SSH tooling:
+
+```sh
+ssh demo.firedoze
+```
+
+Use the same `Host` name in VS Code Remote SSH. The `ProxyCommand` is a local
+program execution hook, so use an absolute path to a `firedoze` binary you
+trust.
+
 ### Containers Inside A VM
 
 Firedoze VMs are normal Ubuntu machines. If a project benefits from containers,

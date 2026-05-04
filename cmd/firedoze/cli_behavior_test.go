@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -322,6 +326,88 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 	wantSuffix := []string{"ubuntu@fd00::2", "-L", "8080:localhost:8080"}
 	if got := cmdArgs[len(cmdArgs)-len(wantSuffix):]; !reflect.DeepEqual(got, wantSuffix) {
 		t.Fatalf("ssh command suffix = %#v, want %#v", got, wantSuffix)
+	}
+}
+
+func TestSSHProxyStartsSleepingVMWaitsDialsAndPipes(t *testing.T) {
+	var requests []cliRequest
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, readCLIRequest(t, r))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/vms":
+			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	inputReader, inputWriter := io.Pipe()
+	serverErr := make(chan error, 2)
+	go func() {
+		_, err := io.WriteString(inputWriter, "client hello")
+		if err != nil {
+			serverErr <- err
+		}
+	}()
+
+	var waitedIP, dialNetwork, dialAddress string
+	var output bytes.Buffer
+	a := app{
+		client: testClient(t, handler),
+		waitForSSHFn: func(ip string, _ time.Duration) error {
+			waitedIP = ip
+			return nil
+		},
+		proxyDial: func(_ context.Context, network string, address string) (net.Conn, error) {
+			dialNetwork = network
+			dialAddress = address
+			client, server := net.Pipe()
+			go func() {
+				defer server.Close()
+				data := make([]byte, len("client hello"))
+				if _, err := io.ReadFull(server, data); err != nil {
+					serverErr <- err
+					return
+				}
+				if string(data) != "client hello" {
+					serverErr <- errors.New("proxy did not send client input")
+					return
+				}
+				if _, err := io.WriteString(server, "server hello"); err != nil {
+					serverErr <- err
+					return
+				}
+				if err := inputWriter.Close(); err != nil {
+					serverErr <- err
+					return
+				}
+				serverErr <- nil
+			}()
+			return client, nil
+		},
+		proxyInput:  inputReader,
+		proxyOutput: &output,
+	}
+	if err := a.sshProxy([]string{"demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+	if waitedIP != "fd00::2" {
+		t.Fatalf("waited IP = %q, want fd00::2", waitedIP)
+	}
+	if dialNetwork != "tcp" || dialAddress != "[fd00::2]:22" {
+		t.Fatalf("dial = %s %s, want tcp [fd00::2]:22", dialNetwork, dialAddress)
+	}
+	if output.String() != "server hello" {
+		t.Fatalf("proxy output = %q, want server hello", output.String())
+	}
+	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start"}) {
+		t.Fatalf("requests = %#v", requestKeys(requests))
 	}
 }
 

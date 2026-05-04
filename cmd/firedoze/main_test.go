@@ -102,6 +102,7 @@ func TestCommandNeedsAPI(t *testing.T) {
 		{args: []string{"server", "list"}, want: false},
 		{args: []string{"health"}, want: true},
 		{args: []string{"vm", "list"}, want: true},
+		{args: []string{"ssh-proxy", "demo"}, want: true},
 		{args: []string{"definitely-not-a-command"}, want: false},
 	}
 	for _, tt := range tests {
