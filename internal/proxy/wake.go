@@ -136,7 +136,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy.Transport = wakeProxyTransport
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		p.logger.Warn("proxy vm http route", "vm", vm.Name, "host", req.Host, "target", target.Host, "error", err)
-		http.Error(w, "firedoze proxy failed", http.StatusBadGateway)
+		http.Error(w, "firedoze proxy failed (is your service running?)", http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
 }
