@@ -14,3 +14,4 @@
 - Will a regular Linux shutdown command inside a VM update its status accordingly?
 - Should image configure a firewall?
 - CI and release building for client tool
+- Can we not use systemd's socket handling capabilities to make restarts even less disruptive?
