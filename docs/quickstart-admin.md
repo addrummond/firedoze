@@ -417,6 +417,19 @@ For tools that need the VM private IP directly, run another local command with t
 firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 ```
 
+Firedoze VMs can run containers when a project needs them. Install a daemonless
+runtime such as Podman inside the VM:
+
+```sh
+firedoze ssh demo
+sudo apt-get update
+sudo apt-get install -y podman buildah crun
+podman run --rm hello-world
+```
+
+This is optional. Firedoze itself does not use Docker, Podman, or a container
+runtime as part of its VM model.
+
 Run the built-in hello web server inside the VM:
 
 ```sh

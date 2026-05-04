@@ -155,6 +155,21 @@ Run a local command with the VM private IP available as `FIREDOZE_VM_IP`:
 firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 ```
 
+### Containers Inside A VM
+
+Firedoze VMs are normal Ubuntu machines. If a project benefits from containers,
+install a daemonless runtime such as Podman inside the VM and use it there:
+
+```sh
+firedoze ssh demo
+sudo apt-get update
+sudo apt-get install -y podman buildah crun
+podman run --rm hello-world
+```
+
+That is an optional in-VM workflow. Firedoze itself does not require Docker,
+Podman, or any container runtime.
+
 ## 7. Public Web Access
 
 VMs created with `firedoze vm create` are ‘hidden‘ by default (i.e. they do not get a public HTTPS URL).

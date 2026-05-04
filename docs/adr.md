@@ -342,6 +342,10 @@ The base image should be built from pinned Ubuntu cloud image artifacts rather t
 
 The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
+Container runtimes are not part of the Firedoze host model or image build
+pipeline. Users can still install daemonless tools such as Podman, Buildah, and
+crun inside a VM when a particular project benefits from containers.
+
 The guest image carries a tiny Firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
 
 The base image is used only for fresh VMs. Existing VMs and snapshots do not change when the configured base image changes.
