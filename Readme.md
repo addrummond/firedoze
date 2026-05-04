@@ -41,14 +41,14 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 
 ## What you get
 
-- **Firecracker-backed VMs** that boot fast and act like real Linux machines
-- **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint
-- **Public HTTPS routes** for sharing a dev service with someone outside the tunnel
-- **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk
-- **Optional cold storage** for long-stopped VMs
-- **Named snapshots and clones** — script a golden environment, clone it for everyone on the team
-- **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore
-- **Deliberately single-node** — one box, local SQLite, no scheduler, no cluster to babysit
+- **Firecracker-backed VMs** that boot fast and act like real Linux machines.
+- **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint.
+- **Public HTTPS routes** for sharing a dev service with someone outside the tunnel.
+- **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk.
+- **Optional cold storage** for long-stopped VMs.
+- **Named snapshots and clones** — script a golden environment, clone it for everyone on the team.
+- **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore.
+- **Deliberately single-node** — one box, local SQLite, no scheduler, no cluster to babysit.
 
 ## Quick example
 
