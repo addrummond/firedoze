@@ -16,6 +16,17 @@ const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
 
 var verbose bool
 
+var (
+	now            = time.Now
+	hostname       = os.Hostname
+	readFile       = os.ReadFile
+	commandOutput  = realCommandOutput
+	netInterfaces  = net.Interfaces
+	interfaceAddrs = func(iface net.Interface) ([]net.Addr, error) {
+		return iface.Addrs()
+	}
+)
+
 func main() {
 	port := "8080"
 	for _, arg := range os.Args[1:] {
@@ -72,9 +83,9 @@ func helloText() string {
 	fmt.Fprintln(&b, "==============")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Host")
-	fmt.Fprintf(&b, "  time:     %s\n", time.Now().Format(time.RFC3339))
-	if hostname, err := os.Hostname(); err == nil {
-		fmt.Fprintf(&b, "  hostname: %s\n", hostname)
+	fmt.Fprintf(&b, "  time:     %s\n", now().Format(time.RFC3339))
+	if name, err := hostname(); err == nil {
+		fmt.Fprintf(&b, "  hostname: %s\n", name)
 	}
 	fmt.Fprintf(&b, "  uptime:   %s\n", uptimeText())
 	if !verbose {
@@ -122,7 +133,7 @@ func kernelText() string {
 }
 
 func uptimeText() string {
-	data, err := os.ReadFile("/proc/uptime")
+	data, err := readFile("/proc/uptime")
 	if err != nil {
 		return "unknown"
 	}
@@ -161,13 +172,13 @@ func firstFields(path string, count int, fallback string) string {
 }
 
 func globalIPv6Addrs() []string {
-	ifaces, err := net.Interfaces()
+	ifaces, err := netInterfaces()
 	if err != nil {
 		return nil
 	}
 	var lines []string
 	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
+		addrs, err := interfaceAddrs(iface)
 		if err != nil {
 			continue
 		}
@@ -206,7 +217,7 @@ func ipv6Routes() []string {
 	return lines
 }
 
-func commandOutput(name string, args ...string) string {
+func realCommandOutput(name string, args ...string) string {
 	cmd := exec.Command(name, args...)
 	data, err := cmd.Output()
 	if err != nil {
@@ -216,7 +227,7 @@ func commandOutput(name string, args ...string) string {
 }
 
 func readText(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return ""
 	}
