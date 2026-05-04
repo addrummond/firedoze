@@ -190,7 +190,7 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 		"PublicKey = " + serverKey.PublicKey().String(),
 		"Endpoint = firedoze.example:51820",
 		"AllowedIPs = fd7a:115c:a1e1::1/128, fd7a:115c:a1e0::/64",
-		"#   firedoze server add firedoze http://[fd7a:115c:a1e1::1] -default",
+		"#   firedoze server add firedoze 'http://[fd7a:115c:a1e1::1]' -default",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("-wg-peer-config output missing %q:\n%s", want, stdout)

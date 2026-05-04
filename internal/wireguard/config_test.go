@@ -86,7 +86,7 @@ func TestNewPeerSetup(t *testing.T) {
 	for _, want := range []string{
 		"# WireGuard client config template for alice-laptop.",
 		"# Save this on the client laptop and replace <client-private-key> locally.",
-		"#   firedoze server add firedoze http://[fd7a:115c:a1e1::1] -default",
+		"#   firedoze server add firedoze 'http://[fd7a:115c:a1e1::1]' -default",
 		"[Interface]",
 		"PrivateKey = <client-private-key>",
 		"Address = fd7a:115c:a1e1::2/128",
