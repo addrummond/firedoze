@@ -13,7 +13,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Idle VMs sleep automatically, consuming only disk space.**
 
-🛠️ **Assign your VM a public HTTPS URL with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
+🛠️ **Give your VMs public HTTPS URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
 
 🛠️ **Hit A sleeping VM's public HTTPS URL and it automatically resumes (subject to human test).**
 
