@@ -1254,6 +1254,7 @@ fi
 if [ -n "$dns_ip" ]; then
   /bin/ip -6 route replace "$dns_ip/128" via "$host_ip" dev "$dev"
 fi
+echo "configured firedoze network interface $dev guest_ip=$guest_ip host_ip=$host_ip" >&2
 
 rm -f /etc/resolv.conf
 if [ -n "$dns_ip" ]; then
@@ -1489,14 +1490,16 @@ esac
 			mode: 0o644,
 			data: `[Unit]
 Description=Configure firedoze Firecracker guest networking
-DefaultDependencies=no
-Before=network-pre.target
-Wants=network-pre.target
+After=systemd-networkd.service network.target cloud-init-network.service netplan-configure.service
+Before=firedoze-sshd.service
+Wants=network.target
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/firedoze-guest-network
 RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
@@ -1507,7 +1510,8 @@ WantedBy=multi-user.target
 			mode: 0o644,
 			data: `[Unit]
 Description=firedoze SSH daemon
-After=network.target
+After=firedoze-network.service
+Requires=firedoze-network.service
 ConditionPathExists=!/etc/ssh/sshd_not_to_be_run
 
 [Service]
