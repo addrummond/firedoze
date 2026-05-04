@@ -15,6 +15,21 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+type wgClient interface {
+	ConfigureDevice(name string, cfg wgtypes.Config) error
+	Close() error
+}
+
+var (
+	netlinkLinkByName  = netlink.LinkByName
+	netlinkLinkAdd     = netlink.LinkAdd
+	netlinkAddrReplace = netlink.AddrReplace
+	netlinkLinkSetUp   = netlink.LinkSetUp
+	wgctrlNew          = func() (wgClient, error) {
+		return wgctrl.New()
+	}
+)
+
 func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConfig) error {
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -34,11 +49,11 @@ func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConf
 	if err != nil {
 		return fmt.Errorf("parse address %q: %w", cfg.Address, err)
 	}
-	if err := netlink.AddrReplace(link, addr); err != nil {
+	if err := netlinkAddrReplace(link, addr); err != nil {
 		return fmt.Errorf("assign address %q: %w", cfg.Address, err)
 	}
 
-	client, err := wgctrl.New()
+	client, err := wgctrlNew()
 	if err != nil {
 		return fmt.Errorf("open wgctrl: %w", err)
 	}
@@ -75,7 +90,7 @@ func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConf
 	if err := client.ConfigureDevice(cfg.Interface, deviceConfig); err != nil {
 		return fmt.Errorf("configure device: %w", err)
 	}
-	if err := netlink.LinkSetUp(link); err != nil {
+	if err := netlinkLinkSetUp(link); err != nil {
 		return fmt.Errorf("set link up: %w", err)
 	}
 
@@ -84,7 +99,7 @@ func (o *LinuxOps) EnsureWireGuard(ctx context.Context, cfg config.WireGuardConf
 }
 
 func ensureWireGuardLink(name string) (netlink.Link, error) {
-	link, err := netlink.LinkByName(name)
+	link, err := netlinkLinkByName(name)
 	if err == nil {
 		if link.Type() != "wireguard" {
 			return nil, fmt.Errorf("existing link %q has type %q, want wireguard", name, link.Type())
@@ -99,10 +114,10 @@ func ensureWireGuardLink(name string) (netlink.Link, error) {
 	link = &netlink.Wireguard{
 		LinkAttrs: netlink.LinkAttrs{Name: name},
 	}
-	if err := netlink.LinkAdd(link); err != nil {
+	if err := netlinkLinkAdd(link); err != nil {
 		return nil, err
 	}
-	return netlink.LinkByName(name)
+	return netlinkLinkByName(name)
 }
 
 func ensureWireGuardPrivateKey(path string) (wgtypes.Key, error) {

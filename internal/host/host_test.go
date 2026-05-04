@@ -1,12 +1,31 @@
 package host
 
 import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"firedoze/internal/config"
+
+	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+func TestNewLinuxOpsLoggerDefaults(t *testing.T) {
+	if NewLinuxOps(nil).logger == nil {
+		t.Fatal("NewLinuxOps(nil) returned nil logger")
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if got := NewLinuxOps(logger).logger; got != logger {
+		t.Fatal("NewLinuxOps did not keep custom logger")
+	}
+}
 
 func TestEnsureWireGuardPrivateKeyCreatesAndReusesKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "etc", "firedoze", "wg.key")
@@ -63,6 +82,93 @@ func TestEnsureWireGuardPrivateKeyRejectsMalformedExistingKey(t *testing.T) {
 	}
 }
 
+func TestEnsureLoopbackAddress(t *testing.T) {
+	restoreNetlink := stubNetlink(t)
+	fakeLink := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "lo"}}
+	var assigned *netlink.Addr
+	netlinkLinkByName = func(name string) (netlink.Link, error) {
+		if name != "lo" {
+			t.Fatalf("LinkByName(%q), want lo", name)
+		}
+		return fakeLink, nil
+	}
+	netlinkAddrReplace = func(link netlink.Link, addr *netlink.Addr) error {
+		if link != fakeLink {
+			t.Fatalf("AddrReplace link = %#v, want fake loopback", link)
+		}
+		assigned = addr
+		return nil
+	}
+	defer restoreNetlink()
+
+	err := NewLinuxOps(slog.New(slog.NewTextHandler(io.Discard, nil))).EnsureLoopbackAddress(context.Background(), "fd7a:115c:a1e0::1")
+	if err != nil {
+		t.Fatalf("EnsureLoopbackAddress: %v", err)
+	}
+	if assigned == nil || assigned.IP.String() != "fd7a:115c:a1e0::1" {
+		t.Fatalf("assigned address = %#v", assigned)
+	}
+	ones, bits := assigned.Mask.Size()
+	if ones != 128 || bits != 128 {
+		t.Fatalf("assigned mask = %d/%d, want 128/128", ones, bits)
+	}
+}
+
+func TestEnsureLoopbackAddressErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*testing.T)
+		want  string
+	}{
+		{
+			name: "missing loopback",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return nil, errors.New("no loopback")
+				}
+			},
+			want: "find loopback",
+		},
+		{
+			name: "bad address",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "lo"}}, nil
+				}
+			},
+			want: "parse loopback address",
+		},
+		{
+			name: "assign failure",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "lo"}}, nil
+				}
+				netlinkAddrReplace = func(netlink.Link, *netlink.Addr) error {
+					return errors.New("permission denied")
+				}
+			},
+			want: "assign loopback address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreNetlink := stubNetlink(t)
+			defer restoreNetlink()
+			tt.setup(t)
+
+			address := "fd7a:115c:a1e0::1"
+			if tt.name == "bad address" {
+				address = "not-an-ip"
+			}
+			err := NewLinuxOps(nil).EnsureLoopbackAddress(context.Background(), address)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("EnsureLoopbackAddress error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoopbackCIDR(t *testing.T) {
 	tests := []struct {
 		address string
@@ -86,3 +192,366 @@ func TestLoopbackCIDR(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureWireGuardConfiguresDevice(t *testing.T) {
+	restoreNetlink := stubNetlink(t)
+	defer restoreNetlink()
+	restoreWG := stubWG(t)
+	defer restoreWG()
+
+	cfg := validWireGuardConfig(t)
+	fakeLink := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: cfg.Interface}}
+	var assigned *netlink.Addr
+	var linkSetUp bool
+	netlinkLinkByName = func(name string) (netlink.Link, error) {
+		if name != cfg.Interface {
+			t.Fatalf("LinkByName(%q), want %q", name, cfg.Interface)
+		}
+		return fakeLink, nil
+	}
+	netlinkAddrReplace = func(link netlink.Link, addr *netlink.Addr) error {
+		if link != fakeLink {
+			t.Fatalf("AddrReplace link = %#v, want fake WireGuard link", link)
+		}
+		assigned = addr
+		return nil
+	}
+	netlinkLinkSetUp = func(link netlink.Link) error {
+		if link != fakeLink {
+			t.Fatalf("LinkSetUp link = %#v, want fake WireGuard link", link)
+		}
+		linkSetUp = true
+		return nil
+	}
+
+	client := &fakeWGClient{}
+	wgctrlNew = func() (wgClient, error) {
+		return client, nil
+	}
+
+	if err := NewLinuxOps(nil).EnsureWireGuard(context.Background(), cfg); err != nil {
+		t.Fatalf("EnsureWireGuard: %v", err)
+	}
+	if assigned == nil || assigned.String() != "fd7a:115c:a1e1::1/64" {
+		t.Fatalf("assigned WireGuard address = %#v", assigned)
+	}
+	if !linkSetUp {
+		t.Fatal("WireGuard link was not set up")
+	}
+	if !client.closed {
+		t.Fatal("wgctrl client was not closed")
+	}
+	if client.device != cfg.Interface {
+		t.Fatalf("configured device = %q, want %q", client.device, cfg.Interface)
+	}
+	if client.config.PrivateKey == nil {
+		t.Fatal("device config missing private key")
+	}
+	if client.config.ListenPort == nil || *client.config.ListenPort != cfg.ListenPort {
+		t.Fatalf("listen port = %#v, want %d", client.config.ListenPort, cfg.ListenPort)
+	}
+	if !client.config.ReplacePeers {
+		t.Fatal("device config does not replace peers")
+	}
+	if got := len(client.config.Peers); got != 1 {
+		t.Fatalf("peer count = %d, want 1", got)
+	}
+	peer := client.config.Peers[0]
+	if !peer.ReplaceAllowedIPs {
+		t.Fatal("peer config does not replace allowed IPs")
+	}
+	if got := len(peer.AllowedIPs); got != 2 {
+		t.Fatalf("allowed IP count = %d, want 2", got)
+	}
+	if peer.AllowedIPs[0].String() != "fd7a:115c:a1e1::2/128" || peer.AllowedIPs[1].String() != "fd7a:115c:a1e0::/64" {
+		t.Fatalf("allowed IPs = %#v", peer.AllowedIPs)
+	}
+}
+
+func TestEnsureWireGuardErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*config.WireGuardConfig)
+		setup  func(*testing.T)
+		want   string
+	}{
+		{
+			name: "validation stops before host work",
+			mutate: func(cfg *config.WireGuardConfig) {
+				cfg.Interface = ""
+			},
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					t.Fatal("LinkByName called after validation failure")
+					return nil, nil
+				}
+			},
+			want: "wireguard.interface",
+		},
+		{
+			name: "private key",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					t.Fatal("LinkByName called after private key failure")
+					return nil, nil
+				}
+			},
+			mutate: func(cfg *config.WireGuardConfig) {
+				cfg.PrivateKeyFile = filepath.Join(t.TempDir(), "wg.key")
+				if err := os.WriteFile(cfg.PrivateKeyFile, []byte("bad key\n"), 0o640); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "private key",
+		},
+		{
+			name: "link",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return nil, errors.New("netlink failed")
+				}
+			},
+			want: "link",
+		},
+		{
+			name: "assign address",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				netlinkAddrReplace = func(netlink.Link, *netlink.Addr) error {
+					return errors.New("assign failed")
+				}
+			},
+			want: "assign address",
+		},
+		{
+			name: "open wgctrl",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				wgctrlNew = func() (wgClient, error) {
+					return nil, errors.New("wgctrl failed")
+				}
+			},
+			want: "open wgctrl",
+		},
+		{
+			name: "peer public key",
+			mutate: func(cfg *config.WireGuardConfig) {
+				cfg.Peers[0].PublicKey = "bad"
+			},
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				wgctrlNew = func() (wgClient, error) {
+					return &fakeWGClient{}, nil
+				}
+			},
+			want: "public key",
+		},
+		{
+			name: "allowed ips",
+			mutate: func(cfg *config.WireGuardConfig) {
+				cfg.Peers[0].AllowedIPs = []string{"fd7a:115c:a1e1::2/128", "bad"}
+			},
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				wgctrlNew = func() (wgClient, error) {
+					return &fakeWGClient{}, nil
+				}
+			},
+			want: "allowed_ips",
+		},
+		{
+			name: "configure device",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				wgctrlNew = func() (wgClient, error) {
+					return &fakeWGClient{configureErr: errors.New("configure failed")}, nil
+				}
+			},
+			want: "configure device",
+		},
+		{
+			name: "set link up",
+			setup: func(t *testing.T) {
+				netlinkLinkByName = func(string) (netlink.Link, error) {
+					return &netlink.Wireguard{}, nil
+				}
+				wgctrlNew = func() (wgClient, error) {
+					return &fakeWGClient{}, nil
+				}
+				netlinkLinkSetUp = func(netlink.Link) error {
+					return errors.New("up failed")
+				}
+			},
+			want: "set link up",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreNetlink := stubNetlink(t)
+			defer restoreNetlink()
+			restoreWG := stubWG(t)
+			defer restoreWG()
+
+			cfg := validWireGuardConfig(t)
+			if tt.mutate != nil {
+				tt.mutate(&cfg)
+			}
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+			err := NewLinuxOps(nil).EnsureWireGuard(context.Background(), cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("EnsureWireGuard error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnsureWireGuardLink(t *testing.T) {
+	t.Run("existing wireguard", func(t *testing.T) {
+		restoreNetlink := stubNetlink(t)
+		defer restoreNetlink()
+		link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: "fdwg-test"}}
+		netlinkLinkByName = func(string) (netlink.Link, error) {
+			return link, nil
+		}
+		got, err := ensureWireGuardLink("fdwg-test")
+		if err != nil {
+			t.Fatalf("ensureWireGuardLink: %v", err)
+		}
+		if got != link {
+			t.Fatal("ensureWireGuardLink did not reuse existing WireGuard link")
+		}
+	})
+
+	t.Run("existing wrong type", func(t *testing.T) {
+		restoreNetlink := stubNetlink(t)
+		defer restoreNetlink()
+		netlinkLinkByName = func(string) (netlink.Link, error) {
+			return &netlink.Dummy{}, nil
+		}
+		errLink, err := ensureWireGuardLink("fdwg-test")
+		if err == nil || errLink != nil || !strings.Contains(err.Error(), "want wireguard") {
+			t.Fatalf("ensureWireGuardLink = %#v, %v; want wrong-type error", errLink, err)
+		}
+	})
+
+	t.Run("create missing", func(t *testing.T) {
+		restoreNetlink := stubNetlink(t)
+		defer restoreNetlink()
+		var created netlink.Link
+		calls := 0
+		netlinkLinkByName = func(name string) (netlink.Link, error) {
+			calls++
+			if calls == 1 {
+				return nil, netlink.LinkNotFoundError{}
+			}
+			if name != "fdwg-test" {
+				t.Fatalf("LinkByName(%q), want fdwg-test", name)
+			}
+			return created, nil
+		}
+		netlinkLinkAdd = func(link netlink.Link) error {
+			created = link
+			return nil
+		}
+		got, err := ensureWireGuardLink("fdwg-test")
+		if err != nil {
+			t.Fatalf("ensureWireGuardLink: %v", err)
+		}
+		if got == nil || got.Type() != "wireguard" {
+			t.Fatalf("created link = %#v", got)
+		}
+		if got.Attrs().Name != "fdwg-test" {
+			t.Fatalf("created link name = %q, want fdwg-test", got.Attrs().Name)
+		}
+	})
+}
+
+func stubNetlink(t *testing.T) func() {
+	t.Helper()
+	oldLinkByName := netlinkLinkByName
+	oldLinkAdd := netlinkLinkAdd
+	oldAddrReplace := netlinkAddrReplace
+	oldLinkSetUp := netlinkLinkSetUp
+	netlinkLinkByName = func(string) (netlink.Link, error) {
+		return nil, errors.New("unexpected LinkByName call")
+	}
+	netlinkLinkAdd = func(netlink.Link) error {
+		return errors.New("unexpected LinkAdd call")
+	}
+	netlinkAddrReplace = func(netlink.Link, *netlink.Addr) error {
+		return nil
+	}
+	netlinkLinkSetUp = func(netlink.Link) error {
+		return nil
+	}
+	return func() {
+		netlinkLinkByName = oldLinkByName
+		netlinkLinkAdd = oldLinkAdd
+		netlinkAddrReplace = oldAddrReplace
+		netlinkLinkSetUp = oldLinkSetUp
+	}
+}
+
+func stubWG(t *testing.T) func() {
+	t.Helper()
+	oldWGCtrlNew := wgctrlNew
+	wgctrlNew = func() (wgClient, error) {
+		return &fakeWGClient{}, nil
+	}
+	return func() {
+		wgctrlNew = oldWGCtrlNew
+	}
+}
+
+func validWireGuardConfig(t *testing.T) config.WireGuardConfig {
+	t.Helper()
+	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config.WireGuardConfig{
+		Interface:      "fdwg-test",
+		ListenPort:     51820,
+		Address:        "fd7a:115c:a1e1::1/64",
+		PrivateKeyFile: filepath.Join(t.TempDir(), "wg.key"),
+		Peers: []config.WGPeer{
+			{
+				Name:       "alice",
+				PublicKey:  peerPrivateKey.PublicKey().String(),
+				AllowedIPs: []string{"fd7a:115c:a1e1::2/128", "fd7a:115c:a1e0::/64"},
+			},
+		},
+	}
+}
+
+type fakeWGClient struct {
+	device       string
+	config       wgtypes.Config
+	configureErr error
+	closed       bool
+}
+
+func (c *fakeWGClient) ConfigureDevice(name string, cfg wgtypes.Config) error {
+	c.device = name
+	c.config = cfg
+	return c.configureErr
+}
+
+func (c *fakeWGClient) Close() error {
+	c.closed = true
+	return nil
+}
+
+var _ wgClient = (*fakeWGClient)(nil)

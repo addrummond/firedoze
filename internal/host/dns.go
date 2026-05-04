@@ -9,7 +9,7 @@ import (
 )
 
 func (o *LinuxOps) EnsureLoopbackAddress(ctx context.Context, address string) error {
-	link, err := netlink.LinkByName("lo")
+	link, err := netlinkLinkByName("lo")
 	if err != nil {
 		return fmt.Errorf("find loopback: %w", err)
 	}
@@ -21,7 +21,7 @@ func (o *LinuxOps) EnsureLoopbackAddress(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("parse loopback address: %w", err)
 	}
-	if err := netlink.AddrReplace(link, addr); err != nil {
+	if err := netlinkAddrReplace(link, addr); err != nil {
 		return fmt.Errorf("assign loopback address: %w", err)
 	}
 	o.logger.InfoContext(ctx, "reconciled dns loopback address", "address", address)
