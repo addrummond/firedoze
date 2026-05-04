@@ -186,8 +186,17 @@ func (c *client) Close() error {
 	if c.http != nil {
 		c.http.CloseIdleConnections()
 	}
+	return c.CloseWireGuard()
+}
+
+func (c *client) CloseWireGuard() error {
+	if c == nil {
+		return nil
+	}
 	if c.wg != nil {
-		return c.wg.Close()
+		err := c.wg.Close()
+		c.wg = nil
+		return err
 	}
 	return nil
 }
@@ -990,6 +999,9 @@ func (a app) ssh(args []string) error {
 	}
 	sshArgs := a.sshCommand(vm)
 	sshArgs = append(sshArgs, args[1:]...)
+	if err := a.closeEmbeddedWireGuardBeforeProxyCommand(); err != nil {
+		return err
+	}
 	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -1042,6 +1054,9 @@ func (a app) exec(args []string) error {
 		return err
 	}
 	sshArgs := a.remoteExecCommand(vm, commandArgs)
+	if err := a.closeEmbeddedWireGuardBeforeProxyCommand(); err != nil {
+		return err
+	}
 	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -1063,6 +1078,9 @@ func (a app) cp(args []string) error {
 	}
 	cmdArgs, err := a.rsyncCopyCommand(vm, src, dst)
 	if err != nil {
+		return err
+	}
+	if err := a.closeEmbeddedWireGuardBeforeProxyCommand(); err != nil {
 		return err
 	}
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
@@ -1350,6 +1368,13 @@ func (a app) sshProxyCommand(vmName string) string {
 
 func (a app) usesEmbeddedWireGuard() bool {
 	return a.client != nil && a.client.wg != nil
+}
+
+func (a app) closeEmbeddedWireGuardBeforeProxyCommand() error {
+	if !a.usesEmbeddedWireGuard() {
+		return nil
+	}
+	return a.client.CloseWireGuard()
 }
 
 var firedozeCommandPath = func() string {
