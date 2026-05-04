@@ -135,105 +135,82 @@ tls_mode = "behind_proxy"
 Then have the load balancer forward plain HTTP to the host. Public users still
 see HTTPS at the load balancer.
 
-## Bastion Pattern
+## WireGuard Through A Network Load Balancer
 
-A small bastion can keep the large Firedoze host away from direct public
-WireGuard ingress.
-
-Instead of:
-
-```text
-developer laptop -> big Firedoze EC2 UDP 51820
-```
-
-use:
+The recommended AWS shape is to put an internet-facing Network Load Balancer in
+front of the Firedoze WireGuard UDP listener:
 
 ```text
 developer laptop
-  -> WireGuard UDP 51820
-  -> small public bastion
-  -> private AWS network
-  -> large Firedoze EC2
+  -> internet-facing NLB UDP 51820
+  -> private Firedoze EC2 UDP 51820
+  -> kernel WireGuard
+  -> Firedoze API and VM private subnet
 ```
 
-Recommended AWS shape:
+This keeps the large Firedoze host away from direct public UDP ingress without
+running a separate forwarding instance. The load balancer only forwards
+WireGuard packets; it does not expose the Firedoze HTTP API. The API should
+still bind only to the Firedoze WireGuard address.
 
-- **Bastion instance**
-  - small EC2 instance
-  - public IP or Elastic IP
-  - security group allows UDP `51820`
-  - runs WireGuard
-  - enables IP forwarding
-  - routes developer traffic to Firedoze private addresses
+Recommended setup:
 
-- **Firedoze instance**
-  - large EC2 instance
-  - private subnet, or at least no public WireGuard ingress
-  - security group allows management/API/private-VM traffic from the bastion
-  - optionally allows public `80/443` directly, or receives web traffic through
-    an ALB/reverse proxy
+- Create an internet-facing Network Load Balancer.
+- Add a UDP listener on `51820`.
+- Add a UDP target group on `51820` with the Firedoze EC2 instance as the
+  target.
+- Attach a security group to the NLB when creating it.
+- Allow inbound UDP `51820` to the NLB from developer IP ranges, or from the
+  internet if you are relying only on WireGuard keys.
+- Allow inbound UDP `51820` to the Firedoze EC2 instance from the NLB security
+  group.
+- Put the Firedoze instance in a private subnet if possible, and use IAM
+  Session Manager for emergency/admin shell access.
+- Set `wireguard.endpoint` to the NLB DNS name or to a stable DNS name that
+  points at the NLB.
 
-This reduces the public attack surface of the expensive machine. The bastion is
-small, replaceable, and can be monitored separately.
+This is usually a better default than documenting a manual UDP forwarding
+instance. A tiny forwarding box can be cheaper, but it adds another Linux host,
+another patching surface, and hand-maintained routing or NAT rules. If someone
+already wants that pattern, they probably know enough AWS networking to build it
+without Firedoze-specific instructions.
 
-## Bastion Routing Sketch
+Cost note: a Network Load Balancer has its own hourly charge, NLCU usage charge,
+data transfer costs, and public IPv4 address charges. For a small team this is
+often still a modest monthly cost, but it is normally more expensive than the
+smallest possible EC2 forwarding instance. Treat the NLB as the managed,
+lower-operations option rather than the cheapest possible option.
 
-On the bastion:
+## Private Firedoze Host
 
-```sh
-sudo sysctl -w net.ipv6.conf.all.forwarding=1
-sudo sysctl -w net.ipv4.ip_forward=1
-```
-
-WireGuard peers get routes for:
+With the WireGuard listener behind an NLB, the Firedoze host does not need a
+public IP for management access. Public web traffic can be handled separately:
 
 ```text
-Firedoze WireGuard/API address
-Firedoze VM private subnet
+internet -> ALB/CloudFront/NLB/direct EC2 80/443 -> Firedoze web listener -> VM
 ```
 
-The bastion needs routes toward the Firedoze host over the VPC private network.
-The Firedoze host and VM traffic need a return path back through the bastion.
-There are two broad ways to do that:
+For the simplest setup, expose `80/443` directly on the Firedoze host and let
+Caddy manage HTTPS:
 
-- Add explicit routes in the VPC route tables and host networking.
-- SNAT/MASQUERADE developer WireGuard traffic on the bastion so the Firedoze
-  host sees it as coming from the bastion.
-
-SNAT is simpler to operate; explicit routing is cleaner for observability.
-
-Security groups should allow only the minimum required private traffic from the
-bastion to the Firedoze host. For example:
-
-```text
-Firedoze API port       from bastion security group
-VM private subnet/ports from bastion security group as needed
+```toml
+[caddy]
+tls_mode = "auto"
 ```
 
-## Public Web With A Bastion
+For a more AWS-native private-host setup, terminate public HTTPS at an ALB or
+CloudFront distribution and forward plain HTTP to Firedoze:
 
-Public web links do not have to go through the WireGuard bastion.
-
-Possible layouts:
-
-```text
-internet -> Firedoze EC2 80/443 -> Caddy -> VM
+```toml
+[caddy]
+tls_mode = "behind_proxy"
 ```
 
-or:
+Keep these two surfaces separate in security groups:
 
-```text
-internet -> ALB/CloudFront -> Firedoze private HTTP -> Caddy/wake proxy -> VM
-```
-
-or:
-
-```text
-internet -> small proxy/bastion 80/443 -> Firedoze private HTTP -> VM
-```
-
-The first is simplest. The second and third reduce direct exposure of the large
-host but add more moving parts.
+- WireGuard UDP ingress to the NLB.
+- Public web ingress to the chosen web load balancer or host listener.
+- No direct public access to the Firedoze management API.
 
 ## Operational Notes
 
@@ -245,8 +222,8 @@ host but add more moving parts.
 - Use Elastic IPs or stable DNS for WireGuard endpoints; client configs include
   the endpoint host/port.
 - Back up `/etc/firedoze` and `/var/lib/firedoze` if the environments matter.
-- If using a bastion, document whether it routes or SNATs. Debugging is much
-  easier when that choice is explicit.
+- If using an NLB for WireGuard, keep the target security group limited to UDP
+  `51820` from the NLB security group.
 
 ## References
 
@@ -256,3 +233,9 @@ host but add more moving parts.
   https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
 - AWS Nitro and bare metal instance documentation:
   https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-nitro-instances.html
+- AWS Network Load Balancer target group documentation:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html
+- AWS Network Load Balancer security group documentation:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-security-groups.html
+- AWS Elastic Load Balancing pricing:
+  https://aws.amazon.com/elasticloadbalancing/pricing/
