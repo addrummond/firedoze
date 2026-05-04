@@ -23,6 +23,13 @@ var runCommand = func(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 func (o *LinuxOps) EnsureFirewall(ctx context.Context, cfg config.Config) error {
+	if !cfg.HostFirewall.Enabled {
+		o.logger.WarnContext(ctx, "firedoze host firewall disabled; VM private subnet access is the operator's responsibility")
+		return nil
+	}
+	if cfg.HostFirewall.Backend != "ip6tables" {
+		return fmt.Errorf("unsupported host_firewall.backend %q", cfg.HostFirewall.Backend)
+	}
 	vmSubnet, err := firewallVMSubnet(cfg.VMNetwork.Subnet)
 	if err != nil {
 		return err

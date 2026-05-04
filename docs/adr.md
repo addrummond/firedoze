@@ -104,10 +104,22 @@ Firedoze should make WireGuard easy by generating sample peer configs. The v1 HT
 
 ## Host Firewall
 
-The daemon manages a small host firewall boundary for the private IPv6 VM
+The daemon can manage a small host firewall boundary for the private IPv6 VM
 subnet. It allows WireGuard clients, VM-to-VM traffic, host-local proxy traffic,
 and established replies. It drops new traffic from ordinary LAN/public
 interfaces into the VM subnet.
+
+Host firewalling is configured explicitly:
+
+```toml
+[host_firewall]
+enabled = true
+backend = "ip6tables"
+```
+
+When `enabled = true`, `backend` is required. There are no `auto` or `none`
+backend values. Only `ip6tables` is implemented initially; future versions may
+add an `nftables` backend for RHEL/CentOS-style hosts.
 
 Cloud firewall/security-group setup remains outside Firedoze. Operators still
 need to expose only the intended public ports to the host.

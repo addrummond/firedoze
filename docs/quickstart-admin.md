@@ -19,6 +19,11 @@ Use an x86_64 Linux box with:
 
 The systemd service runs as a dedicated `firedoze` system user, not as root. It uses Linux capabilities for the privileged network operations it still needs at runtime.
 
+The current tested host is **Ubuntu 24.04.4 LTS (Noble Numbat)** with kernel
+`6.8.0-111-generic`, `ip6tables v1.8.10 (nf_tables)`, and `nftables v1.0.9`.
+Other modern Linux distributions should work, but this is the baseline we have
+actually exercised.
+
 On Ubuntu, the host packages are roughly:
 
 ```sh
@@ -195,10 +200,21 @@ Open these inbound ports to the host:
 - UDP `51820` for WireGuard.
 - TCP `80` and `443` for public web routes.
 
-Firedoze also installs host firewall rules for its private IPv6 VM subnet when
-`firedozed` starts with `-setup-wireguard`. Those rules allow WireGuard clients,
-VM-to-VM traffic, local host proxying, and established replies, while blocking
-new traffic from ordinary LAN/public interfaces into the VM private subnet.
+Firedoze can install host firewall rules for its private IPv6 VM subnet when
+`firedozed` starts with `-setup-wireguard`. The generated config enables this
+with:
+
+```toml
+[host_firewall]
+enabled = true
+backend = "ip6tables"
+```
+
+When enabled, `backend` is required. Only `ip6tables` is implemented for now.
+The rules allow WireGuard clients, VM-to-VM traffic, local host proxying, and
+established replies, while blocking new traffic from ordinary LAN/public
+interfaces into the VM private subnet. Set `enabled = false` only if you are
+managing equivalent firewall policy yourself.
 
 Set public wildcard DNS for web routes:
 

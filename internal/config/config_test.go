@@ -72,6 +72,10 @@ port = 0
 ttl_seconds = 0
 upstream_servers = []
 
+[host_firewall]
+enabled = true
+backend = "ip6tables"
+
 [cold_storage]
 archive_stopped_after_seconds = 0
 `), 0o644); err != nil {
@@ -136,6 +140,8 @@ func TestConfigValidateErrors(t *testing.T) {
 		{name: "caddy tls mode empty", mutate: func(c *Config) { c.Caddy.TLSMode = "" }, want: "caddy.tls_mode is required"},
 		{name: "caddy tls mode invalid", mutate: func(c *Config) { c.Caddy.TLSMode = "off" }, want: "caddy.tls_mode must be auto or behind_proxy"},
 		{name: "metadata path", mutate: func(c *Config) { c.Metadata.Path = "" }, want: "metadata.path is required"},
+		{name: "host firewall backend required", mutate: func(c *Config) { c.HostFirewall.Backend = "" }, want: "host_firewall.backend is required"},
+		{name: "host firewall backend invalid", mutate: func(c *Config) { c.HostFirewall.Backend = "nftables" }, want: "host_firewall.backend must be ip6tables"},
 		{name: "vm subnet cidr", mutate: func(c *Config) { c.VMNetwork.Subnet = "bad" }, want: "vm_network.subnet must be CIDR"},
 		{name: "vm subnet ipv4", mutate: func(c *Config) { c.VMNetwork.Subnet = "10.88.0.0/16" }, want: "vm_network.subnet must be IPv6"},
 		{name: "dns domain empty", mutate: func(c *Config) { c.DNS.Domain = "" }, want: "dns.domain is required"},
@@ -164,6 +170,125 @@ func TestConfigValidateErrors(t *testing.T) {
 				t.Fatalf("Validate error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidateAllowsHostFirewallDisabledWithoutBackend(t *testing.T) {
+	cfg := validConfig()
+	cfg.HostFirewall = HostFirewallConfig{Enabled: false}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with host firewall disabled: %v", err)
+	}
+}
+
+func TestLoadRequiresExplicitHostFirewallBackendWhenEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "firedoze.toml")
+	if err := os.WriteFile(path, []byte(`
+base_domain = "dev.example.test"
+default_http_port = 8080
+state_dir = "/tmp/firedoze-state"
+
+[api]
+port = 8081
+
+[caddy]
+http_port = 80
+https_port = 443
+internal_proxy_port = 18082
+tls_mode = "auto"
+
+[metadata]
+path = "/tmp/firedoze-state/firedoze.db"
+
+[wireguard]
+interface = "fdwg0"
+listen_port = 51820
+address = "fd7a:115c:a1e1::1/64"
+private_key_file = "/tmp/firedoze-wg.key"
+
+[vm_network]
+subnet = "fd7a:115c:a1e0::/64"
+
+[dns]
+enabled = false
+
+[ssh]
+user = "ubuntu"
+wake_proxy_port = 18022
+
+[idle]
+check_interval_seconds = 30
+default_sleep_after_seconds = 21600
+
+[firecracker]
+binary_path = "/usr/local/bin/firecracker"
+base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
+base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
+default_vcpus = 1
+default_memory_mib = 512
+default_disk_bytes = 4294967296
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "host_firewall.backend is required") {
+		t.Fatalf("Load missing host firewall backend error = %v", err)
+	}
+}
+
+func TestLoadAllowsExplicitHostFirewallDisabledWithoutBackend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "firedoze.toml")
+	if err := os.WriteFile(path, []byte(`
+base_domain = "dev.example.test"
+default_http_port = 8080
+state_dir = "/tmp/firedoze-state"
+
+[api]
+port = 8081
+
+[caddy]
+http_port = 80
+https_port = 443
+internal_proxy_port = 18082
+tls_mode = "auto"
+
+[metadata]
+path = "/tmp/firedoze-state/firedoze.db"
+
+[wireguard]
+interface = "fdwg0"
+listen_port = 51820
+address = "fd7a:115c:a1e1::1/64"
+private_key_file = "/tmp/firedoze-wg.key"
+
+[host_firewall]
+enabled = false
+
+[vm_network]
+subnet = "fd7a:115c:a1e0::/64"
+
+[dns]
+enabled = false
+
+[ssh]
+user = "ubuntu"
+wake_proxy_port = 18022
+
+[idle]
+check_interval_seconds = 30
+default_sleep_after_seconds = 21600
+
+[firecracker]
+binary_path = "/usr/local/bin/firecracker"
+base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
+base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
+default_vcpus = 1
+default_memory_mib = 512
+default_disk_bytes = 4294967296
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load with host firewall disabled: %v", err)
 	}
 }
 
@@ -235,6 +360,8 @@ func TestRenderExamplePlaceholderComments(t *testing.T) {
 		"# EDIT PLACEHOLDER\nbase_domain = \"dev.example.com\"",
 		"# EDIT PLACEHOLDER\nendpoint = \"YOUR_SERVER_PUBLIC_IP_OR_DNS:51820\"",
 		"tls_mode = \"auto\"",
+		"[host_firewall]\nenabled = true\n# Required when host firewalling is enabled.",
+		"backend = \"ip6tables\"",
 		"archive_stopped_after_seconds = 2592000",
 	} {
 		if !strings.Contains(text, want) {

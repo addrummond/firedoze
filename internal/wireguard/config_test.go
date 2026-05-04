@@ -292,6 +292,10 @@ address = "fd7a:115c:a1e1::1/64"
 endpoint = "example.com:51820"
 private_key_file = "`+dir+`/wg.key"
 
+[host_firewall]
+enabled = true
+backend = "ip6tables"
+
 [vm_network]
 subnet = "fd7a:115c:a1e0::/64"
 

@@ -182,6 +182,28 @@ func TestEnsureFirewallKeepsExistingChainAndHooks(t *testing.T) {
 	}
 }
 
+func TestEnsureFirewallSkipsWhenDisabled(t *testing.T) {
+	restore := stubRunCommand(t)
+	defer restore()
+
+	called := false
+	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		called = true
+		return nil, nil
+	}
+
+	cfg := config.Default()
+	cfg.HostFirewall.Enabled = false
+	cfg.HostFirewall.Backend = ""
+
+	if err := NewLinuxOps(nil).EnsureFirewall(context.Background(), cfg); err != nil {
+		t.Fatalf("EnsureFirewall disabled: %v", err)
+	}
+	if called {
+		t.Fatal("EnsureFirewall ran host commands while disabled")
+	}
+}
+
 func TestEnsureFirewallErrors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -189,6 +211,13 @@ func TestEnsureFirewallErrors(t *testing.T) {
 		setup  func()
 		want   string
 	}{
+		{
+			name: "unsupported backend",
+			mutate: func(cfg *config.Config) {
+				cfg.HostFirewall.Backend = "nftables"
+			},
+			want: `unsupported host_firewall.backend "nftables"`,
+		},
 		{
 			name: "bad subnet",
 			mutate: func(cfg *config.Config) {

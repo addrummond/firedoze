@@ -14,19 +14,20 @@ import (
 const DefaultPath = "/etc/firedoze/firedoze.toml"
 
 type Config struct {
-	BaseDomain      string            `toml:"base_domain"`
-	DefaultHTTPPort int               `toml:"default_http_port"`
-	StateDir        string            `toml:"state_dir"`
-	API             APIConfig         `toml:"api"`
-	Caddy           CaddyConfig       `toml:"caddy"`
-	Metadata        MetadataConfig    `toml:"metadata"`
-	WireGuard       WireGuardConfig   `toml:"wireguard"`
-	VMNetwork       VMNetworkConfig   `toml:"vm_network"`
-	DNS             DNSConfig         `toml:"dns"`
-	SSH             SSHConfig         `toml:"ssh"`
-	Idle            IdleConfig        `toml:"idle"`
-	ColdStorage     ColdStorageConfig `toml:"cold_storage"`
-	Firecracker     FirecrackerConfig `toml:"firecracker"`
+	BaseDomain      string             `toml:"base_domain"`
+	DefaultHTTPPort int                `toml:"default_http_port"`
+	StateDir        string             `toml:"state_dir"`
+	API             APIConfig          `toml:"api"`
+	Caddy           CaddyConfig        `toml:"caddy"`
+	Metadata        MetadataConfig     `toml:"metadata"`
+	WireGuard       WireGuardConfig    `toml:"wireguard"`
+	HostFirewall    HostFirewallConfig `toml:"host_firewall"`
+	VMNetwork       VMNetworkConfig    `toml:"vm_network"`
+	DNS             DNSConfig          `toml:"dns"`
+	SSH             SSHConfig          `toml:"ssh"`
+	Idle            IdleConfig         `toml:"idle"`
+	ColdStorage     ColdStorageConfig  `toml:"cold_storage"`
+	Firecracker     FirecrackerConfig  `toml:"firecracker"`
 }
 
 type MetadataConfig struct {
@@ -107,6 +108,11 @@ type WGPeer struct {
 	AllowedIPs []string `toml:"allowed_ips"`
 }
 
+type HostFirewallConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Backend string `toml:"backend"`
+}
+
 type VMNetworkConfig struct {
 	Subnet string `toml:"subnet"`
 }
@@ -168,6 +174,10 @@ func Default() Config {
 			Address:        "fd7a:115c:a1e1::1/64",
 			PrivateKeyFile: "/etc/firedoze/wg.key",
 		},
+		HostFirewall: HostFirewallConfig{
+			Enabled: true,
+			Backend: "ip6tables",
+		},
 		VMNetwork: VMNetworkConfig{
 			Subnet: "fd7a:115c:a1e0::/64",
 		},
@@ -218,6 +228,9 @@ func Load(path string) (Config, error) {
 	}
 
 	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateExplicitHostFirewall(data); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.applyDerivedDefaults(); err != nil {
@@ -307,6 +320,9 @@ func (c Config) Validate() error {
 	if err := c.WireGuard.Validate(); err != nil {
 		return err
 	}
+	if err := c.HostFirewall.Validate(); err != nil {
+		return err
+	}
 	if ip, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
 	} else if ip.To4() != nil {
@@ -367,6 +383,36 @@ func (c Config) Validate() error {
 	}
 	if c.Firecracker.DefaultDiskBytes <= 0 {
 		return fmt.Errorf("firecracker.default_disk_bytes must be positive")
+	}
+	return nil
+}
+
+func (c HostFirewallConfig) Validate() error {
+	if c.Enabled && c.Backend == "" {
+		return fmt.Errorf("host_firewall.backend is required when host_firewall.enabled is true")
+	}
+	if c.Backend != "" && c.Backend != "ip6tables" {
+		return fmt.Errorf("host_firewall.backend must be ip6tables")
+	}
+	return nil
+}
+
+func validateExplicitHostFirewall(data []byte) error {
+	var raw struct {
+		HostFirewall struct {
+			Enabled *bool   `toml:"enabled"`
+			Backend *string `toml:"backend"`
+		} `toml:"host_firewall"`
+	}
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	enabled := true
+	if raw.HostFirewall.Enabled != nil {
+		enabled = *raw.HostFirewall.Enabled
+	}
+	if enabled && raw.HostFirewall.Backend == nil {
+		return fmt.Errorf("host_firewall.backend is required when host_firewall.enabled is true")
 	}
 	return nil
 }
