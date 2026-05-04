@@ -87,9 +87,11 @@ if [ -f "$sysconfdir/wg.key" ]; then
 fi
 
 echo "installing documentation and systemd unit"
+as_root install -d -m 0755 "$docdir/developer"
 as_root install -m 0644 docs/quickstart-admin.md "$docdir/quickstart-admin.md"
 as_root install -m 0644 docs/quickstart-user.md "$docdir/quickstart-user.md"
 as_root install -m 0644 docs/adr.md "$docdir/adr.md"
+as_root install -m 0644 docs/developer/client-wireguard-broker.md "$docdir/developer/client-wireguard-broker.md"
 as_root install -m 0644 "$unit_src" "$unit_dst"
 
 if command -v systemctl >/dev/null 2>&1; then

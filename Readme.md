@@ -106,6 +106,7 @@ _Note that while some VPSs in the $1-5 range may support nested virtualization, 
 - [User quickstart](docs/quickstart-user.md) — for people using an existing Firedoze server
 - [Admin quickstart](docs/quickstart-admin.md) — for setting up and operating a Firedoze host
 - [Release packages](docs/release-packages.md) — installing and verifying `.deb` / `.rpm` artifacts
+- [Client WireGuard broker](docs/developer/client-wireguard-broker.md) — developer notes on embedded WireGuard and SSH proxying
 - [ADR](docs/adr.md) — design decisions and the reasoning behind the scope
 
 ## Status
