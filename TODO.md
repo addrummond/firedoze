@@ -15,4 +15,3 @@
 - Should image configure a firewall?
 - CI and release building for client tool
 - Can we not use systemd's socket handling capabilities to make restarts even less disruptive?
-- sudo rsync -aHAX --numeric-ids /var/lib/firedoze.before-xfs.$stamp/ /var/lib/firedoze/ <<<< why rsync here? it's all local filesystem stuff
