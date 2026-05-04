@@ -9,7 +9,7 @@
 
 firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, systemd, SSH, and long-running processes.
 
-**Spin up a Linux VM in seconds.**
+**Spin up a Linux VM in seconds and access it via SSH or (optionally) public HTTPS.**
 
 **When a VM goes idle it sleeps automatically, consuming only disk space.**
 
@@ -27,7 +27,7 @@ Because sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that keep running
 
-firedoze puts that behind one simple model. One beefy box to run your VMs. One CLI. One WireGuard tunnel to keep the management plane private.
+firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. One WireGuard tunnel to keep the management plane private.
 
 Unlike container workflows, firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
@@ -37,7 +37,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 
 firedoze needs a Linux host that can run KVM-backed Firecracker VMs. That means either dedicated hardware or a cloud VM with nested virtualization support.
 
-💡 **AWS quietly made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances, so you no longer need bare-metal EC2 just to run KVM-backed VMs. See the [AWS guide](docs/aws-guide.md).
+💡 **AWS just made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances, so you no longer need bare-metal EC2 just to run KVM-backed VMs. See the [AWS guide](docs/aws-guide.md).
 
 Low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
 
