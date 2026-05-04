@@ -38,6 +38,67 @@ func TestRunInitConfigWritesFile(t *testing.T) {
 	}
 }
 
+func TestRunInitConfigErrorsAndForce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "firedoze.toml")
+	code, _, stderr := captureRun(t, "-config", path, "-init-config", "-init-host", "firedoze.example", "-init-sslip-host", "203.0.113.10")
+	if code != 1 {
+		t.Fatalf("conflicting init exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "mutually exclusive") {
+		t.Fatalf("stderr missing mutually exclusive error:\n%s", stderr)
+	}
+
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr = captureRun(t, "-config", path, "-init-config", "-init-host", "firedoze.example")
+	if code != 1 {
+		t.Fatalf("existing config init exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "already exists") {
+		t.Fatalf("stderr missing already exists error:\n%s", stderr)
+	}
+
+	code, stdout, stderr := captureRun(t, "-config", path, "-init-config", "-init-force", "-init-sslip-host", "203.0.113.10")
+	if code != 0 {
+		t.Fatalf("forced init exit = %d, stderr = %s", code, stderr)
+	}
+	if strings.TrimSpace(stdout) != path {
+		t.Fatalf("forced init stdout = %q, want path", stdout)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `base_domain = "203.0.113.10.sslip.io"`) {
+		t.Fatalf("forced init did not render sslip base domain:\n%s", data)
+	}
+}
+
+func TestRunFlagAndLoadErrors(t *testing.T) {
+	code, _, stderr := captureRun(t, "-does-not-exist")
+	if code != 2 {
+		t.Fatalf("bad flag exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "parse flags") {
+		t.Fatalf("stderr missing parse flags:\n%s", stderr)
+	}
+
+	code, _, stderr = captureRun(t, "-h")
+	if code != 0 {
+		t.Fatalf("-h exit = %d, stderr = %s", code, stderr)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	code, _, stderr = captureRun(t, "-config", missing, "-print-config")
+	if code != 1 {
+		t.Fatalf("missing config exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "load config") {
+		t.Fatalf("stderr missing load config:\n%s", stderr)
+	}
+}
+
 func TestRunPrintHelpers(t *testing.T) {
 	path, cfg, serverKey := writeTestConfig(t, nil)
 
@@ -66,6 +127,43 @@ func TestRunPrintHelpers(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "listen_ip = ") || !strings.Contains(stdout, "fd7a:115c:a1e0::1") {
 		t.Fatalf("-print-config did not include derived DNS listen IP:\n%s", stdout)
+	}
+}
+
+func TestRunNoServeInitializesStore(t *testing.T) {
+	path, cfg, _ := writeTestConfig(t, nil)
+	code, _, stderr := captureRun(t, "-config", path)
+	if code != 0 {
+		t.Fatalf("run no serve exit = %d, stderr = %s", code, stderr)
+	}
+	if _, err := os.Stat(cfg.Metadata.Path); err != nil {
+		t.Fatalf("metadata store was not created at %s: %v", cfg.Metadata.Path, err)
+	}
+}
+
+func TestRunPrintHelperErrors(t *testing.T) {
+	path, _, _ := writeTestConfigMutated(t, nil, func(cfg *config.Config) {
+		cfg.WireGuard.PrivateKeyFile = filepath.Join(t.TempDir(), "missing-wg.key")
+	})
+	code, _, stderr := captureRun(t, "-config", path, "-wg-server-public-key")
+	if code != 1 {
+		t.Fatalf("missing server key exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "read wireguard server public key") {
+		t.Fatalf("stderr missing server key error:\n%s", stderr)
+	}
+
+	path, _, _ = writeTestConfigMutated(t, nil, func(cfg *config.Config) {
+		if err := os.WriteFile(cfg.WireGuard.PrivateKeyFile, []byte("bad-key\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	})
+	code, _, stderr = captureRun(t, "-config", path, "-wg-server-public-key")
+	if code != 1 {
+		t.Fatalf("bad server key exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "read wireguard server public key") {
+		t.Fatalf("stderr missing malformed server key error:\n%s", stderr)
 	}
 }
 
@@ -125,6 +223,92 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 	}
 }
 
+func TestRunWireGuardPeerErrors(t *testing.T) {
+	aliceKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, _, _ := writeTestConfig(t, []config.WGPeer{
+		{
+			Name:       "alice-laptop",
+			PublicKey:  aliceKey.PublicKey().String(),
+			AllowedIPs: []string{"fd7a:115c:a1e1::2/128"},
+		},
+	})
+
+	code, _, stderr := captureRun(t, "-config", path, "-wg-peer-config", "missing")
+	if code != 1 {
+		t.Fatalf("missing peer exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "wireguard peer not found") {
+		t.Fatalf("stderr missing peer not found:\n%s", stderr)
+	}
+
+	code, _, stderr = captureRun(t, "-config", path, "-wg-add-peer", "bob-laptop")
+	if code != 1 {
+		t.Fatalf("missing public key exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "usage: firedozed -wg-add-peer") {
+		t.Fatalf("stderr missing add peer usage:\n%s", stderr)
+	}
+
+	code, _, stderr = captureRun(t, "-config", path, "-wg-add-peer", "bob-laptop", "bad-key")
+	if code != 1 {
+		t.Fatalf("bad public key exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "render new wireguard peer setup") {
+		t.Fatalf("stderr missing peer setup error:\n%s", stderr)
+	}
+
+	code, _, stderr = captureRun(t, "-config", path, "-wg-add-peer", "alice-laptop", aliceKey.PublicKey().String())
+	if code != 1 {
+		t.Fatalf("duplicate peer exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "already exists") {
+		t.Fatalf("stderr missing duplicate peer error:\n%s", stderr)
+	}
+
+	bobKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureRun(t, "-config", path, "-wg-add-peer", "bob-laptop", bobKey.PublicKey().String(), "fd7a:115c:a1e1::42/128")
+	if code != 0 {
+		t.Fatalf("explicit add peer exit = %d, stderr = %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "Address = fd7a:115c:a1e1::42/128") {
+		t.Fatalf("explicit add peer stdout missing requested address:\n%s", stdout)
+	}
+}
+
+func TestRunSetupWireGuardStopsOnPrivateKeyError(t *testing.T) {
+	path, _, _ := writeTestConfigMutated(t, nil, func(cfg *config.Config) {
+		if err := os.WriteFile(cfg.WireGuard.PrivateKeyFile, []byte("bad-key\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	})
+	code, _, stderr := captureRun(t, "-config", path, "-setup-wireguard")
+	if code != 1 {
+		t.Fatalf("setup wireguard bad key exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "setup wireguard") || !strings.Contains(stderr, "private key") {
+		t.Fatalf("stderr missing setup wireguard private key error:\n%s", stderr)
+	}
+}
+
+func TestRunOpenStoreError(t *testing.T) {
+	path, _, _ := writeTestConfigMutated(t, nil, func(cfg *config.Config) {
+		cfg.Metadata.Path = t.TempDir()
+	})
+	code, _, stderr := captureRun(t, "-config", path)
+	if code != 1 {
+		t.Fatalf("open store error exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "open metadata store") {
+		t.Fatalf("stderr missing metadata store error:\n%s", stderr)
+	}
+}
+
 func TestRunServeRequiresSetupWireGuard(t *testing.T) {
 	path, _, _ := writeTestConfig(t, nil)
 	code, _, stderr := captureRun(t, "-config", path, "-serve")
@@ -164,6 +348,21 @@ func TestRestartWakeFileLifecycle(t *testing.T) {
 	}
 }
 
+func TestWriteRestartWakeFileErrors(t *testing.T) {
+	cfg := config.Config{StateDir: filepath.Join(t.TempDir(), "state")}
+	if err := os.WriteFile(cfg.StateDir, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRestartWakeFile(cfg, []string{"one"}); err == nil {
+		t.Fatal("writeRestartWakeFile succeeded when state dir is a file")
+	}
+
+	cfg = config.Config{StateDir: filepath.Join(t.TempDir(), "missing")}
+	if err := writeRestartWakeFile(cfg, nil); err != nil {
+		t.Fatalf("clear missing restart wake file: %v", err)
+	}
+}
+
 func TestWakeRestartVMs(t *testing.T) {
 	cfg := config.Config{StateDir: t.TempDir()}
 	if err := writeRestartWakeFile(cfg, []string{"one", "two"}); err != nil {
@@ -178,6 +377,24 @@ func TestWakeRestartVMs(t *testing.T) {
 	}
 	if _, err := os.Stat(restartWakePath(cfg)); !os.IsNotExist(err) {
 		t.Fatalf("restart wake file still exists after wake: %v", err)
+	}
+}
+
+func TestWakeRestartVMsMissingAndEmpty(t *testing.T) {
+	cfg := config.Config{StateDir: t.TempDir()}
+	if err := wakeRestartVMs(context.Background(), cfg, &fakeRestartStarter{}, discardLogger()); err != nil {
+		t.Fatalf("wakeRestartVMs missing file: %v", err)
+	}
+
+	if err := writeRestartWakeFile(cfg, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeRestartStarter{}
+	if err := wakeRestartVMs(context.Background(), cfg, starter, discardLogger()); err != nil {
+		t.Fatalf("wakeRestartVMs empty file: %v", err)
+	}
+	if len(starter.names) != 0 {
+		t.Fatalf("empty wake file started names: %#v", starter.names)
 	}
 }
 
@@ -246,6 +463,11 @@ func (f *fakeRestartStarter) StartVMs(ctx context.Context, names []string) error
 
 func writeTestConfig(t *testing.T, peers []config.WGPeer) (string, config.Config, wgtypes.Key) {
 	t.Helper()
+	return writeTestConfigMutated(t, peers, nil)
+}
+
+func writeTestConfigMutated(t *testing.T, peers []config.WGPeer, mutate func(*config.Config)) (string, config.Config, wgtypes.Key) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.StateDir = filepath.Join(dir, "state")
@@ -255,6 +477,7 @@ func writeTestConfig(t *testing.T, peers []config.WGPeer) (string, config.Config
 	cfg.WireGuard.Address = "fd7a:115c:a1e1::1/64"
 	cfg.WireGuard.Peers = peers
 	cfg.VMNetwork.Subnet = "fd7a:115c:a1e0::/64"
+	cfg.DNS.ListenIP = "fd7a:115c:a1e0::1"
 
 	serverKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -265,6 +488,9 @@ func writeTestConfig(t *testing.T, peers []config.WGPeer) (string, config.Config
 	}
 	if err := os.WriteFile(cfg.WireGuard.PrivateKeyFile, []byte(serverKey.String()+"\n"), 0o640); err != nil {
 		t.Fatal(err)
+	}
+	if mutate != nil {
+		mutate(&cfg)
 	}
 	path := filepath.Join(dir, "firedoze.toml")
 	if err := os.WriteFile(path, []byte(cfg.TOML()), 0o644); err != nil {
