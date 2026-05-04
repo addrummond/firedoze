@@ -695,7 +695,7 @@ func (m *Manager) RebootVM(ctx context.Context, name string) (store.VM, error) {
 }
 
 func (m *Manager) bootArgs(netdev preparedNetwork) string {
-	args := "console=ttyS0 reboot=k panic=1 pci=off net.ifnames=0 root=/dev/vda rw"
+	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw"
 	args += " firedoze.guest_ip=" + netdev.guestIP.String()
 	args += " firedoze.host_ip=" + netdev.hostIP.String()
 	if m.cfg.DNS.Enabled {
@@ -1078,7 +1078,7 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 		return nil, err
 	}
 
-	cmdArgs := append([]string{"--api-sock", layout.socketPath}, args...)
+	cmdArgs := append([]string{"--api-sock", layout.socketPath, "--enable-pci"}, args...)
 	cmd := exec.Command(m.cfg.Firecracker.BinaryPath, cmdArgs...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
