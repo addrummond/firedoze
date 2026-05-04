@@ -160,14 +160,6 @@ If the broker is gone, the next `firedoze` command starts a new one. Stale socke
 files are tolerated by probing the socket first; if no broker responds, the
 client starts a fresh broker.
 
-## Why Not A Goroutine?
-
-The broker cannot just be a goroutine because separate terminal commands are
-separate OS processes. A goroutine would only be shared within one `firedoze`
-process and would disappear when that command exits. The Unix socket gives all
-client processes on the laptop a single local rendezvous point for the selected
-server profile.
-
 ## Tradeoff
 
 This broker exists because Firedoze hides WireGuard tunnel management from the
