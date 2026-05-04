@@ -767,6 +767,13 @@ Restarting the daemon temporarily interrupts the management API and public
 proxy. Running VMs are slept during shutdown and automatically started again
 after the new daemon comes up.
 
+Systemd socket activation is not used in v1. It would only preserve newly
+arriving connections to selected listening sockets during a daemon restart; it
+would not preserve existing SSH sessions, public HTTP connections, or the
+embedded Caddy process. Less disruptive upgrades would require Firedoze to adopt
+already-running Firecracker processes after restart instead of sleeping and
+waking them.
+
 To remove installed binaries and the systemd unit while keeping config, images,
 VMs, snapshots, and logs:
 

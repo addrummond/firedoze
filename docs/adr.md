@@ -62,6 +62,13 @@ Likely layout:
 - State: `/var/lib/firedoze`
 - Logs: journald
 
+The systemd unit uses readiness notification and a watchdog, but not socket
+activation. Socket activation would only protect a small part of daemon restart
+behavior because Firedoze owns several listeners, embeds Caddy, and currently
+sleeps running VMs during shutdown before waking them on the next start. If
+less disruptive upgrades become important, the better direction is adopting
+already-running Firecracker processes across daemon restarts.
+
 ## Management Security
 
 WireGuard is the only security layer for the management plane.
