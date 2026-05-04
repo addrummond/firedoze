@@ -1,6 +1,6 @@
 # Quickstart
 
-firedoze runs shared, persistent Firecracker dev VMs on one Linux host. The management API and VM SSH access are only reachable through WireGuard.
+Firedoze runs shared, persistent Firecracker dev VMs on one Linux host. The management API and VM SSH access are only reachable through WireGuard.
 
 This is early dev software. Use it for shared development environments, not production.
 
@@ -75,7 +75,7 @@ firedoze health # check API connectivity
 
 The rest of this section explains the above steps in order.
 
-### 2.1 Install firedoze
+### 2.1 Install Firedoze
 
 The installer:
 
@@ -100,7 +100,7 @@ This downloads the release tarball declared in `Taskfile.yml`, validates its SHA
 
 ### 2.3 Build and install base images
 
-Build the firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support. Run it from the firedoze source checkout so it can compile the small Linux guest helper binaries.
+Build the Firedoze Ubuntu base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, or host ext4 support. Run it from the Firedoze source checkout so it can compile the small Linux guest helper binaries.
 
 From the repo checkout, run:
 
@@ -108,7 +108,7 @@ From the repo checkout, run:
 task image:build
 ```
 
-The `image:build` task builds `./firedoze-image-builder`, downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small firedoze guest configuration needed for SSH and Firecracker networking.
+The `image:build` task builds `./firedoze-image-builder`, downloads pinned Ubuntu cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
 
 Install the generated image artifacts:
 
@@ -124,11 +124,11 @@ The install task copies the generated files here:
 /var/lib/firedoze/images/rootfs.ext4
 ```
 
-The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
+The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. Firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
 
-### 2.4 Configure firedoze
+### 2.4 Configure Firedoze
 
-firedoze uses WireGuard as the access-control layer. The generated base image configures the `ubuntu` guest account for passwordless SSH, and VM SSH is reachable only through the WireGuard-routed private VM network.
+Firedoze uses WireGuard as the access-control layer. The generated base image configures the `ubuntu` guest account for passwordless SSH, and VM SSH is reachable only through the WireGuard-routed private VM network.
 
 Create the host config:
 
@@ -151,7 +151,7 @@ sudo firedozed -init-config -init-host dev.example.com
 - `wireguard.address`
 - `vm_network.subnet`
 
-Those randomized ranges make it less likely that one laptop will see route conflicts when connecting to multiple firedoze servers.
+Those randomized ranges make it less likely that one laptop will see route conflicts when connecting to multiple Firedoze servers.
 
 Reviewing the generated config is optional. If you do edit it, look for any `# EDIT PLACEHOLDER` comments:
 
@@ -174,7 +174,7 @@ firedoze wg keygen
 
 The client keeps `private_key` secret and sends only `public_key` to the admin.
 
-To add Alice's laptop, the admin runs this on the firedoze host:
+To add Alice's laptop, the admin runs this on the Firedoze host:
 
 ```sh
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
@@ -198,7 +198,7 @@ Open these inbound ports to the host:
 Set public wildcard DNS for web routes:
 
 ```text
-*.dev.example.com -> your firedoze host public IP
+*.dev.example.com -> your Firedoze host public IP
 ```
 
 Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
@@ -237,7 +237,7 @@ Save the WireGuard client config printed by `-wg-add-peer` on the client laptop,
 
 The generated config includes a commented `firedoze server add ...` command. Run it once on the client after connecting WireGuard. It stores the server API URL in `~/.config/firedoze/config.toml`, so normal client commands do not need an environment variable or command-line API URL.
 
-For scripts that deliberately use `FIREDOZE_API` instead of the client config file, you can print the API shell export on the firedoze host:
+For scripts that deliberately use `FIREDOZE_API` instead of the client config file, you can print the API shell export on the Firedoze host:
 
 ```sh
 sudo firedozed -print-api-env
@@ -255,7 +255,7 @@ The server config is the source of truth for the laptop's WireGuard address. Do 
 sudo firedozed -wg-peer-config alice-laptop
 ```
 
-## 3. Use firedoze
+## 3. Use Firedoze
 
 The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If you ran the `firedoze server add ... -default` command from the generated WireGuard config, the client will find the server automatically.
 
@@ -295,7 +295,7 @@ firedoze vm publish demo
 firedoze vm hide demo
 ```
 
-By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires. The signing key is generated automatically in the firedoze state directory; if it is lost, visitors just complete the challenge again.
+By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires. The signing key is generated automatically in the Firedoze state directory; if it is lost, visitors just complete the challenge again.
 
 Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `firedoze vm up` creates the VM if it does not already exist.
 
@@ -305,13 +305,13 @@ To disable passive wake for a VM:
 firedoze vm create demo-public -publish -no-auto-wake
 ```
 
-Update a VM's firedoze settings, such as default HTTP port, idle timeout, public HTTPS visibility, or passive network wake:
+Update a VM's Firedoze settings, such as default HTTP port, idle timeout, public HTTPS visibility, or passive network wake:
 
 ```sh
 firedoze vm settings demo -http-port 3000 -idle-sleep-after 900 -publish true -auto-wake false
 ```
 
-This changes firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.
+This changes Firedoze metadata. It does not edit the guest disk, rename the VM, or change an exact sleep snapshot.
 
 List VMs and SSH to one:
 
@@ -404,7 +404,7 @@ firedoze vm stop demo
 firedoze snapshot save demo-base demo
 ```
 
-Snapshots can only be saved from stopped VMs. firedoze rejects snapshots of
+Snapshots can only be saved from stopped VMs. Firedoze rejects snapshots of
 running or sleeping VMs because restored snapshots boot as new VM identities.
 Use `sleep` for exact suspend/resume of the same VM, and `stop` before creating
 a cloneable snapshot.
@@ -443,7 +443,7 @@ That route maps:
 https://app.dev.example.com -> demo VM port 8080
 ```
 
-If `demo` is sleeping when a request reaches `app.dev.example.com`, firedoze wakes it before proxying the request. If wake takes longer than the client allows, retry the request.
+If `demo` is sleeping when a request reaches `app.dev.example.com`, Firedoze wakes it before proxying the request. If wake takes longer than the client allows, retry the request.
 
 Delete the route alias:
 
@@ -461,9 +461,9 @@ firedoze snapshot inspect demo-snap
 
 ## Fast VM Disk Clones
 
-firedoze stores VM disks as plain raw image files. When the state directory is on a filesystem that supports reflinks, firedoze can clone the base image with copy-on-write instead of physically copying all allocated blocks.
+Firedoze stores VM disks as plain raw image files. When the state directory is on a filesystem that supports reflinks, Firedoze can clone the base image with copy-on-write instead of physically copying all allocated blocks.
 
-This makes VM start after first create much faster. On filesystems without reflinks, firedoze still works and falls back to sparse-aware copying.
+This makes VM start after first create much faster. On filesystems without reflinks, Firedoze still works and falls back to sparse-aware copying.
 
 XFS is a good default choice of filesystem that supports reflinks without bringing in a larger storage-management model. Btrfs and other reflink-capable filesystems can also work.
 
@@ -545,7 +545,7 @@ You should see `reflink=1`.
 
 ## Cold Storage For Stopped VMs
 
-Cold storage is optional. If configured, firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
+Cold storage is optional. If configured, Firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
 
 Only stopped VM disks are moved. Running VMs and sleeping VMs are not moved.
 
@@ -564,7 +564,7 @@ sudo mkdir -p /mnt/slow/firedoze
 sudo chown firedoze:firedoze /mnt/slow/firedoze
 ```
 
-When a disk is archived, firedoze copies:
+When a disk is archived, Firedoze copies:
 
 ```text
 /var/lib/firedoze/vms/<name>/rootfs.ext4
@@ -578,7 +578,7 @@ to:
 
 and records that path in SQLite before removing the hot copy. Starting the VM copies the disk back before booting. Saving a snapshot of an archived stopped VM copies directly from the archived disk. Deleting the VM removes the archived disk too.
 
-If a start, snapshot, or delete command arrives while an archive copy is still in progress, firedoze cancels the archive, removes the partial temporary file, and lets the explicit command continue.
+If a start, snapshot, or delete command arrives while an archive copy is still in progress, Firedoze cancels the archive, removes the partial temporary file, and lets the explicit command continue.
 
 Cold storage is not a backup system. It is just a way to reclaim faster local disk from stopped VMs you are not actively using.
 
@@ -640,8 +640,8 @@ default_memory_mib = 512
 default_disk_bytes = 4294967296
 ```
 
-`caddy.tls_mode = "auto"` is the normal direct-internet mode: firedoze serves
-HTTPS locally on `https_port` and redirects HTTP to HTTPS. If firedoze is behind
+`caddy.tls_mode = "auto"` is the normal direct-internet mode: Firedoze serves
+HTTPS locally on `https_port` and redirects HTTP to HTTPS. If Firedoze is behind
 a local TLS-terminating tunnel or reverse proxy such as Cloudflare Tunnel, use:
 
 ```toml
@@ -653,7 +653,7 @@ tls_mode = "behind_proxy"
 ```
 
 Then point the tunnel origin at `http://localhost:80`. Public users still see
-HTTPS from the tunnel/proxy, while firedoze serves plain HTTP only on the local
+HTTPS from the tunnel/proxy, while Firedoze serves plain HTTP only on the local
 origin connection.
 
 ## Upgrade or Uninstall

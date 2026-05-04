@@ -1,22 +1,22 @@
-# firedoze Architecture Decision Record
+# Firedoze Architecture Decision Record
 
 Status: draft
 
-Project name: firedoze
+Project name: Firedoze
 
 License: MIT
 
 ## Purpose
 
-firedoze is a Go daemon for shared, persistent development environments backed by Firecracker VMs.
+Firedoze is a Go daemon for shared, persistent development environments backed by Firecracker VMs.
 
 The model is "create and forget": users can create many disposable computers, let inactive ones sleep, and care only about the ones they are actively using. Sleeping VMs should consume storage only. Production usage is explicitly out of scope.
 
 ## Primary Use Case
 
-firedoze is for shared dev environments, not production workloads.
+Firedoze is for shared dev environments, not production workloads.
 
-Security matters, but reliability and high availability do not. The environment is intentionally shared. If a team wants stronger isolation, they should run a separate firedoze instance.
+Security matters, but reliability and high availability do not. The environment is intentionally shared. If a team wants stronger isolation, they should run a separate Firedoze instance.
 
 ## Non-Goals
 
@@ -34,7 +34,7 @@ Security matters, but reliability and high availability do not. The environment 
 
 The intended real deployment target is a single Linux server running on dedicated hardware, or in a cloud VM that supports nested virtualization.
 
-AWS compatibility is required for the intended deployment model. As of February 2026, EC2 supports nested virtualization on virtual instances in the C8i, M8i, and R8i families. firedoze should assume KVM availability for Firecracker.
+AWS compatibility is required for the intended deployment model. As of February 2026, EC2 supports nested virtualization on virtual instances in the C8i, M8i, and R8i families. Firedoze should assume KVM availability for Firecracker.
 
 DigitalOcean Droplets may be useful for cheap initial development work, subject to nested virtualization behavior and performance caveats.
 
@@ -42,7 +42,7 @@ The host OS should be any modern Linux distribution with KVM, kernel WireGuard, 
 
 ## Single-Node Scope
 
-firedoze is deliberately single-node only.
+Firedoze is deliberately single-node only.
 
 The daemon runs on one sufficiently large machine. There is no host pool, scheduler, migration story, or distributed database.
 
@@ -54,7 +54,7 @@ This is acceptable for the dev-only threat model and keeps installation/debuggin
 
 ## Packaging
 
-firedoze should eventually be packaged as a systemd service.
+Firedoze should eventually be packaged as a systemd service.
 
 Likely layout:
 
@@ -66,7 +66,7 @@ Likely layout:
 
 WireGuard is the only security layer for the management plane.
 
-There are no firedoze user accounts. Anyone with WireGuard access is trusted inside that firedoze instance.
+There are no Firedoze user accounts. Anyone with WireGuard access is trusted inside that Firedoze instance.
 
 The management HTTP API must listen only on the WireGuard interface. There must be no localhost, public-interface, or other escape-hatch listener for the management API.
 
@@ -100,7 +100,7 @@ public_key = "..."
 allowed_ips = ["fd7a:115c:a1e1::2/128"]
 ```
 
-firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, management and VM subnet routes, and a `<client-private-key>` placeholder. firedoze does not manage developer client private keys.
+Firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, management and VM subnet routes, and a `<client-private-key>` placeholder. Firedoze does not manage developer client private keys.
 
 ## Host Firewall
 
@@ -166,15 +166,15 @@ The VM name reserves that hostname. No separate route/alias can use another VM's
 
 ## DNS
 
-Public DNS is configured by the admin as a wildcard record pointing to the firedoze host/proxy:
+Public DNS is configured by the admin as a wildcard record pointing to the Firedoze host/proxy:
 
 ```text
-*.dev.example.com -> firedoze host public IP
+*.dev.example.com -> Firedoze host public IP
 ```
 
-firedoze does not dynamically manage public DNS.
+Firedoze does not dynamically manage public DNS.
 
-firedoze does not run a private DNS resolver in v1. Direct VM SSH should use the `firedoze ssh <vm>` client command, which gets the VM private IP from the management API instead of relying on laptop DNS configuration.
+Firedoze does not run a private DNS resolver in v1. Direct VM SSH should use the `firedoze ssh <vm>` client command, which gets the VM private IP from the management API instead of relying on laptop DNS configuration.
 
 WireGuard peer configuration must include routes for both the WireGuard management address and the VM private subnet. The config format should support multiple peer allowed IP CIDRs.
 
@@ -187,7 +187,7 @@ Each VM gets a private IPv6 ULA address on a host-managed VM subnet. There is no
 WireGuard clients should be able to route directly to VM private IPs for SSH:
 
 ```text
-laptop -> WireGuard -> firedoze host -> VM private IP:22
+laptop -> WireGuard -> Firedoze host -> VM private IP:22
 ```
 
 There is no SSH jump service and no public SSH.
@@ -218,7 +218,7 @@ The client resolves the VM to its private IP through the management API before s
 
 The `firedoze ssh <vm>` client starts or resumes the VM when needed, waits for guest SSH, then execs OpenSSH against the VM private IPv6 address. Passive SSH wake-on-network is disabled for the IPv6-only VM network for now.
 
-Public HTTP wake is gated by a self-hosted CAPTCHA when the target VM is sleeping. After a browser completes the challenge, firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires. The cookie signing key is generated automatically under the firedoze state directory and is not part of hand-written config.
+Public HTTP wake is gated by a self-hosted CAPTCHA when the target VM is sleeping. After a browser completes the challenge, Firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires. The cookie signing key is generated automatically under the Firedoze state directory and is not part of hand-written config.
 
 ## Public HTTPS
 
@@ -258,11 +258,11 @@ Route names are globally unique DNS-safe labels.
 
 Routes may target any guest TCP port number, but the target service must speak HTTP. WebSockets should work through Caddy. Raw TCP forwarding and TLS passthrough are not v1 features.
 
-Caddy routes public hosts to firedoze's internal wake proxy. The wake proxy resumes sleeping VMs when needed, then proxies to the VM private IP over the host-to-VM private network.
+Caddy routes public hosts to Firedoze's internal wake proxy. The wake proxy resumes sleeping VMs when needed, then proxies to the VM private IP over the host-to-VM private network.
 
 ## Wake on HTTPS
 
-If a sleeping VM receives an HTTPS request for one of its routes, firedoze should wake the VM before proxying.
+If a sleeping VM receives an HTTPS request for one of its routes, Firedoze should wake the VM before proxying.
 
 The request should wait. If wake takes too long and the client times out, the user can retry.
 
@@ -311,7 +311,7 @@ snapshot "base-node-app" -> clone as VM "alice-node-app"
 
 A destructive in-place restore may be added later, but is not the v1 default.
 
-When cloning/restoring, firedoze must rewrite guest identity so multiple VMs do not share properties such as hostname, machine-id, SSH host keys, or network identity.
+When cloning/restoring, Firedoze must rewrite guest identity so multiple VMs do not share properties such as hostname, machine-id, SSH host keys, or network identity.
 
 Restore creates a stopped VM from the snapshot disk copy, rewrites guest identity, and boots it normally when started. Exact Firecracker memory restore remains part of the sleep/resume path for the same VM, not the cloneable named snapshot model, because exact memory restore conflicts with changing guest identity.
 
@@ -321,17 +321,17 @@ The base image is non-configurable in v1.
 
 Default guest OS should be Ubuntu LTS cloud image or equivalent. The VM should feel like a normal human-usable Linux computer, not a minimal appliance.
 
-The base image should be built from pinned Ubuntu cloud image artifacts rather than from the minimal Firecracker quickstart image. firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts. Default artifacts are version-pinned in source and SHA-256 verified; overrides must provide checksums or explicitly opt into an insecure build.
+The base image should be built from pinned Ubuntu cloud image artifacts rather than from the minimal Firecracker quickstart image. Firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts. Default artifacts are version-pinned in source and SHA-256 verified; overrides must provide checksums or explicitly opt into an insecure build.
 
 The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
-The guest image carries a tiny firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
+The guest image carries a tiny Firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
 
 The base image is used only for fresh VMs. Existing VMs and snapshots do not change when the configured base image changes.
 
 Kernel/runtime changes apply only to newly created VMs.
 
-New VMs store base image lineage metadata at creation time. Snapshots copy that metadata from the source VM. firedoze stores all available metadata rather than choosing a single identifier: parsed `manifest.txt` fields, artifact path, basename, SHA-256, size, and modification time for the root filesystem, kernel, and initrd where present.
+New VMs store base image lineage metadata at creation time. Snapshots copy that metadata from the source VM. Firedoze stores all available metadata rather than choosing a single identifier: parsed `manifest.txt` fields, artifact path, basename, SHA-256, size, and modification time for the root filesystem, kernel, and initrd where present.
 
 The compact `base_image_id` and `kernel_id` fields are summary identifiers for easy display and compatibility checks; the full `base_image_metadata` object is the source of detail.
 
@@ -376,9 +376,9 @@ v1 uses plain image files on local disk.
 
 No ZFS, btrfs, LVM thin provisioning, or qcow2 overlay requirement in v1.
 
-Fast cloning can use ordinary filesystem reflinks when the configured state directory supports them, but firedoze must still work with regular file copies.
+Fast cloning can use ordinary filesystem reflinks when the configured state directory supports them, but Firedoze must still work with regular file copies.
 
-Cold storage is opt-in. If `cold_storage.dir` is configured, firedoze can move disks from VMs that have been stopped longer than `cold_storage.archive_stopped_after_seconds` to that directory using a regular file copy, then remove the hot copy. The SQLite VM record stores the archived disk path, so starts can restore the disk before booting, snapshots can copy from the archived disk, and deletes can reclaim it.
+Cold storage is opt-in. If `cold_storage.dir` is configured, Firedoze can move disks from VMs that have been stopped longer than `cold_storage.archive_stopped_after_seconds` to that directory using a regular file copy, then remove the hot copy. The SQLite VM record stores the archived disk path, so starts can restore the disk before booting, snapshots can copy from the archived disk, and deletes can reclaim it.
 
 Cold-storage archive copies are cancellable. Explicit VM operations such as start, snapshot, and delete should preempt an in-progress archive, wait for temporary-file cleanup, and then continue.
 
@@ -392,7 +392,7 @@ Per-VM memory, vCPU, and disk size are configurable.
 
 No hard maximums are required in daemon config for v1.
 
-firedoze should expose simple aggregate resource usage in the API, but does not enforce resource limits.
+Firedoze should expose simple aggregate resource usage in the API, but does not enforce resource limits.
 
 ## Caddy and ACME Assumptions
 
@@ -404,7 +404,7 @@ For public HTTPS to work:
 
 No DNS-01 provider integration is required in v1.
 
-The embedded Caddy integration always runs with Auto HTTPS enabled. firedoze can configure the HTTP and HTTPS listener ports, but there is no separate insecure public routing mode. The normal deployment path is per-host Auto HTTPS on ports 80/443.
+The embedded Caddy integration always runs with Auto HTTPS enabled. Firedoze can configure the HTTP and HTTPS listener ports, but there is no separate insecure public routing mode. The normal deployment path is per-host Auto HTTPS on ports 80/443.
 
 ## Open Implementation Notes
 
@@ -414,7 +414,7 @@ Wake-on-request through embedded Caddy needs a mechanism for Caddy route handlin
 
 Idle detection should likely start with host-visible network counters per VM TAP interface. More complex eBPF or conntrack approaches can come later if needed.
 
-The initial Firecracker integration uses `firecracker --api-sock ... --config-file ...`, which starts the microVM immediately from the config file. In this launch mode, firedoze must not send a separate `InstanceStart` action. Later snapshot/restore work may require moving to a more explicit API-driven configuration flow.
+The initial Firecracker integration uses `firecracker --api-sock ... --config-file ...`, which starts the microVM immediately from the config file. In this launch mode, Firedoze must not send a separate `InstanceStart` action. Later snapshot/restore work may require moving to a more explicit API-driven configuration flow.
 
 Host firewall/security group requirements must be documented before real deployment, especially:
 

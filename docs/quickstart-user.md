@@ -1,12 +1,12 @@
 # User Quickstart
 
-This guide is for someone using an existing firedoze server. It does not cover installing or administering `firedozed`.
+This guide is for someone using an existing Firedoze server. It does not cover installing or administering `firedozed`.
 
-firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into, copy files to, and expose over public HTTPS when needed.
+Firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into, copy files to, and expose over public HTTPS when needed.
 
 ## 1. What You Need
 
-Ask the firedoze admin for:
+Ask the Firedoze admin for:
 
 - A WireGuard peer config template for your laptop.
 
@@ -45,7 +45,7 @@ Save the WireGuard config somewhere private, then connect with your WireGuard ap
 sudo wg-quick up /path/to/firedoze.conf
 ```
 
-The generated WireGuard config includes a commented `firedoze server add ...` command. Run that command once after connecting. It saves the server's API URL in your local firedoze client config:
+The generated WireGuard config includes a commented `firedoze server add ...` command. Run that command once after connecting. It saves the server's API URL in your local Firedoze client config:
 
 ```sh
 firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
@@ -53,7 +53,7 @@ firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
 
 The client adds the default API port, `8081`, when the URL has no port. If the generated command includes a URL with a port, use it exactly.
 
-If you use more than one firedoze server, add each one with a different name:
+If you use more than one Firedoze server, add each one with a different name:
 
 ```sh
 firedoze server list
@@ -207,7 +207,7 @@ https://app.dev.example.com -> demo port 3000
 
 ## 8. Sleep And Autowake
 
-firedoze VMs are meant to be cheap to forget about. When a VM is inactive for long enough, firedoze can sleep it automatically. A sleeping VM keeps its disk and suspended runtime state, but it stops using CPU and memory until it wakes again.
+Firedoze VMs are meant to be cheap to forget about. When a VM is inactive for long enough, Firedoze can sleep it automatically. A sleeping VM keeps its disk and suspended runtime state, but it stops using CPU and memory until it wakes again.
 
 The server has a default idle timeout (6 hours, in the default configuration). Your VM can override it:
 
@@ -268,7 +268,7 @@ firedoze vm stop demo
 firedoze snapshot save demo-base demo
 ```
 
-firedoze does not allow snapshotting a running or sleeping VM. Use `sleep` for
+Firedoze does not allow snapshotting a running or sleeping VM. Use `sleep` for
 exact suspend/resume of the same VM, and `stop` before creating a cloneable
 snapshot.
 
@@ -323,4 +323,4 @@ If `firedoze ssh demo` hangs:
 - Try `firedoze vm start demo`.
 - If WireGuard was reconfigured recently, disconnect and reconnect the tunnel.
 
-If a public URL shows a human check, complete it in the browser. firedoze uses that check to avoid waking sleeping VMs for ordinary scanner traffic.
+If a public URL shows a human check, complete it in the browser. Firedoze uses that check to avoid waking sleeping VMs for ordinary scanner traffic.
