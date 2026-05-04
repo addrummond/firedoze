@@ -60,6 +60,8 @@ current Firedoze release:
 version=0.1.0
 curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
 sudo apt install "./firedoze_${version}_linux_amd64.deb"
+# OR
+sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 
 tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
   curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
