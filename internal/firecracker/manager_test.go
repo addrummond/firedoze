@@ -420,6 +420,51 @@ func TestStopVMWithoutRunningProcessMarksStopped(t *testing.T) {
 	}
 }
 
+func TestFirecrackerProcessExitMarksStoppedAndCleansUp(t *testing.T) {
+	ctx := context.Background()
+	m, st := newTestManager(t)
+	vm := createSnapshotTestVM(t, m, st, "demo", "running")
+	layout := m.layout(vm.Name)
+	if err := os.MkdirAll(layout.runtimeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.socketPath, []byte("socket"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var cleaned []string
+	restore := stubDeleteTap(t, func(name string) error {
+		cleaned = append(cleaned, name)
+		return nil
+	})
+	defer restore()
+	m.cfg.Firecracker.BinaryPath = "/usr/bin/true"
+
+	proc, err := m.launchProcess(vm.Name, layout, preparedNetwork{
+		tapName:   tapName(vm.Name),
+		guestCIDR: vm.PrivateIP + "/127",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.waitForProcessExit(ctx, proc, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := st.GetVM(ctx, vm.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", updated.State)
+	}
+	if _, err := os.Stat(layout.socketPath); !os.IsNotExist(err) {
+		t.Fatalf("socket stat = %v, want removed", err)
+	}
+	if strings.Join(cleaned, ",") != "fdtap-demo" {
+		t.Fatalf("cleanup taps = %#v", cleaned)
+	}
+}
+
 func TestSleepRunningVMsWithNoRunningVMs(t *testing.T) {
 	m, _ := newTestManager(t)
 	if err := m.SleepRunningVMs(context.Background()); err != nil {

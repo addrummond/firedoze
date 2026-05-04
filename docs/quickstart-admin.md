@@ -390,6 +390,11 @@ firedoze vm inspect demo
 firedoze ssh demo
 ```
 
+Inside an x86_64 Firecracker VM, `reboot` exits the microVM cleanly and Firedoze
+marks it as `stopped`. Do not rely on `shutdown -h now`, `poweroff`, or `halt`
+inside the guest to stop a VM; Firecracker can leave the VMM process running
+after those commands.
+
 For shell scripts, print just matching VM names:
 
 ```sh

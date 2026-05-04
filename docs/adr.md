@@ -348,6 +348,13 @@ crun inside a VM when a particular project benefits from containers.
 
 The guest image carries a tiny Firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
 
+On x86_64 Firecracker, an in-guest `reboot` command exits the microVM when the
+kernel is booted with `reboot=k`; Firedoze treats that process exit as a stopped
+VM. In-guest `poweroff`, `halt`, and default `shutdown` are not reliable VM stop
+signals on x86_64 Firecracker because the guest OS can halt without terminating
+the VMM process. Users should prefer `firedoze vm stop <name>` or in-guest
+`reboot`.
+
 The base image is used only for fresh VMs. Existing VMs and snapshots do not change when the configured base image changes.
 
 Kernel/runtime changes apply only to newly created VMs.

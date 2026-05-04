@@ -1112,8 +1112,11 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 		if finalState == "" {
 			finalState = "stopped"
 		}
-		delete(m.running, name)
 		m.mu.Unlock()
+
+		if err := m.cleanupAfterExit(proc); err != nil {
+			m.logger.Warn("cleanup after firecracker exit", "vm", name, "error", err)
+		}
 
 		if err := m.store.SetVMState(context.Background(), name, finalState); err != nil {
 			m.logger.Warn("set vm state after firecracker exit", "vm", name, "state", finalState, "error", err)
@@ -1123,6 +1126,10 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 		} else {
 			m.logger.Info("firecracker exited", "vm", name, "state", finalState)
 		}
+
+		m.mu.Lock()
+		delete(m.running, name)
+		m.mu.Unlock()
 	}()
 
 	return proc, nil
