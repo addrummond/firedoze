@@ -9,9 +9,11 @@
 
 Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, systemd, SSH, and long-running processes.
 
-🛠️ **Spin up a Linux VM in seconds and access it via SSH or (optionally) public HTTPS.**
+🛠️ **Spin up a Linux VM in seconds and access it via SSH.**
 
 🛠️ **Idle VMs sleep automatically, consuming only disk space.**
+
+🛠️ **Assign your VM a public HTTPS URL with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
 
 🛠️ **Hit A sleeping VM's public HTTPS URL and it automatically resumes.**
 
