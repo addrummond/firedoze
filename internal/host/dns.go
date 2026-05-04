@@ -13,15 +13,11 @@ func (o *LinuxOps) EnsureLoopbackAddress(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("find loopback: %w", err)
 	}
-	ip := net.ParseIP(address)
-	if ip == nil {
-		return fmt.Errorf("parse loopback address: %s", address)
+	cidr, err := loopbackCIDR(address)
+	if err != nil {
+		return err
 	}
-	prefix := "/32"
-	if ip.To4() == nil {
-		prefix = "/128"
-	}
-	addr, err := netlink.ParseAddr(address + prefix)
+	addr, err := netlink.ParseAddr(cidr)
 	if err != nil {
 		return fmt.Errorf("parse loopback address: %w", err)
 	}
@@ -30,4 +26,16 @@ func (o *LinuxOps) EnsureLoopbackAddress(ctx context.Context, address string) er
 	}
 	o.logger.InfoContext(ctx, "reconciled dns loopback address", "address", address)
 	return nil
+}
+
+func loopbackCIDR(address string) (string, error) {
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return "", fmt.Errorf("parse loopback address: %s", address)
+	}
+	prefix := "/32"
+	if ip.To4() == nil {
+		prefix = "/128"
+	}
+	return address + prefix, nil
 }
