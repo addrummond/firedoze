@@ -376,6 +376,52 @@ func TestTCPWakeHelpers(t *testing.T) {
 	}
 }
 
+func TestTCPWakeRedirectCommands(t *testing.T) {
+	cfg := testConfig()
+	cfg.WireGuard.Interface = "fdwg-test"
+	cfg.VMNetwork.Subnet = "10.88.0.0/16"
+	cfg.SSH.WakeProxyPort = 18022
+	proxy := NewTCPWakeProxy(cfg, testStore(t), &fakeStarter{}, nil)
+
+	var ops []string
+	restore := stubTCPWakeCommands(t, func(_ context.Context, name string, args ...string) error {
+		if name != "/usr/sbin/iptables" {
+			t.Fatalf("command = %q, want iptables", name)
+		}
+		op := args[2]
+		ops = append(ops, op)
+		if op == "-C" {
+			return errors.New("missing rule")
+		}
+		return nil
+	})
+	defer restore()
+
+	if err := proxy.ensureSSHRedirect(context.Background()); err != nil {
+		t.Fatalf("ensureSSHRedirect: %v", err)
+	}
+	if err := proxy.deleteSSHRedirect(context.Background()); err != nil {
+		t.Fatalf("deleteSSHRedirect: %v", err)
+	}
+	if got := strings.Join(ops, ","); got != "-C,-A,-D" {
+		t.Fatalf("iptables ops = %q, want -C,-A,-D", got)
+	}
+
+	ops = nil
+	restore()
+	restore = stubTCPWakeCommands(t, func(_ context.Context, name string, args ...string) error {
+		ops = append(ops, args[2])
+		return nil
+	})
+	defer restore()
+	if err := proxy.ensureSSHRedirect(context.Background()); err != nil {
+		t.Fatalf("ensureSSHRedirect existing rule: %v", err)
+	}
+	if got := strings.Join(ops, ","); got != "-C" {
+		t.Fatalf("existing-rule iptables ops = %q, want -C", got)
+	}
+}
+
 func TestTCPWakeVMByPrivateIPAndRunSSHIPv6Noop(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
@@ -402,31 +448,124 @@ func TestTCPWakeVMByPrivateIPAndRunSSHIPv6Noop(t *testing.T) {
 	}
 }
 
+func TestTCPWakeHandleSSHConn(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      string
+		autoWake   bool
+		startErr   error
+		waitErr    error
+		dialErr    error
+		wantStarts int
+		wantWait   bool
+		wantDial   bool
+	}{
+		{name: "auto wake disabled", state: "sleeping", autoWake: false},
+		{name: "start failure", state: "sleeping", autoWake: true, startErr: errors.New("start failed"), wantStarts: 1},
+		{name: "wait failure", state: "sleeping", autoWake: true, waitErr: errors.New("ssh not ready"), wantStarts: 1, wantWait: true},
+		{name: "dial failure", state: "running", autoWake: true, dialErr: errors.New("dial failed"), wantWait: true, wantDial: true},
+		{name: "running proxy", state: "running", autoWake: true, wantWait: true, wantDial: true},
+		{name: "sleeping starts and proxies", state: "sleeping", autoWake: true, wantStarts: 1, wantWait: true, wantDial: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := testStore(t)
+			if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+				Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: tt.autoWake, AutoWakeSet: true,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SetVMState(context.Background(), "demo", tt.state); err != nil {
+				t.Fatal(err)
+			}
+			starter := &fakeStarter{
+				vm:  store.VM{Name: "demo", State: "running", PrivateIP: "fd00::3", AutoWake: tt.autoWake},
+				err: tt.startErr,
+			}
+			proxy := NewTCPWakeProxy(testConfig(), st, starter, nil)
+			client := &bufferConn{reader: strings.NewReader("from-client")}
+			upstream := &bufferConn{reader: strings.NewReader("from-upstream")}
+			waited := false
+			dialed := false
+
+			restore := stubTCPWakeNetwork(t, tcpWakeNetworkStubs{
+				originalDestination: func(net.Conn) (*net.TCPAddr, error) {
+					return &net.TCPAddr{IP: net.ParseIP("fd00::3"), Port: 22}, nil
+				},
+				waitForTCP: func(_ context.Context, address string, timeout time.Duration) error {
+					waited = true
+					if address != "[fd00::3]:22" {
+						t.Fatalf("wait address = %q, want [fd00::3]:22", address)
+					}
+					if timeout != sshReadyTimeout {
+						t.Fatalf("wait timeout = %s, want %s", timeout, sshReadyTimeout)
+					}
+					return tt.waitErr
+				},
+				dialTimeout: func(network string, address string, timeout time.Duration) (net.Conn, error) {
+					dialed = true
+					if network != "tcp" || address != "[fd00::3]:22" {
+						t.Fatalf("dial = %s %s, want tcp [fd00::3]:22", network, address)
+					}
+					if timeout != 10*time.Second {
+						t.Fatalf("dial timeout = %s, want 10s", timeout)
+					}
+					if tt.dialErr != nil {
+						return nil, tt.dialErr
+					}
+					return upstream, nil
+				},
+			})
+			defer restore()
+
+			proxy.handleSSHConn(context.Background(), client)
+
+			if len(starter.starts) != tt.wantStarts {
+				t.Fatalf("starts = %#v, want %d", starter.starts, tt.wantStarts)
+			}
+			if waited != tt.wantWait {
+				t.Fatalf("waited = %v, want %v", waited, tt.wantWait)
+			}
+			if dialed != tt.wantDial {
+				t.Fatalf("dialed = %v, want %v", dialed, tt.wantDial)
+			}
+			if !client.closed {
+				t.Fatal("client connection was not closed")
+			}
+		})
+	}
+}
+
+func TestTCPWakeHandleSSHConnOriginalDestinationAndLookupFailures(t *testing.T) {
+	st := testStore(t)
+	proxy := NewTCPWakeProxy(testConfig(), st, &fakeStarter{}, nil)
+
+	client := &bufferConn{}
+	restore := stubTCPWakeNetwork(t, tcpWakeNetworkStubs{
+		originalDestination: func(net.Conn) (*net.TCPAddr, error) {
+			return nil, errors.New("no original destination")
+		},
+	})
+	proxy.handleSSHConn(context.Background(), client)
+	restore()
+	if !client.closed {
+		t.Fatal("client was not closed after original destination failure")
+	}
+
+	client = &bufferConn{}
+	restore = stubTCPWakeNetwork(t, tcpWakeNetworkStubs{
+		originalDestination: func(net.Conn) (*net.TCPAddr, error) {
+			return &net.TCPAddr{IP: net.ParseIP("fd00::99"), Port: 22}, nil
+		},
+	})
+	proxy.handleSSHConn(context.Background(), client)
+	restore()
+	if !client.closed {
+		t.Fatal("client was not closed after vm lookup failure")
+	}
+}
+
 func TestWaitForTCPAndProxyCopy(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			t.Skipf("tcp sockets unavailable: %v", err)
-		}
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		conn, err := listener.Accept()
-		if err == nil {
-			accepted <- conn
-		}
-	}()
-	if err := waitForTCP(context.Background(), listener.Addr().String(), time.Second); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case conn := <-accepted:
-		_ = conn.Close()
-	case <-time.After(time.Second):
-		t.Fatal("listener did not accept waitForTCP connection")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	if err := waitForTCP(ctx, "127.0.0.1:1", 10*time.Millisecond); err == nil {
@@ -447,6 +586,42 @@ func TestWaitForTCPAndProxyCopy(t *testing.T) {
 	}
 	if dst.writer.String() != "hello" {
 		t.Fatalf("proxyCopy wrote %q, want hello", dst.writer.String())
+	}
+}
+
+type tcpWakeNetworkStubs struct {
+	originalDestination func(net.Conn) (*net.TCPAddr, error)
+	waitForTCP          func(context.Context, string, time.Duration) error
+	dialTimeout         func(string, string, time.Duration) (net.Conn, error)
+}
+
+func stubTCPWakeNetwork(t *testing.T, stubs tcpWakeNetworkStubs) func() {
+	t.Helper()
+	oldOriginalDestination := originalDestinationFunc
+	oldWaitForTCP := waitForTCPFunc
+	oldDialTimeout := dialTimeoutFunc
+	if stubs.originalDestination != nil {
+		originalDestinationFunc = stubs.originalDestination
+	}
+	if stubs.waitForTCP != nil {
+		waitForTCPFunc = stubs.waitForTCP
+	}
+	if stubs.dialTimeout != nil {
+		dialTimeoutFunc = stubs.dialTimeout
+	}
+	return func() {
+		originalDestinationFunc = oldOriginalDestination
+		waitForTCPFunc = oldWaitForTCP
+		dialTimeoutFunc = oldDialTimeout
+	}
+}
+
+func stubTCPWakeCommands(t *testing.T, fn func(context.Context, string, ...string) error) func() {
+	t.Helper()
+	old := runCommand
+	runCommand = fn
+	return func() {
+		runCommand = old
 	}
 }
 

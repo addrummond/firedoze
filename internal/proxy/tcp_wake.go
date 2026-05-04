@@ -19,6 +19,13 @@ import (
 
 const sshReadyTimeout = 2 * time.Minute
 
+var (
+	originalDestinationFunc = originalDestination
+	waitForTCPFunc          = waitForTCP
+	dialTimeoutFunc         = net.DialTimeout
+	runCommand              = run
+)
+
 type TCPWakeProxy struct {
 	cfg     config.Config
 	store   *store.Store
@@ -106,7 +113,7 @@ func isIPv4CIDR(cidr string) bool {
 func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 	defer client.Close()
 
-	dst, err := originalDestination(client)
+	dst, err := originalDestinationFunc(client)
 	if err != nil {
 		p.logger.Warn("get original ssh destination", "remote", client.RemoteAddr(), "error", err)
 		return
@@ -133,12 +140,12 @@ func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 		}
 		p.logger.Info("woke vm for ssh", "vm", vm.Name, "ip", dst.IP)
 	}
-	if err := waitForTCP(ctx, net.JoinHostPort(vm.PrivateIP, "22"), sshReadyTimeout); err != nil {
+	if err := waitForTCPFunc(ctx, net.JoinHostPort(vm.PrivateIP, "22"), sshReadyTimeout); err != nil {
 		p.logger.Warn("wait for vm ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
 		return
 	}
 
-	upstream, err := net.DialTimeout("tcp", net.JoinHostPort(vm.PrivateIP, "22"), 10*time.Second)
+	upstream, err := dialTimeoutFunc("tcp", net.JoinHostPort(vm.PrivateIP, "22"), 10*time.Second)
 	if err != nil {
 		p.logger.Warn("connect vm ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
 		return
@@ -200,14 +207,14 @@ func waitForTCP(ctx context.Context, address string, timeout time.Duration) erro
 
 func (p *TCPWakeProxy) ensureSSHRedirect(ctx context.Context) error {
 	args := p.sshRedirectRule("-C")
-	if err := run(ctx, "/usr/sbin/iptables", args...); err == nil {
+	if err := runCommand(ctx, "/usr/sbin/iptables", args...); err == nil {
 		return nil
 	}
-	return run(ctx, "/usr/sbin/iptables", p.sshRedirectRule("-A")...)
+	return runCommand(ctx, "/usr/sbin/iptables", p.sshRedirectRule("-A")...)
 }
 
 func (p *TCPWakeProxy) deleteSSHRedirect(ctx context.Context) error {
-	return run(ctx, "/usr/sbin/iptables", p.sshRedirectRule("-D")...)
+	return runCommand(ctx, "/usr/sbin/iptables", p.sshRedirectRule("-D")...)
 }
 
 func (p *TCPWakeProxy) sshRedirectRule(op string) []string {
