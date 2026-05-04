@@ -55,6 +55,39 @@ After boot:
 test -e /dev/kvm && echo "KVM is present"
 ```
 
+## Direct Instance Networking
+
+For a quick EC2 test, you can skip the AWS load balancers and point DNS straight
+at the instance public IP, for example:
+
+```text
+*.54.229.92.207.sslip.io -> 54.229.92.207
+```
+
+In that direct mode, the instance security group must allow:
+
+```text
+inbound TCP 80     from 0.0.0.0/0
+inbound TCP 443    from 0.0.0.0/0
+inbound UDP 51820  from developer networks
+```
+
+Use your laptop's public `/32` for UDP `51820` when possible. Temporarily using
+`0.0.0.0/0` for WireGuard is acceptable for a short test, but it is noisier
+than necessary.
+
+Do not expose TCP `8081`. The Firedoze API should remain reachable only through
+WireGuard.
+
+If Caddy is managing HTTPS directly, leave Firedoze in normal TLS mode:
+
+```toml
+[caddy]
+http_port = 80
+https_port = 443
+tls_mode = "auto"
+```
+
 ## Host OS
 
 Use Ubuntu 24.04 LTS for now. That is the host OS currently covered by the
