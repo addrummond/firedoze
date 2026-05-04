@@ -502,7 +502,7 @@ If `/var/lib/firedoze` already contains data, copy it aside before mounting the 
 
 If you do not want to repartition or attach another disk, create a file-backed XFS filesystem and mount that at `/var/lib/firedoze`.
 
-This is useful for testing and small servers. It is still kernel XFS, not a userspace filesystem. The backing file can be sparse, so it only consumes blocks as data is written, but it cannot actually grow beyond the free space available on the outer filesystem.
+This is useful for testing and small servers. It is still kernel XFS, not a userspace filesystem. The backing file can be sparse, so it only consumes blocks as data is written.
 
 For a new install:
 
