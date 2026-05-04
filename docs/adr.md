@@ -32,11 +32,9 @@ Security matters, but reliability and high availability do not. The environment 
 
 ## Target Platforms
 
-The intended real deployment target is a single Linux server running on dedicated hardware, or in a cloud VM that supports nested virtualization.
+The intended real deployment target is a single Linux server running on dedicated hardware, or in a cloud VM that supports nested virtualization. Firedoze should assume KVM availability for Firecracker.
 
-AWS compatibility is required for the intended deployment model. As of February 2026, EC2 supports nested virtualization on virtual instances in the C8i, M8i, and R8i families. Firedoze should assume KVM availability for Firecracker.
-
-DigitalOcean Droplets may be useful for cheap initial development work, subject to nested virtualization behavior and performance caveats.
+VPS instances may be useful for cheap initial development work, subject to nested virtualization behavior and performance caveats.
 
 The host OS should be any modern Linux distribution with KVM, kernel WireGuard, and required networking support. Initial building and testing will be done on Ubuntu, but Ubuntu-specific assumptions should be kept small.
 

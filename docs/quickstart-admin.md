@@ -44,7 +44,7 @@ echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-firedoze-swap.conf
 sudo sysctl --system
 ```
 
-For a 4 GiB RAM test host such as `c8i.large`, 4-8 GiB of swap is reasonable.
+For a 4 GiB RAM test host, 4-8 GiB of swap is reasonable.
 For larger hosts, 8-16 GiB is usually enough as a safety buffer. If active VM
 memory is regularly spilling into swap, reduce the number or size of running VMs
 or use a larger host.

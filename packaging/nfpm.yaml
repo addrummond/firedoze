@@ -70,11 +70,6 @@ contents:
     file_info:
       mode: 0644
 
-  - src: docs/aws-guide.md
-    dst: /usr/share/doc/firedoze/aws-guide.md
-    file_info:
-      mode: 0644
-
   - src: docs/adr.md
     dst: /usr/share/doc/firedoze/adr.md
     file_info:

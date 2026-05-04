@@ -90,7 +90,6 @@ echo "installing documentation and systemd unit"
 as_root install -m 0644 docs/quickstart-admin.md "$docdir/quickstart-admin.md"
 as_root install -m 0644 docs/quickstart-user.md "$docdir/quickstart-user.md"
 as_root install -m 0644 docs/adr.md "$docdir/adr.md"
-as_root install -m 0644 docs/aws-guide.md "$docdir/aws-guide.md"
 as_root install -m 0644 "$unit_src" "$unit_dst"
 
 if command -v systemctl >/dev/null 2>&1; then

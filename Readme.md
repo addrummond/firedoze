@@ -97,8 +97,6 @@ Firedoze is a tool for a small, high-trust team.
 
 Firedoze needs a Linux host that can run KVM-backed Firecracker VMs. That means either dedicated hardware or a cloud VM with nested virtualization support.
 
-💡 **AWS just made this easier.** In February 2026, AWS enabled nested virtualization on C8i, M8i, and R8i instances, so you no longer need bare-metal EC2 just to run KVM-backed VMs. See the [AWS guide](docs/aws-guide.md).
-
 Low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
 
 _Note that while some VPSs in the $1-5 range may support nested virtualization, they are too RAM limited to usefully run multiple full Linux VMs. To reliably run a significant number of non-trivial VMs, you are probably looking at least in the $30/month range._
@@ -108,7 +106,6 @@ _Note that while some VPSs in the $1-5 range may support nested virtualization, 
 - [User quickstart](docs/quickstart-user.md) — for people using an existing Firedoze server
 - [Admin quickstart](docs/quickstart-admin.md) — for setting up and operating a Firedoze host
 - [Release packages](docs/release-packages.md) — installing and verifying `.deb` / `.rpm` artifacts
-- [AWS guide](docs/aws-guide.md) — EC2 notes, nested virtualization, and AWS networking
 - [ADR](docs/adr.md) — design decisions and the reasoning behind the scope
 
 ## Status
