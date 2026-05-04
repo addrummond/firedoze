@@ -4,12 +4,39 @@ set -euo pipefail
 out_dir="${1:-dist/coverage}"
 profile_dir="$out_dir/profiles"
 summary="$out_dir/summary.tsv"
+threshold_file="${FIREDOZE_COVERAGE_THRESHOLDS:-scripts/coverage-thresholds.tsv}"
 
 mkdir -p "$profile_dir"
 : > "$summary"
 
 status=0
 repo_root="$(pwd)"
+
+coverage_threshold_for() {
+  local package="$1"
+  [[ -f "$threshold_file" ]] || return 1
+  awk -v package="$package" -v file="$threshold_file" '
+    /^[[:space:]]*($|#)/ { next }
+    NF != 2 {
+      printf "invalid coverage threshold line in %s: %s\n", file, $0 > "/dev/stderr"
+      bad = 1
+      exit
+    }
+    $1 == package {
+      print $2
+      found = 1
+    }
+    END {
+      if (bad) {
+        exit 2
+      }
+      if (found) {
+        exit 0
+      }
+      exit 1
+    }
+  ' "$threshold_file"
+}
 
 while IFS=$'\t' read -r pkg pkg_dir test_files xtest_files; do
   safe_pkg="$(printf '%s' "$pkg" | sed 's#[^A-Za-z0-9_.-]#_#g')"
@@ -35,6 +62,19 @@ while IFS=$'\t' read -r pkg pkg_dir test_files xtest_files; do
       coverage="unknown"
     fi
     printf '%s\t%s\n' "$coverage" "$pkg" >> "$summary"
+    min=""
+    threshold_status=0
+    min="$(coverage_threshold_for "$pkg")" || threshold_status=$?
+    if (( threshold_status == 2 )); then
+      exit 2
+    fi
+    if [[ "$coverage" != "unknown" && -n "$min" ]]; then
+      coverage_value="${coverage%%%}"
+      if ! awk -v got="$coverage_value" -v min="$min" 'BEGIN { exit (got + 0 >= min + 0) ? 0 : 1 }'; then
+        printf 'coverage below threshold for %s: got %s, want >= %s%%\n' "$pkg" "$coverage" "$min" >&2
+        status=1
+      fi
+    fi
   else
     printf '%s\n' "$output" >&2
     printf 'failed\t%s\n' "$pkg" >> "$summary"

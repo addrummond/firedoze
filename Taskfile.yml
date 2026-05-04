@@ -13,7 +13,7 @@ tasks:
   fmt:
     desc: Format Go source
     cmds:
-      - gofmt -w cmd internal
+      - gofmt -w cmd internal integration
 
   test:
     desc: Run the Go test suite
@@ -21,7 +21,7 @@ tasks:
       - CGO_ENABLED=0 go test ./...
 
   test:coverage:
-    desc: Run fast tests and print package coverage sorted from lowest to highest
+    desc: Run fast tests, enforce package coverage floors, and print coverage sorted from lowest to highest
     cmds:
       - ./scripts/test-coverage.sh {{.CLI_ARGS}}
 

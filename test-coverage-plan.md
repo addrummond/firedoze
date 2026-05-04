@@ -301,6 +301,10 @@ These are specific bugs/design decisions that should become tests:
 9. Add opt-in Linux integration tests.
 10. Start enforcing package-level coverage targets once the suite is no longer lopsided.
 
+## Current Coverage Enforcement
+
+`scripts/test-coverage.sh` now enforces conservative package-level floors from `scripts/coverage-thresholds.tsv`. The thresholds are intentionally below the current measured coverage, so they catch accidental regressions without turning coverage into a brittle target.
+
 ## Exit Criteria
 
 Firedoze has adequate coverage when:

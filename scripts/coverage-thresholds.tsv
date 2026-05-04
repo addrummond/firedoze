@@ -1,0 +1,16 @@
+# Conservative package coverage floors for the fast hermetic test suite.
+# These are intentionally below the measured coverage on 2026-05-04.
+firedoze/cmd/firedoze	65.0
+firedoze/cmd/firedoze-hello	65.0
+firedoze/cmd/firedoze-image-builder	65.0
+firedoze/cmd/firedozed	55.0
+firedoze/internal/api	80.0
+firedoze/internal/config	80.0
+firedoze/internal/dns	90.0
+firedoze/internal/firecracker	55.0
+firedoze/internal/host	85.0
+firedoze/internal/model	95.0
+firedoze/internal/proxy	70.0
+firedoze/internal/store	70.0
+firedoze/internal/systemd	80.0
+firedoze/internal/wireguard	80.0
