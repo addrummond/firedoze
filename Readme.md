@@ -13,7 +13,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **When a VM goes idle it sleeps automatically, consuming only disk space.**
 
-🛠️ **Hit A VM's public HTTPS URL and it automatically wakes up again.**
+🛠️ **Hit A sleeping VM's public HTTPS URL and it automatically resumes.**
 
 ⚠️ _Firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts._
 
