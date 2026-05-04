@@ -23,7 +23,7 @@ On Ubuntu, the host packages are roughly:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs
+sudo apt-get install -y ca-certificates git wireguard-tools e2fsprogs openssh-client xfsprogs iptables
 ```
 
 ## 2. Setup
@@ -194,6 +194,11 @@ Open these inbound ports to the host:
 
 - UDP `51820` for WireGuard.
 - TCP `80` and `443` for public web routes.
+
+Firedoze also installs host firewall rules for its private IPv6 VM subnet when
+`firedozed` starts with `-setup-wireguard`. Those rules allow WireGuard clients,
+VM-to-VM traffic, local host proxying, and established replies, while blocking
+new traffic from ordinary LAN/public interfaces into the VM private subnet.
 
 Set public wildcard DNS for web routes:
 

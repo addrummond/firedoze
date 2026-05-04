@@ -114,6 +114,136 @@ func TestEnsureLoopbackAddress(t *testing.T) {
 	}
 }
 
+func TestEnsureFirewallConfiguresIP6Tables(t *testing.T) {
+	restore := stubRunCommand(t)
+	defer restore()
+
+	var commands []string
+	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		if len(args) >= 1 && args[0] == "-C" {
+			return []byte("missing rule"), errors.New("missing rule")
+		}
+		return nil, nil
+	}
+
+	cfg := config.Default()
+	cfg.WireGuard.Interface = "fdwg-test"
+	cfg.VMNetwork.Subnet = "fd7a:115c:a1e0::/64"
+
+	if err := NewLinuxOps(nil).EnsureFirewall(context.Background(), cfg); err != nil {
+		t.Fatalf("EnsureFirewall: %v", err)
+	}
+
+	want := []string{
+		"/usr/sbin/ip6tables -N FIREDOZE-VM",
+		"/usr/sbin/ip6tables -F FIREDOZE-VM",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -i fdwg-test -d fd7a:115c:a1e0::/64 -j ACCEPT",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -i fdtap+ -d fd7a:115c:a1e0::/64 -j ACCEPT",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -i lo -d fd7a:115c:a1e0::/64 -j ACCEPT",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -d fd7a:115c:a1e0::/64 -j DROP",
+		"/usr/sbin/ip6tables -A FIREDOZE-VM -j RETURN",
+		"/usr/sbin/ip6tables -C INPUT -j FIREDOZE-VM",
+		"/usr/sbin/ip6tables -I INPUT 1 -j FIREDOZE-VM",
+		"/usr/sbin/ip6tables -C FORWARD -j FIREDOZE-VM",
+		"/usr/sbin/ip6tables -I FORWARD 1 -j FIREDOZE-VM",
+	}
+	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands:\n%s\n\nwant:\n%s", strings.Join(commands, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestEnsureFirewallKeepsExistingChainAndHooks(t *testing.T) {
+	restore := stubRunCommand(t)
+	defer restore()
+
+	var inserts []string
+	runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		command := name + " " + strings.Join(args, " ")
+		if len(args) >= 1 && args[0] == "-N" {
+			return []byte("Chain already exists"), errors.New("exists")
+		}
+		if len(args) >= 1 && args[0] == "-I" {
+			inserts = append(inserts, command)
+		}
+		return nil, nil
+	}
+
+	cfg := config.Default()
+	cfg.WireGuard.Interface = "fdwg-test"
+	cfg.VMNetwork.Subnet = "fd7a:115c:a1e0::/64"
+
+	if err := NewLinuxOps(nil).EnsureFirewall(context.Background(), cfg); err != nil {
+		t.Fatalf("EnsureFirewall: %v", err)
+	}
+	if len(inserts) != 0 {
+		t.Fatalf("inserted hooks despite successful -C checks: %v", inserts)
+	}
+}
+
+func TestEnsureFirewallErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*config.Config)
+		setup  func()
+		want   string
+	}{
+		{
+			name: "bad subnet",
+			mutate: func(cfg *config.Config) {
+				cfg.VMNetwork.Subnet = "bad"
+			},
+			want: "vm_network.subnet",
+		},
+		{
+			name: "ipv4 subnet",
+			mutate: func(cfg *config.Config) {
+				cfg.VMNetwork.Subnet = "10.0.0.0/24"
+			},
+			want: "vm_network.subnet must be IPv6",
+		},
+		{
+			name: "missing wireguard interface",
+			mutate: func(cfg *config.Config) {
+				cfg.WireGuard.Interface = ""
+			},
+			want: "wireguard.interface",
+		},
+		{
+			name: "ip6tables failure",
+			setup: func() {
+				runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+					return []byte("permission denied"), errors.New("exit 1")
+				}
+			},
+			want: "create firewall chain",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := stubRunCommand(t)
+			defer restore()
+			runCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				return nil, nil
+			}
+			if tt.setup != nil {
+				tt.setup()
+			}
+			cfg := config.Default()
+			cfg.WireGuard.Interface = "fdwg-test"
+			cfg.VMNetwork.Subnet = "fd7a:115c:a1e0::/64"
+			if tt.mutate != nil {
+				tt.mutate(&cfg)
+			}
+			err := NewLinuxOps(nil).EnsureFirewall(context.Background(), cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("EnsureFirewall error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnsureLoopbackAddressErrors(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -512,6 +642,17 @@ func stubWG(t *testing.T) func() {
 	}
 	return func() {
 		wgctrlNew = oldWGCtrlNew
+	}
+}
+
+func stubRunCommand(t *testing.T) func() {
+	t.Helper()
+	oldRunCommand := runCommand
+	runCommand = func(context.Context, string, ...string) ([]byte, error) {
+		return nil, errors.New("unexpected command")
+	}
+	return func() {
+		runCommand = oldRunCommand
 	}
 }
 

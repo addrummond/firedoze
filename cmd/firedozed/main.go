@@ -161,6 +161,10 @@ func run(args []string) int {
 			logger.Error("setup wireguard", "interface", cfg.WireGuard.Interface, "error", err)
 			return 1
 		}
+		if err := ops.EnsureFirewall(ctx, cfg); err != nil {
+			logger.Error("setup firewall", "error", err)
+			return 1
+		}
 		logger.Info("wireguard interface ready", "interface", cfg.WireGuard.Interface, "address", cfg.WireGuard.Address)
 	}
 

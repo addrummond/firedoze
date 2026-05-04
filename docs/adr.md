@@ -104,9 +104,13 @@ Firedoze should make WireGuard easy by generating sample peer configs. The v1 HT
 
 ## Host Firewall
 
-The daemon does not manage host firewall rules or cloud security groups in v1.
+The daemon manages a small host firewall boundary for the private IPv6 VM
+subnet. It allows WireGuard clients, VM-to-VM traffic, host-local proxy traffic,
+and established replies. It drops new traffic from ordinary LAN/public
+interfaces into the VM subnet.
 
-Required firewall/security-group setup should be documented instead.
+Cloud firewall/security-group setup remains outside Firedoze. Operators still
+need to expose only the intended public ports to the host.
 
 ## API And Client Style
 
@@ -422,6 +426,7 @@ Host firewall/security group requirements must be documented before real deploym
 - WireGuard UDP listen port to host.
 - No public SSH to VMs.
 - Management API bound only to WireGuard.
+- Host firewall rules block new non-WireGuard/non-VM traffic into the VM private subnet.
 
 ## Initial Build Order
 
