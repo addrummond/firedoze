@@ -185,12 +185,12 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 		t.Fatalf("-wg-peer-config exit = %d, stderr = %s", code, stderr)
 	}
 	for _, want := range []string{
-		"# WireGuard client config template for alice-laptop.",
-		"Address = fd7a:115c:a1e1::2/128",
-		"PublicKey = " + serverKey.PublicKey().String(),
-		"Endpoint = firedoze.example:51820",
-		"AllowedIPs = fd7a:115c:a1e1::1/128, fd7a:115c:a1e0::/64",
-		"#   firedoze server add firedoze 'http://[fd7a:115c:a1e1::1]' -default",
+		"# Firedoze client import config for alice-laptop.",
+		`address = "fd7a:115c:a1e1::2/128"`,
+		`server_public_key = "` + serverKey.PublicKey().String() + `"`,
+		`endpoint = "firedoze.example:51820"`,
+		`allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]`,
+		"#   firedoze server import <this-file> -default",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("-wg-peer-config output missing %q:\n%s", want, stdout)
@@ -205,10 +205,10 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("-wg-add-peer exit = %d, stderr = %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "# WireGuard client config template for bob-laptop.") {
-		t.Fatalf("-wg-add-peer did not print client template:\n%s", stdout)
+	if !strings.Contains(stdout, "# Firedoze client import config for bob-laptop.") {
+		t.Fatalf("-wg-add-peer did not print client import config:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "Address = fd7a:115c:a1e1::3/128") {
+	if !strings.Contains(stdout, `address = "fd7a:115c:a1e1::3/128"`) {
 		t.Fatalf("-wg-add-peer did not allocate next free address:\n%s", stdout)
 	}
 	updated, err := config.Load(path)
@@ -276,7 +276,7 @@ func TestRunWireGuardPeerErrors(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("explicit add peer exit = %d, stderr = %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "Address = fd7a:115c:a1e1::42/128") {
+	if !strings.Contains(stdout, `address = "fd7a:115c:a1e1::42/128"`) {
 		t.Fatalf("explicit add peer stdout missing requested address:\n%s", stdout)
 	}
 }

@@ -115,7 +115,8 @@ Next steps:
        sudo firedozed -init-config -init-host <DOMAIN_NAME>
      If you have only an IP address:
        sudo firedozed -init-config -init-sslip-host \$(curl -4 https://ifconfig.me)
-  3. Ask the client to run 'firedoze wg keygen', then add their public key:
+  3. Ask the client to run 'firedoze server request alice-laptop', then add
+     their public key and send the printed import config back to them:
        sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
   4. Start the daemon:
        sudo systemctl enable --now firedozed

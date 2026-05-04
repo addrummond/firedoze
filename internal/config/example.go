@@ -69,7 +69,8 @@ private_key_file = "/etc/firedoze/wg.key"
 # Each peer needs a unique /128 address inside the WireGuard subnet.
 #
 # firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> appends the peer block
-# automatically and prints a client config with a private-key placeholder.
+# automatically and prints a Firedoze client import config. Client private keys
+# stay on client laptops.
 # Running daemons apply peer additions, removals, and peer address changes
 # automatically.
 

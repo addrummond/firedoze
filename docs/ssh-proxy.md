@@ -16,7 +16,8 @@ When OpenSSH starts it, the proxy:
 - Looks up the VM through the Firedoze API.
 - Starts the VM if it is stopped or sleeping.
 - Waits until guest SSH is reachable.
-- Opens a TCP connection to the VM private address on port 22.
+- Opens a TCP connection to the VM private address on port 22, using the
+  Firedoze client's imported WireGuard transport when available.
 - Copies bytes between OpenSSH and that TCP connection.
 
 It does not replace SSH, terminate SSH, or handle SSH authentication itself.
@@ -48,7 +49,7 @@ absolute path:
 Host demo.firedoze
   HostName demo.firedoze
   User ubuntu
-  ProxyCommand /usr/local/bin/firedoze ssh-proxy demo
+  ProxyCommand /usr/local/bin/firedoze -server work ssh-proxy demo
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
@@ -72,4 +73,6 @@ behavior, but it means the config should use an absolute path to a `firedoze`
 binary you trust.
 
 The SSH session itself is still encrypted by OpenSSH. Firedoze's management API
-traffic and the VM private network are protected by WireGuard.
+traffic and the VM private network are protected by WireGuard. With an imported
+Firedoze server profile, this does not require a separately running `wg-quick`
+tunnel.

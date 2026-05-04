@@ -107,7 +107,7 @@ public_key = "..."
 allowed_ips = ["fd7a:115c:a1e1::2/128"]
 ```
 
-Firedoze should make WireGuard easy by generating sample peer configs. The v1 HTTP API exposes configured peers and a `wg-quick` config template for each peer. The generated config includes the server public key, peer address, management and VM subnet routes, and a `<client-private-key>` placeholder. Firedoze does not manage developer client private keys.
+Firedoze should make WireGuard easy without asking admins to generate or see developer private keys. A developer runs `firedoze server request <name>` locally, which creates a client WireGuard key pair and stores the private key in the local client config. The developer sends only the public key to the admin. The admin runs `firedozed -wg-add-peer <name> <client-public-key>`, which updates the host config and prints a Firedoze client import TOML containing server public key, endpoint, API URL, peer address, and allowed routes. The developer imports that TOML with `firedoze server import <file> -default`; the import is matched to the locally stored pending private key.
 
 ## Host Firewall
 
@@ -139,15 +139,15 @@ The API is primarily a machine interface for the `firedoze` client command, not 
 
 The API is experimental in early versions and may change freely. Compatibility should favor the `firedoze` client UX over preserving raw HTTP ergonomics.
 
-The root endpoint returns a compact JSON resource index. Errors are JSON objects. Operational endpoints return structured resources such as VMs, routes, snapshots, WireGuard peers, and WireGuard peer config templates. The WireGuard peer config endpoint returns the generated `wg-quick` config as a JSON string field, not as `text/plain`.
+The root endpoint returns a compact JSON resource index. Errors are JSON objects. Operational endpoints return structured resources such as VMs, routes, snapshots, WireGuard peers, and WireGuard peer import configs. The WireGuard peer config endpoint returns the generated Firedoze client import config as a JSON string field, not as `text/plain`.
 
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
-The client stores named server profiles in `~/.config/firedoze/config.toml`. Onboarding should use `firedoze server add <name> <api-url> -default` instead of requiring every shell to export `FIREDOZE_API`. The `FIREDOZE_API`, `FIREDOZE_SERVER`, `-api`, and `-server` overrides remain useful for scripts and one-off commands, but they are not the default user path.
+The client stores named server profiles in `~/.config/firedoze/config.toml`. Imported profiles can include the client-side WireGuard private key and server routing details. When those details are present, normal `firedoze` commands bring up an in-process userspace WireGuard tunnel for API calls and SSH proxying, so users do not need to run `wg-quick` for the common workflow. The `FIREDOZE_SERVER` and `-server` overrides select among stored profiles. The `FIREDOZE_API` and `-api` overrides bypass stored profiles and are useful for scripts or server-local debugging when equivalent network routing already exists.
 
 The client should provide the friendly operational surface:
 
-- `firedoze server add/list/use/current/remove`
+- `firedoze server request/import/add/list/use/current/remove`
 - `firedoze vm list [-names] [name-glob...]`
 - `firedoze vm inspect <vm>`
 - `firedoze vm create/up/start/reboot/sleep/stop/delete/publish/hide/settings`

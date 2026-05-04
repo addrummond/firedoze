@@ -17,6 +17,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.42.0
+	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	modernc.org/sqlite v1.50.0
 )
@@ -78,6 +79,7 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/btree v1.1.2 // indirect
 	github.com/google/cel-go v0.27.0 // indirect
 	github.com/google/certificate-transparency-go v1.1.8-0.20240110162603-74a5dd331745 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -199,7 +201,7 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
-	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/api v0.266.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260203192932-546029d2fa20 // indirect
@@ -208,6 +210,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c // indirect
 	howett.net/plist v1.0.0 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

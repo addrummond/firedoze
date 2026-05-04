@@ -8,50 +8,48 @@ Firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into
 
 Ask the Firedoze admin for:
 
-- A WireGuard peer config template for your laptop.
+- Permission to add your laptop as a Firedoze WireGuard peer.
 
 Install these local tools:
 
 - The `firedoze` client, built from this repo
-- WireGuard, either the WireGuard app or `wg-quick`
 - `ssh`
 - `rsync`, if you want to use `firedoze cp`
 
-## 2. Generate Your WireGuard Key
+## 2. Request Access
 
-Generate a key pair on your laptop:
-
-```sh
-firedoze wg keygen
-```
-
-Send only the `public_key` to the admin. Keep the `private_key` on your laptop.
-
-The admin will send you a WireGuard config template. Replace this line:
-
-```ini
-PrivateKey = <client-private-key>
-```
-
-with your generated private key.
-
-Do not change the `Address` value unless the admin tells you to. That address has to match the server-side peer config.
-
-## 3. Connect
-
-Save the WireGuard config somewhere private, then connect with your WireGuard app or with `wg-quick`:
+Create a local access request:
 
 ```sh
-sudo wg-quick up /path/to/firedoze.conf
+firedoze server request work
 ```
 
-The generated WireGuard config includes a commented `firedoze server add ...` command. Run that command once after connecting. It saves the server's API URL in your local Firedoze client config:
+This generates a WireGuard key pair on your laptop and stores the private key in
+your local Firedoze client config. Send only the printed public key, or the
+printed admin command, to the Firedoze admin.
+
+Do not send your private key to anyone. The admin does not need it.
+
+## 3. Import The Server Config
+
+The admin will send back a Firedoze client import config. Save it to a local
+file, then import it:
 
 ```sh
-firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
+firedoze server import /path/to/work.firedoze.toml -default
 ```
 
-If you use more than one Firedoze server, add each one with a different name:
+You can also import from stdin:
+
+```sh
+firedoze server import - -default < /path/to/work.firedoze.toml
+```
+
+For normal `firedoze` commands, you do not need to bring up WireGuard manually.
+The client uses the imported WireGuard details internally for API calls, SSH,
+`exec`, and `cp`.
+
+If you use more than one Firedoze server, import each one with a different name:
 
 ```sh
 firedoze server list
@@ -175,6 +173,10 @@ Run a local command with the VM private IP available as `FIREDOZE_VM_IP`:
 firedoze with-vm-ip demo sh -c 'printf "%s\n" "$FIREDOZE_VM_IP"'
 ```
 
+`with-vm-ip` only gives a command the address. It does not create operating
+system routes. For file copy and shell access, prefer `firedoze cp`, `ssh`, and
+`exec`, which use Firedoze's built-in WireGuard transport.
+
 ### OpenSSH And Editor Integrations
 
 Tools such as VS Code Remote SSH usually want a normal OpenSSH host entry. Use
@@ -195,7 +197,7 @@ Then add a host entry like this to `~/.ssh/config`, replacing the
 Host demo.firedoze
   HostName demo.firedoze
   User ubuntu
-  ProxyCommand /usr/local/bin/firedoze ssh-proxy demo
+  ProxyCommand /usr/local/bin/firedoze -server work ssh-proxy demo
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
@@ -387,26 +389,24 @@ Delete a snapshot:
 firedoze snapshot delete demo-base
 ```
 
-## 10. Disconnect
+## 10. Connection Lifecycle
 
-When you are done, you can leave WireGuard connected or bring it down:
-
-```sh
-sudo wg-quick down /path/to/firedoze.conf
-```
+For normal Firedoze commands there is no manual tunnel to disconnect. The client
+opens its userspace WireGuard transport when a command needs the server and
+closes it when the command exits.
 
 ## Troubleshooting
 
 If `firedoze health` fails:
 
-- Check that WireGuard is connected.
 - Run `firedoze server current` and check that a server is configured.
+- Check that your imported server config has `WIREGUARD` set to `yes` in `firedoze server list`.
 - Ask the admin whether the server is up and whether your peer is configured.
 
 If `firedoze ssh demo` hangs:
 
 - Run `firedoze vm inspect demo` and check the VM state.
 - Try `firedoze vm start demo`.
-- If WireGuard was reconfigured recently, disconnect and reconnect the tunnel.
+- If your peer was reconfigured recently, ask the admin to send a fresh import config and run `firedoze server import <file>`.
 
 If a public URL shows a human check, complete it in the browser. Firedoze uses that check to avoid waking sleeping VMs for ordinary scanner traffic.

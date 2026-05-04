@@ -84,21 +84,22 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"# WireGuard client config template for alice-laptop.",
-		"# Save this on the client laptop and replace <client-private-key> locally.",
-		"#   firedoze server add firedoze 'http://[fd7a:115c:a1e1::1]' -default",
-		"[Interface]",
-		"PrivateKey = <client-private-key>",
-		"Address = fd7a:115c:a1e1::2/128",
-		"Endpoint = example.com:51820",
-		"AllowedIPs = fd7a:115c:a1e1::1/128, fd7a:115c:a1e0::/64",
+		"# Firedoze client import config for alice-laptop.",
+		"#   firedoze server import <this-file> -default",
+		`name = "alice-laptop"`,
+		`api_url = "http://[fd7a:115c:a1e1::1]"`,
+		`client_public_key = "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE="`,
+		"[wireguard]",
+		`address = "fd7a:115c:a1e1::2/128"`,
+		`endpoint = "example.com:51820"`,
+		`allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}
 	}
-	if !strings.Contains(output, "<client-private-key>") {
-		t.Fatalf("output missing client private key placeholder:\n%s", output)
+	if strings.Contains(output, "private_key") || strings.Contains(output, "<client-private-key>") {
+		t.Fatalf("output exposed or requested a client private key:\n%s", output)
 	}
 
 	info, err := os.Stat(cfg.WireGuard.PrivateKeyFile)

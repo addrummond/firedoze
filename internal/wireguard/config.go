@@ -88,7 +88,7 @@ func NewPeerSetup(cfg config.Config, name string, publicKey string, allowedIP st
 		PublicKey:  publicKey,
 		AllowedIPs: []string{normalizedAllowedIP},
 	}
-	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String(), "<client-private-key>")
+	clientConfig, err := peerConfig(cfg, peer, serverPrivateKey.PublicKey().String())
 	if err != nil {
 		return config.WGPeer{}, "", err
 	}
@@ -252,10 +252,10 @@ func PeerConfig(cfg config.Config, peer config.WGPeer) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return peerConfig(cfg, peer, serverPublicKey, "<client-private-key>")
+	return peerConfig(cfg, peer, serverPublicKey)
 }
 
-func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, clientPrivateKey string) (string, error) {
+func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string) (string, error) {
 	clientAddresses := peerClientAddresses(peer.AllowedIPs)
 	if len(clientAddresses) == 0 {
 		clientAddresses = []string{"<client-wireguard-address>"}
@@ -268,21 +268,31 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string, c
 	}
 
 	var b strings.Builder
-	if clientPrivateKey == "<client-private-key>" {
-		fmt.Fprintf(&b, "# WireGuard client config template for %s.\n", peer.Name)
-		fmt.Fprintf(&b, "# Save this on the client laptop and replace <client-private-key> locally.\n\n")
-		fmt.Fprintf(&b, "# After connecting WireGuard, register this server with the firedoze client:\n")
-		fmt.Fprintf(&b, "#   firedoze server add firedoze '%s' -default\n\n", apiURL)
-	}
-	fmt.Fprintf(&b, "[Interface]\n")
-	fmt.Fprintf(&b, "PrivateKey = %s\n", clientPrivateKey)
-	fmt.Fprintf(&b, "Address = %s\n\n", strings.Join(clientAddresses, ", "))
-	fmt.Fprintf(&b, "[Peer]\n")
-	fmt.Fprintf(&b, "PublicKey = %s\n", serverPublicKey)
-	fmt.Fprintf(&b, "Endpoint = %s\n", endpoint(cfg))
-	fmt.Fprintf(&b, "AllowedIPs = %s\n", strings.Join(allowedIPs, ", "))
-	fmt.Fprintf(&b, "PersistentKeepalive = 25\n")
+	fmt.Fprintf(&b, "# Firedoze client import config for %s.\n", peer.Name)
+	fmt.Fprintf(&b, "# This contains no client private key. Send it back to the client so they can run:\n")
+	fmt.Fprintf(&b, "#   firedoze server import <this-file> -default\n\n")
+	fmt.Fprintf(&b, "name = %q\n", peer.Name)
+	fmt.Fprintf(&b, "api_url = %q\n", apiURL)
+	fmt.Fprintf(&b, "client_public_key = %q\n\n", peer.PublicKey)
+	fmt.Fprintf(&b, "[wireguard]\n")
+	fmt.Fprintf(&b, "address = %q\n", clientAddresses[0])
+	fmt.Fprintf(&b, "server_public_key = %q\n", serverPublicKey)
+	fmt.Fprintf(&b, "endpoint = %q\n", endpoint(cfg))
+	fmt.Fprintf(&b, "allowed_ips = %s\n", renderStringList(allowedIPs))
 	return b.String(), nil
+}
+
+func renderStringList(values []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[")
+	for i, value := range values {
+		if i > 0 {
+			fmt.Fprintf(&b, ", ")
+		}
+		fmt.Fprintf(&b, "%q", value)
+	}
+	fmt.Fprintf(&b, "]")
+	return b.String()
 }
 
 func APIURL(wireGuardAddress string) (string, error) {

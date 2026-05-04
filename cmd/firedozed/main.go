@@ -62,8 +62,8 @@ func run(args []string) int {
 	fs.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
 	fs.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
 	fs.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
-	fs.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a wg-quick config for the configured peer name")
-	fs.StringVar(&wgAddPeer, "wg-add-peer", "", "add a WireGuard peer public key to the config and print its client config; optional allowed IP positional argument")
+	fs.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a firedoze client import config for the configured peer name")
+	fs.StringVar(&wgAddPeer, "wg-add-peer", "", "add a WireGuard peer public key to the config and print a firedoze client import config; optional allowed IP positional argument")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0

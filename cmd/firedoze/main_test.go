@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -12,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"firedoze/internal/clientwg"
 	"firedoze/internal/model"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -187,6 +191,74 @@ func TestClientServerAddNormalizesAndDefaults(t *testing.T) {
 	}
 }
 
+func TestClientServerRequestAndImportKeepPrivateKeyLocal(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := (app{}).server([]string{"request", "nuc"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.PendingPeers) != 1 {
+		t.Fatalf("pending peers = %#v, want one", cfg.PendingPeers)
+	}
+	pending := cfg.PendingPeers[0]
+	if pending.Name != "nuc" || pending.PrivateKey == "" || pending.PublicKey == "" {
+		t.Fatalf("pending peer = %#v", pending)
+	}
+	if _, err := wgtypes.ParseKey(pending.PrivateKey); err != nil {
+		t.Fatalf("pending private key is invalid: %v", err)
+	}
+	if _, err := wgtypes.ParseKey(pending.PublicKey); err != nil {
+		t.Fatalf("pending public key is invalid: %v", err)
+	}
+	serverKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	importPath := filepath.Join(t.TempDir(), "nuc.firedoze.toml")
+	importData := fmt.Sprintf(`name = "nuc"
+api_url = "http://[fd7a:115c:a1e1::1]"
+client_public_key = %q
+
+[wireguard]
+address = "fd7a:115c:a1e1::2/128"
+server_public_key = %q
+endpoint = "203.0.113.10:51820"
+allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]
+`, pending.PublicKey, serverKey.PublicKey().String())
+	if err := os.WriteFile(importPath, []byte(importData), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (app{}).server([]string{"import", importPath, "-default"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.PendingPeers) != 0 {
+		t.Fatalf("pending peers after import = %#v, want none", cfg.PendingPeers)
+	}
+	server, ok := cfg.findServer("nuc")
+	if !ok {
+		t.Fatal("server nuc not found")
+	}
+	if cfg.DefaultServer != "nuc" {
+		t.Fatalf("default server = %q, want nuc", cfg.DefaultServer)
+	}
+	if server.WireGuard == nil {
+		t.Fatal("server missing wireguard config")
+	}
+	if server.WireGuard.PrivateKey != pending.PrivateKey {
+		t.Fatal("import did not attach the locally generated private key")
+	}
+	if strings.Contains(importData, pending.PrivateKey) {
+		t.Fatal("test import data unexpectedly contained the client private key")
+	}
+}
+
 func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	got := sshCommand(vmInfo{
 		VM: model.VM{
@@ -206,6 +278,34 @@ func TestSSHCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("sshCommand = %#v, want %#v", got, want)
+	}
+}
+
+func TestSSHCommandUsesProxyCommandWithEmbeddedWireGuard(t *testing.T) {
+	oldPath := firedozeCommandPath
+	firedozeCommandPath = func() string { return "/usr/local/bin/firedoze" }
+	t.Cleanup(func() {
+		firedozeCommandPath = oldPath
+	})
+	got := (app{
+		client:     &client{wg: &clientwg.Client{}},
+		serverName: "nuc",
+	}).sshCommand(vmInfo{
+		VM: model.VM{
+			Name:      "demo",
+			PrivateIP: "fd7a:115c:a1e0::3",
+		},
+		SSH: "ssh ubuntu@demo.example.com",
+	})
+	joined := strings.Join(got, "\x00")
+	if !strings.Contains(joined, "ProxyCommand=/usr/local/bin/firedoze -server nuc ssh-proxy demo") {
+		t.Fatalf("ssh command missing proxy command: %#v", got)
+	}
+	if got[len(got)-1] != "ubuntu@demo" {
+		t.Fatalf("ssh target = %q, want ubuntu@demo", got[len(got)-1])
+	}
+	if strings.Contains(joined, "ubuntu@fd7a:115c:a1e0::3") {
+		t.Fatalf("ssh command should not require routed private IP when proxied: %#v", got)
 	}
 }
 

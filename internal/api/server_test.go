@@ -350,7 +350,7 @@ func TestResourceUsageEndpoints(t *testing.T) {
 	assertStatus(t, rec, http.StatusNotFound)
 }
 
-func TestWireGuardPeerConfigReturnsClientTemplate(t *testing.T) {
+func TestWireGuardPeerConfigReturnsClientImportConfig(t *testing.T) {
 	cfg := testConfig(t)
 	privateKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -373,11 +373,11 @@ func TestWireGuardPeerConfigReturnsClientTemplate(t *testing.T) {
 	var response map[string]string
 	decode(t, rec, &response)
 	template := response["config"]
-	if !strings.Contains(template, "<client-private-key>") {
-		t.Fatalf("client template did not include placeholder private key: %s", template)
+	if !strings.Contains(template, "# Firedoze client import config for alice.") || !strings.Contains(template, `client_public_key = "`+clientKey.PublicKey().String()+`"`) {
+		t.Fatalf("client import config missing expected values: %s", template)
 	}
-	if strings.Contains(template, privateKey.String()) {
-		t.Fatalf("client template exposed server private key: %s", template)
+	if strings.Contains(template, privateKey.String()) || strings.Contains(template, "private_key") || strings.Contains(template, "<client-private-key>") {
+		t.Fatalf("client import config exposed or requested a private key: %s", template)
 	}
 
 	rec = request(t, handler, http.MethodGet, "/wireguard/peers/bob/config", nil)

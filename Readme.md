@@ -33,7 +33,7 @@ Because sometimes you want:
 - Snapshots you can clone and hand to a teammate
 - A place to run services that keep running
 
-Firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. One WireGuard tunnel to keep the management plane private.
+Firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. WireGuard authentication built into the client, so the management plane stays private.
 
 Unlike container workflows, Firedoze does not urge any particular shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
@@ -42,7 +42,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 ## What you get
 
 - **Firecracker-backed VMs** that boot fast and act like real Linux machines.
-- **WireGuard-only management access** — if you're not in the tunnel, you can't reach the management endpoint.
+- **WireGuard-only management access** — if your client is not authenticated, it cannot reach the management endpoint.
 - **Public HTTPS** for sharing a dev service with someone outside the tunnel.
 - **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk.
 - **Optional cold storage** for long-stopped VMs.

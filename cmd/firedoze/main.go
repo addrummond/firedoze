@@ -19,6 +19,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"firedoze/internal/clientwg"
 	"firedoze/internal/model"
 	wgconfig "firedoze/internal/wireguard"
 )
@@ -31,6 +32,7 @@ const (
 type client struct {
 	baseURL string
 	http    *http.Client
+	wg      *clientwg.Client
 }
 
 var newHTTPClient = func() *http.Client {
@@ -41,6 +43,7 @@ var newHTTPClient = func() *http.Client {
 
 type app struct {
 	client       *client
+	serverName   string
 	json         bool
 	runCommand   func(*exec.Cmd) error
 	waitForSSHFn func(string, time.Duration) error
@@ -101,19 +104,22 @@ func run(args []string) int {
 	}
 
 	var c *client
+	var resolvedServer clientServerConfig
 	if commandNeedsAPI(flags.Args()) {
-		resolvedAPIURL, err := resolveClientAPIURL(apiURL, serverName)
+		var err error
+		resolvedServer, err = resolveClientServer(apiURL, serverName)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		c, err = newClient(resolvedAPIURL)
+		c, err = newClientForServer(context.Background(), resolvedServer)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
+		defer c.Close()
 	}
-	a := app{client: c, json: *jsonOutput}
+	a := app{client: c, serverName: resolvedServer.Name, json: *jsonOutput}
 	if err := a.dispatch(flags.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -148,6 +154,50 @@ func newClient(rawURL string) (*client, error) {
 		baseURL: normalizedURL,
 		http:    newHTTPClient(),
 	}, nil
+}
+
+func newClientForServer(ctx context.Context, server clientServerConfig) (*client, error) {
+	normalizedURL, err := normalizeAPIURL(server.APIURL)
+	if err != nil {
+		return nil, err
+	}
+	httpClient := newHTTPClient()
+	var wgClient *clientwg.Client
+	if server.WireGuard != nil {
+		wgClient, err = clientwg.New(ctx, server.WireGuard.clientWGConfig())
+		if err != nil {
+			return nil, err
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = wgClient.DialContext
+		httpClient.Transport = transport
+	}
+	return &client{
+		baseURL: normalizedURL,
+		http:    httpClient,
+		wg:      wgClient,
+	}, nil
+}
+
+func (c *client) Close() error {
+	if c == nil {
+		return nil
+	}
+	if c.http != nil {
+		c.http.CloseIdleConnections()
+	}
+	if c.wg != nil {
+		return c.wg.Close()
+	}
+	return nil
+}
+
+func (c *client) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	if c != nil && c.wg != nil {
+		return c.wg.DialContext(ctx, network, address)
+	}
+	dialer := &net.Dialer{}
+	return dialer.DialContext(ctx, network, address)
 }
 
 func normalizeAPIURL(rawURL string) (string, error) {
@@ -905,13 +955,20 @@ func splitUpArgs(args []string) ([]string, []string) {
 }
 
 func waitForSSH(ip string, timeout time.Duration) error {
+	dialer := &net.Dialer{}
+	return waitForSSHWithDial(ip, timeout, dialer.DialContext)
+}
+
+func waitForSSHWithDial(ip string, timeout time.Duration, dial func(context.Context, string, string) (net.Conn, error)) error {
 	if ip == "" {
 		return errors.New("VM has no private IP")
 	}
 	addr := net.JoinHostPort(ip, "22")
 	deadline := time.Now().Add(timeout)
 	for {
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		conn, err := dial(ctx, "tcp", addr)
+		cancel()
 		if err == nil {
 			_ = conn.Close()
 			return nil
@@ -931,7 +988,7 @@ func (a app) ssh(args []string) error {
 	if err != nil {
 		return err
 	}
-	sshArgs := sshCommand(vm)
+	sshArgs := a.sshCommand(vm)
 	sshArgs = append(sshArgs, args[1:]...)
 	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
 	cmd.Stdin = os.Stdin
@@ -951,12 +1008,7 @@ func (a app) sshProxy(args []string) error {
 	if vm.PrivateIP == "" {
 		return fmt.Errorf("VM %s has no private IP", args[0])
 	}
-	dial := a.proxyDial
-	if dial == nil {
-		dialer := &net.Dialer{}
-		dial = dialer.DialContext
-	}
-	conn, err := dial(context.Background(), "tcp", net.JoinHostPort(vm.PrivateIP, "22"))
+	conn, err := a.dialContext()(context.Background(), "tcp", net.JoinHostPort(vm.PrivateIP, "22"))
 	if err != nil {
 		return err
 	}
@@ -989,7 +1041,7 @@ func (a app) exec(args []string) error {
 	if err != nil {
 		return err
 	}
-	sshArgs := remoteExecCommand(vm, commandArgs)
+	sshArgs := a.remoteExecCommand(vm, commandArgs)
 	cmd := exec.Command(sshArgs[0], sshArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -1009,7 +1061,7 @@ func (a app) cp(args []string) error {
 	if err != nil {
 		return err
 	}
-	cmdArgs, err := rsyncCopyCommand(vm, src, dst)
+	cmdArgs, err := a.rsyncCopyCommand(vm, src, dst)
 	if err != nil {
 		return err
 	}
@@ -1039,7 +1091,15 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 }
 
 func remoteExecCommand(vm vmInfo, commandArgs []string) []string {
-	sshArgs := append(sshCommand(vm), "--")
+	return remoteExecCommandWithProxy(vm, commandArgs, "")
+}
+
+func (a app) remoteExecCommand(vm vmInfo, commandArgs []string) []string {
+	return remoteExecCommandWithProxy(vm, commandArgs, a.sshProxyCommand(vm.Name))
+}
+
+func remoteExecCommandWithProxy(vm vmInfo, commandArgs []string, proxyCommand string) []string {
+	sshArgs := append(sshCommandWithProxy(vm, proxyCommand), "--")
 	return append(sshArgs, commandArgs...)
 }
 
@@ -1084,6 +1144,14 @@ func parseCopyEndpoint(raw string) copyEndpoint {
 }
 
 func rsyncCopyCommand(vm vmInfo, src copyEndpoint, dst copyEndpoint) ([]string, error) {
+	return rsyncCopyCommandWithProxy(vm, src, dst, "")
+}
+
+func (a app) rsyncCopyCommand(vm vmInfo, src copyEndpoint, dst copyEndpoint) ([]string, error) {
+	return rsyncCopyCommandWithProxy(vm, src, dst, a.sshProxyCommand(vm.Name))
+}
+
+func rsyncCopyCommandWithProxy(vm vmInfo, src copyEndpoint, dst copyEndpoint, proxyCommand string) ([]string, error) {
 	if vm.PrivateIP == "" {
 		return nil, errors.New("VM has no private IP")
 	}
@@ -1091,17 +1159,24 @@ func rsyncCopyCommand(vm vmInfo, src copyEndpoint, dst copyEndpoint) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"rsync", "-a", "-e", strings.Join(sshTransportCommand(), " ")}
+	remoteHost := vm.PrivateIP
+	if proxyCommand != "" {
+		remoteHost = vm.Name
+	}
+	args := []string{"rsync", "-a", "-e", strings.Join(sshTransportCommand(proxyCommand), " ")}
 	if src.remote() {
-		args = append(args, rsyncRemote(remoteUser, vm.PrivateIP, src.path), dst.path)
+		args = append(args, rsyncRemote(remoteUser, remoteHost, src.path), dst.path)
 	} else {
-		args = append(args, src.path, rsyncRemote(remoteUser, vm.PrivateIP, dst.path))
+		args = append(args, src.path, rsyncRemote(remoteUser, remoteHost, dst.path))
 	}
 	return args, nil
 }
 
-func rsyncRemote(user string, ip string, path string) string {
-	return fmt.Sprintf("%s@[%s]:%s", user, ip, path)
+func rsyncRemote(user string, host string, path string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return fmt.Sprintf("%s@%s:%s", user, host, path)
 }
 
 func proxyConnection(conn net.Conn, input io.Reader, output io.Writer) error {
@@ -1174,7 +1249,18 @@ func (a app) waitForSSH(ip string, timeout time.Duration) error {
 	if a.waitForSSHFn != nil {
 		return a.waitForSSHFn(ip, timeout)
 	}
-	return waitForSSH(ip, timeout)
+	return waitForSSHWithDial(ip, timeout, a.dialContext())
+}
+
+func (a app) dialContext() func(context.Context, string, string) (net.Conn, error) {
+	if a.proxyDial != nil {
+		return a.proxyDial
+	}
+	if a.client != nil {
+		return a.client.DialContext
+	}
+	dialer := &net.Dialer{}
+	return dialer.DialContext
 }
 
 func (a app) lookupVM(name string) (vmInfo, error) {
@@ -1204,22 +1290,38 @@ func (a app) findVM(name string) (vmInfo, bool, error) {
 }
 
 func sshCommand(vm vmInfo) []string {
+	return sshCommandWithProxy(vm, "")
+}
+
+func (a app) sshCommand(vm vmInfo) []string {
+	return sshCommandWithProxy(vm, a.sshProxyCommand(vm.Name))
+}
+
+func sshCommandWithProxy(vm vmInfo, proxyCommand string) []string {
 	fields := strings.Fields(vm.SSH)
+	if proxyCommand != "" && len(fields) >= 2 {
+		target := vm.Name
+		if at := strings.LastIndex(fields[1], "@"); at >= 0 {
+			target = fields[1][:at+1] + vm.Name
+		}
+		args := append(sshTransportCommand(proxyCommand), target)
+		return append(args, fields[2:]...)
+	}
 	if len(fields) >= 2 && vm.PrivateIP != "" {
 		userHost := fields[1]
 		if at := strings.LastIndex(userHost, "@"); at >= 0 {
 			fields[1] = userHost[:at+1] + vm.PrivateIP
-			return append(sshTransportCommand(), fields[1:]...)
+			return append(sshTransportCommand(""), fields[1:]...)
 		}
 	}
 	if len(fields) == 0 {
 		return nil
 	}
-	return append(sshTransportCommand(), fields[1:]...)
+	return append(sshTransportCommand(""), fields[1:]...)
 }
 
-func sshTransportCommand() []string {
-	return []string{
+func sshTransportCommand(proxyCommand string) []string {
+	args := []string{
 		"ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
@@ -1228,6 +1330,57 @@ func sshTransportCommand() []string {
 		"-o", "PreferredAuthentications=none,password",
 		"-o", "NumberOfPasswordPrompts=1",
 	}
+	if proxyCommand != "" {
+		args = append(args, "-o", "ProxyCommand="+proxyCommand)
+	}
+	return args
+}
+
+func (a app) sshProxyCommand(vmName string) string {
+	if !a.usesEmbeddedWireGuard() {
+		return ""
+	}
+	args := []string{firedozeCommandPath()}
+	if a.serverName != "" {
+		args = append(args, "-server", a.serverName)
+	}
+	args = append(args, "ssh-proxy", vmName)
+	return shellJoin(args)
+}
+
+func (a app) usesEmbeddedWireGuard() bool {
+	return a.client != nil && a.client.wg != nil
+}
+
+var firedozeCommandPath = func() string {
+	path, err := os.Executable()
+	if err != nil || path == "" {
+		return "firedoze"
+	}
+	return path
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	if strings.IndexFunc(arg, func(r rune) bool {
+		return !(r == '/' || r == '.' || r == '_' || r == '-' || r == ':' || r == '=' || r == '@' ||
+			r >= '0' && r <= '9' ||
+			r >= 'A' && r <= 'Z' ||
+			r >= 'a' && r <= 'z')
+	}) < 0 {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 }
 
 func sshUser(vm vmInfo) (string, error) {
@@ -1586,6 +1739,8 @@ func usage() {
 Commands:
   health
   config
+  server request <name>
+  server import <file|-> [-name NAME] [-default]
   server add <name> <api-url> [-default]
   server list
   server use <name>
@@ -1627,7 +1782,8 @@ Environment:
   FIREDOZE_SERVER  configured server name override.
 
 Client config:
-  Use "firedoze server add <name> <api-url> -default" once, then daemon
-  commands use that server automatically. Port 8081 is added if omitted.
+  Use "firedoze server request <name>", send the printed public key to the
+  Firedoze admin, then import the returned config with "firedoze server import".
+  Port 8081 is added to API URLs if omitted.
 `)
 }

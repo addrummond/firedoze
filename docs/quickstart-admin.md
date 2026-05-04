@@ -76,15 +76,14 @@ sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
-# Alice runs this on her laptop and sends you only the public_key:
-firedoze wg keygen
+# Alice runs this on her laptop and sends you only the printed public key:
+firedoze server request alice-laptop
 
-# You add Alice's laptop as a WireGuard peer on the server, which prints her
-# client config template.
-sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
-# Alice replaces <client-private-key> in the printed config with the private
-# key she generated, then connects WireGuard and runs the printed
-# "firedoze server add ..." command on her laptop.
+# You add Alice's laptop as a WireGuard peer on the server. This prints a
+# Firedoze client import config with no client private key in it.
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > alice.firedoze.toml
+# Send alice.firedoze.toml back to Alice. She imports it with:
+# firedoze server import alice.firedoze.toml -default
 
 sudo systemctl enable --now firedozed
 ```
@@ -94,8 +93,7 @@ For fast VM creation, set up `/var/lib/firedoze` on XFS or another reflink-capab
 Alice can now connect:
 
 ```sh
-sudo wg-quick up /path/to/alice-client.conf
-firedoze server add firedoze http://[fdxx:xxxx:xxxx:xxxx::1] -default
+firedoze server import alice.firedoze.toml -default
 firedoze health # check API connectivity
 ```
 
@@ -218,13 +216,15 @@ The main fields to check are:
 - `firecracker.default_memory_mib`: the default VM memory size.
 - `balloon.reclaim_min_free_mib`: the guest-memory reserve Firedoze keeps when reclaiming unused memory from running VMs.
 
-Each client generates their own WireGuard key pair locally:
+Each client requests access locally:
 
 ```sh
-firedoze wg keygen
+firedoze server request alice-laptop
 ```
 
-The client keeps `private_key` secret and sends only `public_key` to the admin.
+This generates a WireGuard key pair on the client laptop and stores the private
+key in the client config. The client sends only the printed public key, or the
+printed admin command, to the admin.
 
 To add Alice's laptop, the admin runs this on the Firedoze host:
 
@@ -232,7 +232,15 @@ To add Alice's laptop, the admin runs this on the Firedoze host:
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>
 ```
 
-The command picks the next free client address, updates `/etc/firedoze/firedoze.toml` automatically, and prints a WireGuard client config for Alice. The printed config contains `<client-private-key>` as a placeholder; Alice replaces that placeholder with the private key generated on her laptop.
+The command picks the next free client address, updates
+`/etc/firedoze/firedoze.toml` automatically, and prints a Firedoze client import
+config for Alice. The import config contains server routing details and Alice's
+public key, but it does not contain Alice's private key. Send it back to Alice so
+she can run:
+
+```sh
+firedoze server import /path/to/alice.firedoze.toml -default
+```
 
 If `firedozed` is already running, it watches the config file and applies WireGuard peer additions, removals, and peer address changes automatically. Other config changes still need a service restart.
 
@@ -301,25 +309,40 @@ The daemon runs as the `firedoze` system user. It is not UID 0, but systemd gran
 
 Config and key material under `/etc/firedoze` are not world-readable. Use `sudo firedozed ...` for admin helper commands such as `-wg-add-peer`, `-wg-peer-config`, and `-print-api-env`.
 
-### 2.7 Connect WireGuard
+### 2.7 Import Client Config
 
-Save the WireGuard client config printed by `-wg-add-peer` on the client laptop, replace `<client-private-key>` with the locally generated private key, then bring the tunnel up with `wg-quick` or your WireGuard client.
+Send the Firedoze client import config printed by `-wg-add-peer` back to the
+client. The client imports it on their laptop:
 
-The generated config includes a commented `firedoze server add ...` command. Run it once on the client after connecting WireGuard. It stores the server API URL in `~/.config/firedoze/config.toml`, so normal client commands do not need an environment variable or command-line API URL.
+```sh
+firedoze server import /path/to/alice.firedoze.toml -default
+```
 
-For scripts that deliberately use `FIREDOZE_API` instead of the client config file, you can print the API shell export on the Firedoze host:
+Normal `firedoze` commands do not require the user to run `wg-quick`. The client
+stores the server API URL, the server WireGuard details, and the locally
+generated client private key in `~/.config/firedoze/config.toml`. It opens a
+userspace WireGuard transport for API calls, SSH, `exec`, and `cp`, then closes
+it when the command exits.
+
+For scripts that deliberately use `FIREDOZE_API` instead of the client config
+file, you can print the API shell export on the Firedoze host. This bypasses the
+client's imported WireGuard transport, so it is only useful from the server
+itself or from a machine that already has equivalent WireGuard routing:
 
 ```sh
 sudo firedozed -print-api-env
 ```
 
-The generated config includes the laptop's WireGuard `Address`. That address comes from the peer's `allowed_ips` entry in `/etc/firedoze/firedoze.toml`. With the default automatic peer address selection, Alice's config will contain the next free `/128` address from the generated WireGuard subnet:
+The generated import config includes the laptop's WireGuard `address`. That
+address comes from the peer's `allowed_ips` entry in
+`/etc/firedoze/firedoze.toml`. With the default automatic peer address
+selection, Alice's config will contain the next free `/128` address from the
+generated WireGuard subnet.
 
-```ini
-Address = fdxx:xxxx:xxxx:xxxx::2/128
-```
-
-The server config is the source of truth for the laptop's WireGuard address. Do not edit `Address` to a different value only on the laptop; it must match that peer's `allowed_ips` entry on the server. If you change the peer address in `/etc/firedoze/firedoze.toml`, regenerate the client config:
+The server config is the source of truth for the laptop's WireGuard address. Do
+not edit `address` to a different value only on the laptop; it must match that
+peer's `allowed_ips` entry on the server. If you change the peer address in
+`/etc/firedoze/firedoze.toml`, regenerate the client import config:
 
 ```sh
 sudo firedozed -wg-peer-config alice-laptop
@@ -327,9 +350,9 @@ sudo firedozed -wg-peer-config alice-laptop
 
 ## 3. Use Firedoze
 
-The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If you ran the `firedoze server add ... -default` command from the generated WireGuard config, the client will find the server automatically.
+The `firedoze` client runs on your laptop and talks to the WireGuard-only API. If you imported the generated client config with `firedoze server import ... -default`, the client will find the server automatically and use its built-in WireGuard transport.
 
-The client adds the default API port, `8081`, when the configured URL has no port. If your server uses a different API port, include it explicitly in the `firedoze server add` URL.
+The client adds the default API port, `8081`, when the configured URL has no port. If your server uses a different API port, include it explicitly in the generated import config or in a manual `firedoze server add` URL.
 
 Check that the API is reachable:
 
