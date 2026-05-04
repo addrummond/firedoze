@@ -31,7 +31,7 @@ Because sometimes you want:
 
 Firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. One WireGuard tunnel to keep the management plane private.
 
-Unlike container workflows, Firedoze does not impose a single blessed shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
+Unlike container workflows, Firedoze does not urge any particular shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
 
 Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the idea of a persistent computer that can sleep cheaply when idle, then narrows the target to shared dev environments. This enables massive simplification: there's no global fleet, production networking, durable object-storage layer, or hosted platform to worry about.
 
