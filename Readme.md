@@ -11,9 +11,11 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Spin up a Linux VM in seconds and access it via SSH or (optionally) public HTTPS.**
 
-🛠️ **When a VM goes idle it sleeps automatically, consuming only disk space.**
+🛠️ **Idle VMs sleep automatically, consuming only disk space.**
 
 🛠️ **Hit A sleeping VM's public HTTPS URL and it automatically resumes.**
+
+🛠️ **Snapshot and clone VMs to quickly create reproducible dev environments.**
 
 ⚠️ _Firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts._
 
