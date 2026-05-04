@@ -27,10 +27,10 @@ import (
 )
 
 func main() {
-	os.Exit(run())
+	os.Exit(run(os.Args[1:]))
 }
 
-func run() int {
+func run(args []string) int {
 	var configPath string
 	var initConfig bool
 	var initHost string
@@ -45,24 +45,32 @@ func run() int {
 	var wgPeerConfig string
 	var wgAddPeer string
 
-	flag.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
-	flag.BoolVar(&initConfig, "init-config", false, "create an initial firedoze config and exit")
-	flag.StringVar(&initHost, "init-host", "", "public DNS name or IP for the WireGuard endpoint when using -init-config")
-	flag.StringVar(&initSSLIPHost, "init-sslip-host", "", "public IP or hostname for the WireGuard endpoint and sslip.io VM hostnames when using -init-config")
-	flag.StringVar(&initBaseDomain, "init-base-domain", "", "base domain for VM hostnames when using -init-config")
-	flag.BoolVar(&initForce, "init-force", false, "replace an existing config when using -init-config")
-	flag.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
-	flag.BoolVar(&printAPIEnv, "print-api-env", false, "print shell export for FIREDOZE_API and exit")
-	flag.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
-	flag.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
-	flag.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
-	flag.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a wg-quick config for the configured peer name")
-	flag.StringVar(&wgAddPeer, "wg-add-peer", "", "add a WireGuard peer public key to the config and print its client config; optional allowed IP positional argument")
-	flag.Parse()
-
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
+
+	fs := flag.NewFlagSet("firedozed", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&configPath, "config", config.DefaultPath, "path to firedoze TOML config")
+	fs.BoolVar(&initConfig, "init-config", false, "create an initial firedoze config and exit")
+	fs.StringVar(&initHost, "init-host", "", "public DNS name or IP for the WireGuard endpoint when using -init-config")
+	fs.StringVar(&initSSLIPHost, "init-sslip-host", "", "public IP or hostname for the WireGuard endpoint and sslip.io VM hostnames when using -init-config")
+	fs.StringVar(&initBaseDomain, "init-base-domain", "", "base domain for VM hostnames when using -init-config")
+	fs.BoolVar(&initForce, "init-force", false, "replace an existing config when using -init-config")
+	fs.BoolVar(&printConfig, "print-config", false, "print resolved config and exit")
+	fs.BoolVar(&printAPIEnv, "print-api-env", false, "print shell export for FIREDOZE_API and exit")
+	fs.BoolVar(&setupWireGuard, "setup-wireguard", false, "reconcile the configured WireGuard interface")
+	fs.BoolVar(&serve, "serve", false, "start the WireGuard-bound management API")
+	fs.BoolVar(&wgServerPublicKey, "wg-server-public-key", false, "print the configured server WireGuard public key")
+	fs.StringVar(&wgPeerConfig, "wg-peer-config", "", "print a wg-quick config for the configured peer name")
+	fs.StringVar(&wgAddPeer, "wg-add-peer", "", "add a WireGuard peer public key to the config and print its client config; optional allowed IP positional argument")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		logger.Error("parse flags", "error", err)
+		return 2
+	}
 
 	if initConfig {
 		if err := config.InitFile(configPath, config.InitOptions{
@@ -123,14 +131,14 @@ func run() int {
 		return 1
 	}
 	if wgAddPeer != "" {
-		if flag.NArg() < 1 || flag.NArg() > 2 {
+		if fs.NArg() < 1 || fs.NArg() > 2 {
 			logger.Error("usage: firedozed -wg-add-peer <peer-name> <client-public-key> [client-wireguard-address-cidr]")
 			return 1
 		}
-		publicKey := flag.Arg(0)
+		publicKey := fs.Arg(0)
 		allowedIP := ""
-		if flag.NArg() == 2 {
-			allowedIP = flag.Arg(1)
+		if fs.NArg() == 2 {
+			allowedIP = fs.Arg(1)
 		}
 		peer, clientConfig, err := wgconfig.NewPeerSetup(cfg, wgAddPeer, publicKey, allowedIP)
 		if err != nil {
@@ -324,7 +332,11 @@ func writeRestartWakeFile(cfg config.Config, names []string) error {
 	return os.Rename(tmpPath, path)
 }
 
-func wakeRestartVMs(ctx context.Context, cfg config.Config, manager *firecracker.Manager, logger *slog.Logger) error {
+type restartStarter interface {
+	StartVMs(context.Context, []string) error
+}
+
+func wakeRestartVMs(ctx context.Context, cfg config.Config, manager restartStarter, logger *slog.Logger) error {
 	path := restartWakePath(cfg)
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
