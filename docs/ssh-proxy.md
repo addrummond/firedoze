@@ -22,7 +22,7 @@ When OpenSSH starts it, the proxy:
 It does not replace SSH, terminate SSH, or handle SSH authentication itself.
 OpenSSH still talks to the guest `sshd`; the proxy is just the connection pipe.
 
-## Why Use It
+## Use Cases
 
 Use `ssh-proxy` when a tool wants a normal SSH host name but you still want
 Firedoze to handle VM wakeup and private-IP lookup.
