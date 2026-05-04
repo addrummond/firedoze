@@ -1,30 +1,34 @@
-# AWS EC2 Notes
+# AWS Guide
 
-These notes describe the moving parts for running Firedoze on AWS EC2.
+This is the recommended AWS shape for Firedoze.
 
-## Instance Types
+Run one large EC2 instance in a private subnet. Put a Network Load Balancer in
+front of WireGuard, and put an Application Load Balancer in front of public VM
+HTTP traffic. Keep the Firedoze API and VM SSH reachable only through
+WireGuard.
 
-Firedoze needs KVM on the host because Firecracker uses `/dev/kvm`.
+```text
+developer laptop
+  -> NLB UDP 51820
+  -> Firedoze host WireGuard
+  -> Firedoze API and VM private network
 
-As of May 2026, AWS has two relevant EC2 paths:
+browser
+  -> ALB HTTPS 443
+  -> Firedoze host HTTP 80
+  -> Firedoze wake proxy
+  -> VM private HTTP port
+```
 
-- **Virtual EC2 instances with nested virtualization enabled.** AWS supports
-  nested virtualization on virtual `C8i`, `M8i`, and `R8i` instances. Enable it
-  at launch or while the instance is stopped by setting the EC2 CPU option
-  `NestedVirtualization=enabled`.
-- **EC2 bare metal instances.** Nitro bare metal instances expose the underlying
-  hardware directly and have historically been the AWS answer for KVM-on-EC2.
-  They are still the conservative choice for performance-sensitive or
-  low-latency nested virtualization workloads.
+## Instance
 
-For Firedoze, start with a virtual `C8i`, `M8i`, or `R8i` instance unless you
-know you need bare metal. Bare metal is more expensive and slower to start, but
-it removes one layer of virtualization and gives direct access to hardware
-virtualization features.
+Use a virtual `C8i`, `M8i`, or `R8i` instance with nested virtualization
+enabled. Start with `M8i` unless you already know the host should be CPU-heavy
+or memory-heavy.
 
-## Enabling Nested Virtualization
+Firedoze needs `/dev/kvm`, because Firecracker uses KVM.
 
-When launching with the AWS CLI, the shape is:
+Launch example:
 
 ```sh
 aws ec2 run-instances \
@@ -34,7 +38,8 @@ aws ec2 run-instances \
   --key-name my-key
 ```
 
-For an existing supported instance, stop it first, then modify CPU options:
+For an existing supported instance, stop it first, then enable nested
+virtualization:
 
 ```sh
 aws ec2 modify-instance-cpu-options \
@@ -44,186 +49,165 @@ aws ec2 modify-instance-cpu-options \
   --nested-virtualization enabled
 ```
 
-After boot, verify KVM:
+After boot:
 
 ```sh
 test -e /dev/kvm && echo "KVM is present"
-lscpu | grep -E 'Virtualization|Hypervisor'
 ```
 
-If `/dev/kvm` is missing, check:
+## Host OS
 
-- the instance family is `C8i`, `M8i`, or `R8i`, or a suitable bare metal type
-- nested virtualization was enabled
-- the guest OS has KVM modules available
-- the instance was stopped/restarted after changing CPU options
+Use Ubuntu 24.04 LTS for now. That is the host OS currently covered by the
+Firedoze admin quickstart.
 
-## Sizing
+## Firedoze Config
 
-Think of the Firedoze host as a shared pool of CPUs, RAM, disk, and network.
-Sleeping VMs mostly consume disk. Running VMs consume memory and CPU.
-
-Useful starting points:
-
-- `m8i` for a balanced shared dev host.
-- `c8i` if users run mostly CPU-heavy compile/test jobs.
-- `r8i` if users need many running VMs or memory-heavy development workloads.
-- local NVMe instance families or large EBS volumes if VM disk I/O matters.
-
-## Network Shape
-
-Firedoze has two different network surfaces:
-
-- **Management and VM SSH:** WireGuard-only.
-- **Public web apps:** Caddy on `80/443`, usually `https://<vm>.<base_domain>`.
-
-In the simplest direct setup, the Firedoze EC2 security group allows:
-
-```text
-UDP 51820  from developer IPs, or from anywhere if relying only on WireGuard keys
-TCP 80     from the internet
-TCP 443    from the internet
-SSH 22     from admin IPs, or use SSM instead
-```
-
-The Firedoze API should still bind only to the WireGuard address. Do not expose
-the management API directly through an AWS load balancer or public security
-group unless the security model is deliberately changed.
-
-## DNS
-
-Set `base_domain` to a wildcard-capable domain:
+Use a public wildcard domain for VM web routes:
 
 ```toml
 base_domain = "dev.example.com"
 ```
 
-Then create DNS:
-
-```text
-*.dev.example.com -> Firedoze public address or load balancer
-```
-
-If the host has a stable Elastic IP, a wildcard `A` record is enough. If using a
-load balancer, point the wildcard record at the load balancer DNS name.
-
-## Public Web Traffic
-
-The simplest public web path is:
-
-```text
-internet -> EC2 TCP 80/443 -> embedded Caddy -> Firedoze wake proxy -> VM
-```
-
-In direct-internet mode:
+Configure Firedoze's public web listener for TLS termination at the ALB:
 
 ```toml
 [caddy]
-tls_mode = "auto"
-```
-
-Caddy obtains certificates and serves HTTPS itself.
-
-If an AWS load balancer terminates TLS before forwarding to the Firedoze host,
-use:
-
-```toml
-[caddy]
+http_port = 80
+https_port = 443
 tls_mode = "behind_proxy"
 ```
 
-Then have the load balancer forward plain HTTP to the host. Public users still
-see HTTPS at the load balancer.
+In `behind_proxy` mode, Firedoze serves plain HTTP on `http_port`. Public users
+still see HTTPS because the ALB terminates TLS.
 
-## WireGuard Through A Network Load Balancer
+Set the WireGuard endpoint to a stable DNS name for the NLB:
 
-The recommended AWS shape is to put an internet-facing Network Load Balancer in
-front of the Firedoze WireGuard UDP listener:
-
-```text
-developer laptop
-  -> internet-facing NLB UDP 51820
-  -> private Firedoze EC2 UDP 51820
-  -> kernel WireGuard
-  -> Firedoze API and VM private subnet
+```toml
+[wireguard]
+endpoint = "wg.example.com:51820"
 ```
 
-This keeps the large Firedoze host away from direct public UDP ingress without
-running a separate forwarding instance. The load balancer only forwards
-WireGuard packets; it does not expose the Firedoze HTTP API. The API should
-still bind only to the Firedoze WireGuard address.
+Do not expose the Firedoze API through the ALB. The API should bind only to the
+WireGuard address.
 
-Recommended setup:
+## DNS
 
-- Create an internet-facing Network Load Balancer.
-- Add a UDP listener on `51820`.
-- Add a UDP target group on `51820` with the Firedoze EC2 instance as the
-  target.
-- Attach a security group to the NLB when creating it.
-- Allow inbound UDP `51820` to the NLB from developer IP ranges, or from the
-  internet if you are relying only on WireGuard keys.
-- Allow inbound UDP `51820` to the Firedoze EC2 instance from the NLB security
+Create these DNS records:
+
+```text
+wg.example.com        -> alias to the Network Load Balancer
+*.dev.example.com     -> alias to the Application Load Balancer
+```
+
+Use a WireGuard endpoint name outside `base_domain`, so it does not consume a VM
+hostname.
+
+## Network Load Balancer
+
+Create an internet-facing Network Load Balancer for WireGuard.
+
+Configure it like this:
+
+- Listener: UDP `51820`.
+- Target group: UDP `51820`.
+- Target: the Firedoze EC2 instance.
+- Health check: HTTP port `80`, path `/`, success codes `200-499`.
+- Security group inbound: UDP `51820` from developer networks.
+- Firedoze instance inbound: UDP `51820` from the NLB security group.
+- Firedoze instance inbound for health checks: TCP `80` from the NLB security
   group.
-- Put the Firedoze instance in a private subnet if possible, and use IAM
-  Session Manager for emergency/admin shell access.
-- Set `wireguard.endpoint` to the NLB DNS name or to a stable DNS name that
-  points at the NLB.
 
-This is usually a better default than documenting a manual UDP forwarding
-instance. A tiny forwarding box can be cheaper, but it adds another Linux host,
-another patching surface, and hand-maintained routing or NAT rules. If someone
-already wants that pattern, they probably know enough AWS networking to build it
-without Firedoze-specific instructions.
+The NLB only forwards WireGuard packets. It does not expose the Firedoze API.
 
-Cost note: a Network Load Balancer has its own hourly charge, NLCU usage charge,
-data transfer costs, and public IPv4 address charges. For a small team this is
-often still a modest monthly cost, but it is normally more expensive than the
-smallest possible EC2 forwarding instance. Treat the NLB as the managed,
-lower-operations option rather than the cheapest possible option.
+## Application Load Balancer
 
-## Private Firedoze Host
+Create an internet-facing Application Load Balancer for public VM HTTPS.
 
-With the WireGuard listener behind an NLB, the Firedoze host does not need a
-public IP for management access. Public web traffic can be handled separately:
+Configure it like this:
+
+- Listener: HTTPS `443`.
+- Certificate: wildcard certificate for `*.dev.example.com`.
+- Target group protocol: HTTP.
+- Target group port: `80`.
+- Target: the Firedoze EC2 instance.
+- Firedoze instance inbound: TCP `80` from the ALB security group.
+
+The ALB forwards all hostnames under `*.dev.example.com` to Firedoze. Firedoze
+then routes `https://<vm>.dev.example.com` or route aliases to the right VM.
+
+For the target group health check, use:
 
 ```text
-internet -> ALB/CloudFront/NLB/direct EC2 80/443 -> Firedoze web listener -> VM
+Path: /
+Success codes: 200-499
 ```
 
-For the simplest setup, expose `80/443` directly on the Firedoze host and let
-Caddy manage HTTPS:
+Firedoze returns `404` for unknown route hostnames. That is a valid proof that
+the public web listener is alive.
 
-```toml
-[caddy]
-tls_mode = "auto"
+## Security Groups
+
+Use three security groups:
+
+```text
+firedoze-nlb
+  inbound  UDP 51820  from developer networks
+  outbound UDP 51820  to firedoze-host
+  outbound TCP 80     to firedoze-host for health checks
+
+firedoze-alb
+  inbound  TCP 443    from the internet
+  outbound TCP 80     to firedoze-host
+
+firedoze-host
+  inbound  UDP 51820  from firedoze-nlb
+  inbound  TCP 80     from firedoze-alb
+  inbound  TCP 80     from firedoze-nlb for health checks
+  no public inbound SSH
 ```
 
-For a more AWS-native private-host setup, terminate public HTTPS at an ALB or
-CloudFront distribution and forward plain HTTP to Firedoze:
+Use IAM Session Manager for emergency shell access to the Firedoze host.
+
+## Install
+
+On the EC2 host, follow [quickstart-admin.md](quickstart-admin.md).
+
+The important AWS-specific config choices are:
 
 ```toml
+base_domain = "dev.example.com"
+
 [caddy]
+http_port = 80
 tls_mode = "behind_proxy"
+
+[wireguard]
+endpoint = "wg.example.com:51820"
 ```
 
-Keep these two surfaces separate in security groups:
+## Verify
 
-- WireGuard UDP ingress to the NLB.
-- Public web ingress to the chosen web load balancer or host listener.
-- No direct public access to the Firedoze management API.
+Check KVM:
 
-## Operational Notes
+```sh
+test -e /dev/kvm && echo "KVM is present"
+```
 
-- Prefer IAM Session Manager for emergency/admin shell access where possible,
-  instead of exposing SSH broadly.
-- Keep the Firedoze management API WireGuard-only.
-- Use security groups to express intent: public web, WireGuard ingress, and
-  private Firedoze management should be separate rules.
-- Use Elastic IPs or stable DNS for WireGuard endpoints; client configs include
-  the endpoint host/port.
-- Back up `/etc/firedoze` and `/var/lib/firedoze` if the environments matter.
-- If using an NLB for WireGuard, keep the target security group limited to UDP
-  `51820` from the NLB security group.
+Check WireGuard from a client laptop:
+
+```sh
+firedoze health
+```
+
+Check public web routing:
+
+```sh
+firedoze vm create demo -publish
+firedoze vm start demo
+firedoze exec demo -- sudo firedoze-hello-service install 8080
+firedoze vm list demo
+curl https://demo.dev.example.com/
+```
 
 ## References
 
@@ -231,11 +215,15 @@ Keep these two surfaces separate in security groups:
   https://aws.amazon.com/about-aws/whats-new/2026/02/amazon-ec2-nested-virtualization-on-virtual
 - AWS EC2 nested virtualization documentation:
   https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
-- AWS Nitro and bare metal instance documentation:
-  https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-nitro-instances.html
-- AWS Network Load Balancer target group documentation:
-  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html
-- AWS Network Load Balancer security group documentation:
-  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-security-groups.html
-- AWS Elastic Load Balancing pricing:
-  https://aws.amazon.com/elasticloadbalancing/pricing/
+- AWS Network Load Balancer listeners:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-listeners.html
+- AWS Network Load Balancer health checks:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/network/target-group-health-checks.html
+- AWS Application Load Balancer listeners:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-listeners.html
+- AWS Application Load Balancer certificates:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/application/https-listener-certificates.html
+- AWS Application Load Balancer health checks:
+  https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html
+- Route 53 alias records for load balancers:
+  https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-load-balancer.html
