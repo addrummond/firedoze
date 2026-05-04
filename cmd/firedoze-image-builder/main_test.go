@@ -417,6 +417,7 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "ExecStart=/usr/local/sbin/firedoze-guest-network")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-sshd.service", "ExecStart=/usr/sbin/sshd -D -e")
 	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-hello-service", "ExecStart=/usr/local/bin/firedoze-hello $port$verbose")
+	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-stop", "stopping this Firedoze VM")
 	assertExt4FileContains(t, efs, "etc/profile.d/firedoze-prompt.sh", "firedoze_prompt_host")
 	assertExt4FileContains(t, efs, "etc/cloud/cloud.cfg.d/99-firedoze.cfg", "datasource_list: [ None ]")
 	assertExt4FileContains(t, efs, "etc/sudoers.d/90-firedoze-ubuntu", "ubuntu ALL=(ALL) NOPASSWD:ALL")
@@ -439,6 +440,10 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	info := statExt4(t, efs, "usr/local/bin/firedoze-hello")
 	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("firedoze-hello mode = %v, want 0755", got)
+	}
+	info = statExt4(t, efs, "usr/local/bin/firedoze-stop")
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("firedoze-stop mode = %v, want 0755", got)
 	}
 	info = statExt4(t, efs, "etc/sudoers.d/90-firedoze-ubuntu")
 	if got := info.Mode().Perm(); got != 0o440 {

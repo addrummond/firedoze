@@ -128,10 +128,17 @@ firedoze vm delete demo
 
 `sleep` keeps the VM's exact suspended state. `stop` shuts down the Firecracker process and keeps only the disk. If the server has cold storage enabled, long-stopped VM disks may be moved to slower storage and restored automatically the next time you start them. `reboot` restarts from disk; if the VM is sleeping, it discards the suspended runtime state rather than resuming it.
 
-Inside an x86_64 Firecracker VM, `reboot` is the guest command that exits the
-microVM cleanly. Firedoze will then mark the VM as `stopped`. Avoid using
-`shutdown -h now`, `poweroff`, or `halt` as a way to stop a Firedoze VM: on
-x86_64 Firecracker those commands can stop the guest OS while leaving the
+Inside the VM, use `firedoze-stop` if you want to stop the VM from its own
+shell:
+
+```sh
+firedoze-stop
+```
+
+On x86_64 Firecracker this is implemented with the guest `reboot` command,
+because that exits the microVM cleanly. Firedoze will then mark the VM as
+`stopped`. Avoid using `shutdown -h now`, `poweroff`, or `halt` as a way to stop
+a Firedoze VM: those commands can stop the guest OS while leaving the
 Firecracker process alive, so Firedoze may still see the VM as `running`.
 
 ## 6. SSH, Commands, And Files

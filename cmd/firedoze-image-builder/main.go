@@ -1266,6 +1266,30 @@ done
 `,
 		},
 		{
+			path: "usr/local/bin/firedoze-stop",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+reboot_bin="$(command -v reboot || true)"
+if [ -z "$reboot_bin" ]; then
+  echo "firedoze-stop requires the guest reboot command" >&2
+  exit 1
+fi
+
+echo "firedoze-stop: stopping this Firedoze VM" >&2
+if [ "$(id -u)" = "0" ]; then
+  exec "$reboot_bin"
+fi
+if command -v sudo >/dev/null 2>&1; then
+  exec sudo "$reboot_bin"
+fi
+
+echo "firedoze-stop requires root privileges or sudo" >&2
+exit 1
+`,
+		},
+		{
 			path: "usr/local/bin/firedoze-hello-service",
 			mode: 0o755,
 			data: `#!/bin/sh
