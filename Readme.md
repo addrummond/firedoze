@@ -15,7 +15,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Hit A VM's public HTTPS URL and it automatically wakes up again.**
 
-> ⚠️ Firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts.
+⚠️ _Firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts._
 
 ## Why not just use containers?
 
