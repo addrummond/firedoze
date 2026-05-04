@@ -41,6 +41,9 @@ const (
 
 	baseBusyBoxStaticURL    = "https://ubuntu.mirror.constant.com/pool/main/b/busybox/busybox-static_1.37.0-7ubuntu1_amd64.deb"
 	baseBusyBoxStaticSHA256 = "fd605342f62268753076aa7d9321ff098b36ba53e47434145a9aedc28fd141a4"
+
+	baseKernelModulesURL    = "https://ubuntu.mirror.constant.com/pool/main/l/linux/linux-modules-7.0.0-14-generic_7.0.0-14.14_amd64.deb"
+	baseKernelModulesSHA256 = "5bbbd6bd424b38a9927a897259f02de1b3caff94e9dc27b931b54d65bf005b8d"
 )
 
 var packagedGuestHelloBinaries = map[string]string{
@@ -175,6 +178,17 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
+	kernelModulesDeb, err := readKernelModulesDeb()
+	if err != nil {
+		_ = backend.Close()
+		_ = os.Remove(tmpRootfsPath)
+		return err
+	}
+	if err := installKernelModulesDeb(efs, kernelModulesDeb); err != nil {
+		_ = backend.Close()
+		_ = os.Remove(tmpRootfsPath)
+		return err
+	}
 	helloBinary, err := buildGuestHelloBinary(baseImageArch)
 	if err != nil {
 		_ = backend.Close()
@@ -245,11 +259,13 @@ kernel_sha256=%s
 initrd=initrd.img
 initrd_source=%s
 initrd_sha256=%s
+kernel_modules_source=%s
+kernel_modules_sha256=%s
 size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
 network=IPv6-only private VM network configured from firedoze kernel args
 builder=firedoze-image-builder native-go
-`, baseImageRelease, baseImageVersion, baseImageArch, source.name, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, *sizeText)
+`, baseImageRelease, baseImageVersion, baseImageArch, source.name, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, baseKernelModulesURL, baseKernelModulesSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -496,6 +512,14 @@ func readBusyBoxStatic() ([]byte, error) {
 	return binary, nil
 }
 
+func readKernelModulesDeb() ([]byte, error) {
+	artifact, err := readArtifact("", baseKernelModulesURL, baseKernelModulesSHA256, false)
+	if err != nil {
+		return nil, fmt.Errorf("read kernel modules package: %w", err)
+	}
+	return artifact.data, nil
+}
+
 func verifySHA256(name string, data []byte, expected string) error {
 	expected = strings.ToLower(strings.TrimSpace(expected))
 	if len(expected) != sha256.Size*2 {
@@ -595,6 +619,149 @@ func extractBusyBoxFromDataTar(name string, data []byte) ([]byte, error) {
 		return io.ReadAll(tr)
 	}
 	return nil, errors.New("data.tar does not contain busybox")
+}
+
+func installKernelModulesDeb(efs *ext4.FileSystem, deb []byte) error {
+	if err := extractDebDataTarToRootfs(efs, deb, func(clean string) bool {
+		return clean == "lib/modules" || strings.HasPrefix(clean, "lib/modules/")
+	}); err != nil {
+		return fmt.Errorf("extract kernel modules package: %w", err)
+	}
+	return nil
+}
+
+func extractDebDataTarToRootfs(efs *ext4.FileSystem, deb []byte, include func(string) bool) error {
+	const globalHeader = "!<arch>\n"
+	if !bytes.HasPrefix(deb, []byte(globalHeader)) {
+		return errors.New("invalid deb ar header")
+	}
+	offset := len(globalHeader)
+	for offset < len(deb) {
+		if offset+60 > len(deb) {
+			return errors.New("truncated deb ar member header")
+		}
+		header := deb[offset : offset+60]
+		offset += 60
+		name := strings.TrimSpace(string(header[:16]))
+		name = strings.TrimSuffix(name, "/")
+		sizeText := strings.TrimSpace(string(header[48:58]))
+		size, err := strconv.ParseInt(sizeText, 10, 64)
+		if err != nil || size < 0 {
+			return fmt.Errorf("invalid deb ar member size %q", sizeText)
+		}
+		if string(header[58:60]) != "`\n" {
+			return fmt.Errorf("invalid deb ar member trailer for %s", name)
+		}
+		end := offset + int(size)
+		if end < offset || end > len(deb) {
+			return fmt.Errorf("truncated deb ar member %s", name)
+		}
+		data := deb[offset:end]
+		offset = end
+		if size%2 != 0 {
+			offset++
+		}
+		if strings.HasPrefix(name, "data.tar.") {
+			return extractDataTarToRootfs(efs, name, data, include)
+		}
+	}
+	return errors.New("deb package has no data.tar member")
+}
+
+func extractDataTarToRootfs(efs *ext4.FileSystem, name string, data []byte, include func(string) bool) error {
+	r, closeFn, err := compressedTarReader(name, data)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
+
+	tr := tar.NewReader(r)
+	var hardlinks []pendingHardlink
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		clean, ok := cleanTarPath(hdr.Name)
+		if !ok || !include(clean) {
+			continue
+		}
+		mode := tarFileMode(hdr)
+		if hdr.FileInfo().IsDir() {
+			if err := mkdirAll(efs, clean, mode, hdr.Uid, hdr.Gid, hdr.ModTime); err != nil {
+				return fmt.Errorf("create dir /%s: %w", clean, err)
+			}
+			continue
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeReg, tar.TypeRegA:
+			fileData, err := io.ReadAll(tr)
+			if err != nil {
+				return fmt.Errorf("read /%s: %w", clean, err)
+			}
+			if err := writeFile(efs, clean, fileData, mode, hdr.Uid, hdr.Gid, hdr.ModTime); err != nil {
+				return fmt.Errorf("write /%s: %w", clean, err)
+			}
+		case tar.TypeDir:
+			if err := mkdirAll(efs, clean, mode, hdr.Uid, hdr.Gid, hdr.ModTime); err != nil {
+				return fmt.Errorf("create dir /%s: %w", clean, err)
+			}
+		case tar.TypeSymlink:
+			if err := symlink(efs, hdr.Linkname, clean, hdr.ModTime); err != nil {
+				return fmt.Errorf("symlink /%s: %w", clean, err)
+			}
+		case tar.TypeLink:
+			target, ok := cleanTarPath(hdr.Linkname)
+			if !ok {
+				continue
+			}
+			hcopy := *hdr
+			hardlinks = append(hardlinks, pendingHardlink{path: clean, target: target, header: &hcopy})
+		default:
+			// Ignore device nodes and other special entries. They are not needed for
+			// kernel module loading in the guest.
+		}
+	}
+
+	for _, link := range hardlinks {
+		data, err := efs.ReadFile(link.target)
+		if err != nil {
+			return fmt.Errorf("read hardlink target /%s for /%s: %w", link.target, link.path, err)
+		}
+		if err := writeFile(efs, link.path, data, tarFileMode(link.header), link.header.Uid, link.header.Gid, link.header.ModTime); err != nil {
+			return fmt.Errorf("write hardlink copy /%s: %w", link.path, err)
+		}
+	}
+	return nil
+}
+
+func compressedTarReader(name string, data []byte) (io.Reader, func(), error) {
+	switch {
+	case strings.HasSuffix(name, ".zst"):
+		dec, err := zstd.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, nil, err
+		}
+		return dec, dec.Close, nil
+	case strings.HasSuffix(name, ".xz"):
+		dec, err := xz.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, nil, err
+		}
+		return dec, func() {}, nil
+	case strings.HasSuffix(name, ".gz"):
+		dec, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, nil, err
+		}
+		return dec, func() { _ = dec.Close() }, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported deb data member compression: %s", name)
+	}
 }
 
 func buildGuestHelloBinary(arch string) ([]byte, error) {
