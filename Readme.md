@@ -21,11 +21,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 🛠️ **Management interface secured via [Wireguard](https://www.wireguard.com/).**
 
-<br>
-
 ⚠️ _Firedoze is early-stage software. Don't use it for production workloads or in production infrastructure accounts._
-
-<br>
 
 ## Why not just use containers?
 
