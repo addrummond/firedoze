@@ -9,13 +9,17 @@
 
 firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, systemd, SSH, and long-running processes.
 
-**Spin up a Linux VM in seconds. Work in it normally. When it goes idle, it sleeps automatically, consuming only disk space. If it has a public link, a click weeks later can wake it right back up.**
+**Spin up a Linux VM in seconds.**
+
+**When a VM goes idle it sleeps automatically, consuming only disk space.**
+
+**Hit A VM's public HTTPS URL and it automatically wakes up again.**
 
 > ⚠️ firedoze is early-stage software. Don't use it for production workloads, hostile multi-tenant isolation, or in production infrastructure accounts.
 
 ## Why not just use containers?
 
-Containers are great, but sometimes you want:
+Because sometimes you want:
 
 - A persistent filesystem that survives restarts without volume gymnastics
 - `systemd` running like normal
