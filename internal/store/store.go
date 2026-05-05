@@ -58,7 +58,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "vms", "idle_sleep_after_seconds", "integer not null default 0"); err != nil {
 		return err
 	}
-	if err := s.ensureColumn(ctx, "vms", "memory_min_mib", "integer not null default 256"); err != nil {
+	if err := s.ensureColumn(ctx, "vms", "memory_min_mib", "integer not null default 512"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "vms", "memory_max_mib", "integer not null default 1024"); err != nil {

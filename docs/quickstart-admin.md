@@ -385,7 +385,7 @@ firedoze vm up demo
 Create several VMs with the same settings:
 
 ```sh
-firedoze vm create alice bob charlie -memory-min-mib 256 -memory-max-mib 1024 -disk-bytes 8589934592
+firedoze vm create alice bob charlie -memory-min-mib 512 -memory-max-mib 1024 -disk-bytes 8589934592
 ```
 
 Toggle public HTTPS access:
@@ -795,7 +795,7 @@ base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_min_mib = 256
+default_memory_min_mib = 512
 default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 ```
