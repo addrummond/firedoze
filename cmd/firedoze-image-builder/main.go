@@ -264,6 +264,7 @@ kernel_modules_sha256=%s
 size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
 network=IPv6-only private VM network configured from firedoze kernel args
+zram=enabled at boot, half guest RAM with 128MiB floor and 1024MiB cap
 builder=firedoze-image-builder native-go
 `, baseImageRelease, baseImageVersion, baseImageArch, source.name, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, baseKernelModulesURL, baseKernelModulesSHA256, *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
@@ -920,8 +921,9 @@ type fileOverlay struct {
 }
 
 type guestOverlay struct {
-	files    map[string]fileOverlay
-	symlinks map[string]string
+	files        map[string]fileOverlay
+	symlinks     map[string]string
+	skipPrefixes []string
 }
 
 func newGuestOverlay() *guestOverlay {
@@ -968,13 +970,48 @@ func newGuestOverlay() *guestOverlay {
 			"etc/systemd/system/cloud-init-local.service":                         "/dev/null",
 			"etc/systemd/system/cloud-config.service":                             "/dev/null",
 			"etc/systemd/system/cloud-final.service":                              "/dev/null",
+			"etc/systemd/system/cloud-init-main.service":                          "/dev/null",
+			"etc/systemd/system/cloud-init-network.service":                       "/dev/null",
+			"etc/systemd/system/cloud-init.target":                                "/dev/null",
 			"etc/systemd/system/systemd-networkd-wait-online.service":             "/dev/null",
 			"etc/systemd/system/multipathd.service":                               "/dev/null",
 			"etc/systemd/system/multipathd.socket":                                "/dev/null",
+			"etc/systemd/system/snapd.service":                                    "/dev/null",
+			"etc/systemd/system/snapd.socket":                                     "/dev/null",
+			"etc/systemd/system/snapd.seeded.service":                             "/dev/null",
+			"etc/systemd/system/unattended-upgrades.service":                      "/dev/null",
+			"etc/systemd/system/apt-daily.service":                                "/dev/null",
+			"etc/systemd/system/apt-daily.timer":                                  "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.service":                        "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.timer":                          "/dev/null",
+			"etc/systemd/system/rsyslog.service":                                  "/dev/null",
+			"etc/systemd/system/qemu-guest-agent.service":                         "/dev/null",
+			"etc/systemd/system/ufw.service":                                      "/dev/null",
+			"etc/systemd/system/apport.service":                                   "/dev/null",
 			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                     "",
 			"etc/systemd/system/sockets.target.wants/ssh.socket":                  "",
 			"etc/systemd/system/multi-user.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
 			"etc/systemd/system/multi-user.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-slim.service":    "/etc/systemd/system/firedoze-slim.service",
+			"etc/systemd/system/sysinit.target.wants/firedoze-zram.service":       "/etc/systemd/system/firedoze-zram.service",
+		},
+		skipPrefixes: []string{
+			"usr/share/doc/",
+			"usr/share/man/",
+			"usr/share/info/",
+			"usr/share/lintian/",
+			"usr/share/linda/",
+			"usr/share/locale/",
+			"usr/share/help/",
+			"usr/share/command-not-found/",
+			"usr/lib/command-not-found",
+			"var/lib/command-not-found/",
+			"var/cache/man/",
+			"var/cache/apt/",
+			"var/lib/apt/lists/",
+			"var/lib/cloud/",
+			"var/log/",
+			"var/crash/",
 		},
 	}
 }
@@ -983,8 +1020,15 @@ func (o *guestOverlay) shouldSkip(p string) bool {
 	if _, ok := o.files[p]; ok {
 		return true
 	}
-	_, ok := o.symlinks[p]
-	return ok
+	if _, ok := o.symlinks[p]; ok {
+		return true
+	}
+	for _, prefix := range o.skipPrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *guestOverlay) captureFile(p string, data []byte) bool {
@@ -1271,6 +1315,107 @@ fi
 `,
 		},
 		{
+			path: "usr/local/sbin/firedoze-slim",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+stamp=/var/lib/firedoze/slim.done
+if [ -e "$stamp" ]; then
+  exit 0
+fi
+
+mkdir -p /var/lib/firedoze
+
+if command -v systemctl >/dev/null 2>&1; then
+  for unit in \
+    snapd.service snapd.socket snapd.seeded.service snapd.apparmor.service \
+    cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service cloud-init-main.service cloud-init-network.service cloud-init.target \
+    unattended-upgrades.service apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer \
+    rsyslog.service qemu-guest-agent.service multipathd.service multipathd.socket ufw.service apport.service \
+    man-db.timer man-db.service motd-news.timer update-notifier-download.timer update-notifier-motd.timer \
+    sysstat-collect.timer sysstat-rotate.timer sysstat-summary.timer
+  do
+    systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    systemctl mask "$unit" >/dev/null 2>&1 || true
+  done
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+: >"$stamp"
+`,
+		},
+		{
+			path: "usr/local/sbin/firedoze-zram",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+dev=/dev/zram0
+sys=/sys/block/zram0
+
+if grep -q "^$dev " /proc/swaps 2>/dev/null; then
+  exit 0
+fi
+
+if ! command -v modprobe >/dev/null 2>&1; then
+  echo "firedoze-zram: modprobe not found; skipping zram" >&2
+  exit 0
+fi
+
+if ! modprobe zram num_devices=1 >/dev/null 2>&1; then
+  if ! modprobe zram >/dev/null 2>&1; then
+    echo "firedoze-zram: zram module unavailable; skipping zram" >&2
+    exit 0
+  fi
+fi
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -e "$sys/disksize" ] && break
+  sleep 0.1
+done
+if [ ! -e "$sys/disksize" ]; then
+  echo "firedoze-zram: $sys/disksize did not appear; skipping zram" >&2
+  exit 0
+fi
+
+if [ -e "$sys/reset" ]; then
+  swapoff "$dev" >/dev/null 2>&1 || true
+  echo 1 >"$sys/reset" 2>/dev/null || true
+fi
+
+if [ -e "$sys/comp_algorithm" ]; then
+  algorithms="$(cat "$sys/comp_algorithm" 2>/dev/null || true)"
+  case "$algorithms" in
+    *zstd*) echo zstd >"$sys/comp_algorithm" 2>/dev/null || true ;;
+    *lz4*) echo lz4 >"$sys/comp_algorithm" 2>/dev/null || true ;;
+  esac
+fi
+
+mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
+case "$mem_kib" in
+  ''|*[!0-9]*) mem_kib=262144 ;;
+esac
+size_mib=$((mem_kib / 2048))
+if [ "$size_mib" -lt 128 ]; then
+  size_mib=128
+elif [ "$size_mib" -gt 1024 ]; then
+  size_mib=1024
+fi
+size_bytes=$((size_mib * 1024 * 1024))
+
+echo "$size_bytes" >"$sys/disksize"
+if ! command -v mkswap >/dev/null 2>&1 || ! command -v swapon >/dev/null 2>&1; then
+  echo "firedoze-zram: mkswap/swapon not found; skipping zram" >&2
+  exit 0
+fi
+
+mkswap "$dev" >/dev/null
+swapon -p 100 "$dev"
+echo "firedoze-zram: enabled $dev size=${size_mib}MiB" >&2
+`,
+		},
+		{
 			path: "usr/local/bin/firedoze-hello",
 			mode: 0o755,
 			data: `#!/bin/sh
@@ -1508,6 +1653,27 @@ WantedBy=multi-user.target
 `,
 		},
 		{
+			path: "etc/systemd/system/firedoze-zram.service",
+			mode: 0o644,
+			data: `[Unit]
+Description=Configure firedoze compressed zram swap
+DefaultDependencies=no
+After=systemd-modules-load.service systemd-udev-trigger.service local-fs.target
+Before=swap.target firedoze-network.service firedoze-sshd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/firedoze-zram
+ExecStop=/bin/sh -c 'swapoff /dev/zram0 >/dev/null 2>&1 || true; [ ! -e /sys/block/zram0/reset ] || echo 1 >/sys/block/zram0/reset'
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=sysinit.target
+`,
+		},
+		{
 			path: "etc/systemd/system/firedoze-sshd.service",
 			mode: 0o644,
 			data: `[Unit]
@@ -1528,9 +1694,33 @@ WantedBy=multi-user.target
 `,
 		},
 		{
+			path: "etc/systemd/system/firedoze-slim.service",
+			mode: 0o644,
+			data: `[Unit]
+Description=Trim non-essential firedoze guest services and caches
+After=firedoze-sshd.service multi-user.target
+Wants=firedoze-sshd.service
+ConditionPathExists=!/var/lib/firedoze/slim.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/firedoze-slim
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+`,
+		},
+		{
 			path: "etc/cloud/cloud.cfg.d/99-firedoze.cfg",
 			mode: 0o644,
 			data: "datasource_list: [ None ]\npreserve_hostname: true\nmanage_etc_hosts: false\nssh_pwauth: true\ndisable_root: false\n",
+		},
+		{
+			path: "etc/sysctl.d/90-firedoze-zram.conf",
+			mode: 0o644,
+			data: "vm.swappiness=100\nvm.page-cluster=0\n",
 		},
 	}
 
@@ -1538,9 +1728,12 @@ WantedBy=multi-user.target
 		"etc/cloud/cloud.cfg.d",
 		"etc/firedoze",
 		"etc/ssh/sshd_config.d",
+		"etc/sysctl.d",
 		"etc/systemd/system",
 		"etc/systemd/system/multi-user.target.wants",
+		"etc/systemd/system/sysinit.target.wants",
 		"etc/sudoers.d",
+		"var/lib/firedoze",
 		"home/ubuntu",
 		"usr/local/bin",
 		"usr/local/sbin",

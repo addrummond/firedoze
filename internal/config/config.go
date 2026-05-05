@@ -27,7 +27,6 @@ type Config struct {
 	SSH             SSHConfig          `toml:"ssh"`
 	Idle            IdleConfig         `toml:"idle"`
 	ColdStorage     ColdStorageConfig  `toml:"cold_storage"`
-	Balloon         BalloonConfig      `toml:"balloon"`
 	Firecracker     FirecrackerConfig  `toml:"firecracker"`
 }
 
@@ -147,13 +146,6 @@ type ColdStorageConfig struct {
 	ArchiveStoppedAfterSeconds int    `toml:"archive_stopped_after_seconds"`
 }
 
-type BalloonConfig struct {
-	Enabled                     bool `toml:"enabled"`
-	StatsPollingIntervalSeconds int  `toml:"stats_polling_interval_seconds"`
-	ReclaimIntervalSeconds      int  `toml:"reclaim_interval_seconds"`
-	ReclaimMinFreeMiB           int  `toml:"reclaim_min_free_mib"`
-}
-
 type FirecrackerConfig struct {
 	BinaryPath       string `toml:"binary_path"`
 	BaseKernelPath   string `toml:"base_kernel_path"`
@@ -211,12 +203,6 @@ func Default() Config {
 		},
 		ColdStorage: ColdStorageConfig{
 			ArchiveStoppedAfterSeconds: 30 * 24 * 60 * 60,
-		},
-		Balloon: BalloonConfig{
-			Enabled:                     true,
-			StatsPollingIntervalSeconds: 5,
-			ReclaimIntervalSeconds:      30,
-			ReclaimMinFreeMiB:           128,
 		},
 		Firecracker: FirecrackerConfig{
 			BinaryPath:       "/usr/local/bin/firecracker",
@@ -277,15 +263,6 @@ func (c *Config) applyDerivedDefaults() error {
 	}
 	if c.ColdStorage.ArchiveStoppedAfterSeconds == 0 {
 		c.ColdStorage.ArchiveStoppedAfterSeconds = 30 * 24 * 60 * 60
-	}
-	if c.Balloon.StatsPollingIntervalSeconds == 0 {
-		c.Balloon.StatsPollingIntervalSeconds = 5
-	}
-	if c.Balloon.ReclaimIntervalSeconds == 0 {
-		c.Balloon.ReclaimIntervalSeconds = 30
-	}
-	if c.Balloon.ReclaimMinFreeMiB == 0 {
-		c.Balloon.ReclaimMinFreeMiB = 128
 	}
 	if c.DNS.Enabled {
 		if c.DNS.Domain == "" {
@@ -393,17 +370,6 @@ func (c Config) Validate() error {
 	}
 	if c.ColdStorage.ArchiveStoppedAfterSeconds < 0 {
 		return fmt.Errorf("cold_storage.archive_stopped_after_seconds cannot be negative")
-	}
-	if c.Balloon.Enabled {
-		if c.Balloon.StatsPollingIntervalSeconds <= 0 {
-			return fmt.Errorf("balloon.stats_polling_interval_seconds must be positive when balloon is enabled")
-		}
-		if c.Balloon.ReclaimIntervalSeconds <= 0 {
-			return fmt.Errorf("balloon.reclaim_interval_seconds must be positive when balloon is enabled")
-		}
-		if c.Balloon.ReclaimMinFreeMiB < 0 {
-			return fmt.Errorf("balloon.reclaim_min_free_mib cannot be negative")
-		}
 	}
 	if c.Firecracker.BinaryPath == "" {
 		return fmt.Errorf("firecracker.binary_path is required")

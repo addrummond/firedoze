@@ -487,8 +487,7 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 			"memory_mib":512,
 			"disk_bytes":4294967296,
 			"disk_allocated_bytes":1073741824,
-			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65},
-			"balloon":{"enabled":true,"actual_mib":128,"target_mib":256}
+			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65}
 		}]}`)
 	})
 
@@ -512,9 +511,7 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"NAME",
-		"BALLOON",
 		"demo",
-		"128MiB/256MiB",
 		"64MiB",
 		"1m5s",
 		"1.0GiB/4.0GiB",
@@ -522,6 +519,9 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("usage output missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "BALLOON") {
+		t.Fatalf("usage output includes removed balloon column:\n%s", got)
 	}
 }
 

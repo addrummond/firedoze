@@ -311,7 +311,6 @@ func TestResourceUsageEndpoints(t *testing.T) {
 				VCPUs:     2,
 				MemoryMiB: 512,
 				Process:   &model.ProcessResourceUsage{PID: 123, RSSBytes: 64 << 20},
-				Balloon:   &model.BalloonResourceUsage{Enabled: true, ActualMiB: 128, TargetMiB: 256},
 			}}, nil
 		},
 		vmResourceUsageFunc: func(_ context.Context, name string) (model.VMResourceUsage, error) {
@@ -332,7 +331,7 @@ func TestResourceUsageEndpoints(t *testing.T) {
 		VMs []model.VMResourceUsage `json:"vms"`
 	}
 	decode(t, rec, &listOut)
-	if len(listOut.VMs) != 1 || listOut.VMs[0].Name != "demo" || listOut.VMs[0].Balloon.TargetMiB != 256 {
+	if len(listOut.VMs) != 1 || listOut.VMs[0].Name != "demo" || listOut.VMs[0].Process.RSSBytes != 64<<20 {
 		t.Fatalf("usage list = %#v", listOut)
 	}
 

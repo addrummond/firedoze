@@ -82,15 +82,6 @@ default_sleep_after_seconds = 21600
 dir = ""
 archive_stopped_after_seconds = 2592000
 
-[balloon]
-# Enables Firecracker's memory balloon device. Firedoze periodically reclaims
-# guest-free memory from running VMs while keeping this much memory available
-# inside each guest.
-enabled = true
-stats_polling_interval_seconds = 5
-reclaim_interval_seconds = 30
-reclaim_min_free_mib = 128
-
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"

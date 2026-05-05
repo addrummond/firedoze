@@ -218,7 +218,6 @@ The main fields to check are:
 - `wireguard.endpoint`: the public host and UDP port laptops will connect to.
 - `wireguard.peers`: one peer per laptop.
 - `firecracker.default_memory_mib`: the default VM memory size.
-- `balloon.reclaim_min_free_mib`: the guest-memory reserve Firedoze keeps when reclaiming unused memory from running VMs.
 
 Each client requests access locally:
 
@@ -691,23 +690,7 @@ sudo xfs_info /var/lib/firedoze | grep reflink
 
 You should see `reflink=1`.
 
-## Memory Reclamation
-
-Firedoze enables Firecracker's balloon device by default for newly started VMs.
-This lets the daemon reclaim guest-free memory from running VMs without stopping
-them. It does not make VM memory fully elastic: each VM still has a configured
-memory size, but unused guest memory can be returned to the host.
-
-The default policy checks every 30 seconds and keeps at least 128 MiB available
-inside each guest:
-
-```toml
-[balloon]
-enabled = true
-stats_polling_interval_seconds = 5
-reclaim_interval_seconds = 30
-reclaim_min_free_mib = 128
-```
+## Resource Usage
 
 Use the client to inspect what Firedoze can currently see:
 
@@ -801,12 +784,6 @@ default_sleep_after_seconds = 21600
 [cold_storage]
 dir = ""
 archive_stopped_after_seconds = 2592000
-
-[balloon]
-enabled = true
-stats_polling_interval_seconds = 5
-reclaim_interval_seconds = 30
-reclaim_min_free_mib = 128
 
 [firecracker]
 binary_path = "/usr/local/bin/firecracker"

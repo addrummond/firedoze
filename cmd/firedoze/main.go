@@ -482,14 +482,13 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tBALLOON\tRSS\tCPU\tDISK")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tRSS\tCPU\tDISK")
 	for _, vm := range out.VMs {
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
 			vm.Name,
 			vm.State,
 			vm.VCPUs,
 			formatMiB(int64(vm.MemoryMiB)),
-			displayBalloonUsage(vm),
 			displayProcessRSS(vm),
 			displayProcessCPU(vm),
 			displayDiskUsage(vm),
@@ -1530,13 +1529,6 @@ func displayURL(vm vmInfo) string {
 		return "-"
 	}
 	return vm.URLs["default"]
-}
-
-func displayBalloonUsage(vm model.VMResourceUsage) string {
-	if vm.Balloon == nil || !vm.Balloon.Enabled {
-		return "-"
-	}
-	return fmt.Sprintf("%s/%s", formatMiB(vm.Balloon.ActualMiB), formatMiB(vm.Balloon.TargetMiB))
 }
 
 func displayProcessRSS(vm model.VMResourceUsage) string {

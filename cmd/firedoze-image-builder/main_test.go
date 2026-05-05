@@ -235,6 +235,12 @@ func TestGuestOverlaySkipApplyDefaultsAndSymlinks(t *testing.T) {
 	if !overlay.shouldSkip("etc/systemd/system/cloud-init.service") {
 		t.Fatal("overlay should skip masked cloud-init service")
 	}
+	if !overlay.shouldSkip("usr/share/doc/base-files/copyright") {
+		t.Fatal("overlay should skip documentation paths")
+	}
+	if !overlay.shouldSkip("var/lib/cloud/instances/demo/user-data.txt") {
+		t.Fatal("overlay should skip cloud-init state paths")
+	}
 	if overlay.shouldSkip("etc/hostname") {
 		t.Fatal("overlay should not skip unrelated files")
 	}
@@ -306,6 +312,12 @@ func TestPopulateRootfsSyntheticTar(t *testing.T) {
 	if got := readExt4File(t, efs, "usr/bin/tool-hard"); got != "tool-data" {
 		t.Fatalf("/usr/bin/tool-hard = %q, want copied hardlink data", got)
 	}
+	if _, err := efs.Stat("usr/share/doc/base-files/readme"); err == nil {
+		t.Fatal("/usr/share/doc/base-files/readme was written; want docs skipped")
+	}
+	if _, err := efs.Stat("var/lib/cloud/instance/user-data.txt"); err == nil {
+		t.Fatal("/var/lib/cloud/instance/user-data.txt was written; want cloud-init state skipped")
+	}
 	if _, err := efs.Stat("etc/passwd"); err == nil {
 		t.Fatal("/etc/passwd was written before overlay apply; want captured only")
 	}
@@ -334,8 +346,19 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 
 	assertExt4FileContains(t, efs, "etc/ssh/sshd_config.d/99-firedoze.conf", "PermitEmptyPasswords yes")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-guest-network", "firedoze.guest_ip")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "modprobe zram")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "swapon -p 100")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-slim", "snapd.service")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-slim", "cloud-init-main.service")
+	if strings.Contains(readExt4File(t, efs, "usr/local/sbin/firedoze-slim"), "rm -rf") {
+		t.Fatal("firedoze-slim should not delete files at runtime")
+	}
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "ExecStart=/usr/local/sbin/firedoze-guest-network")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-zram.service", "ExecStart=/usr/local/sbin/firedoze-zram")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-slim.service", "ExecStart=/usr/local/sbin/firedoze-slim")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-slim.service", "After=firedoze-sshd.service multi-user.target")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-sshd.service", "ExecStart=/usr/sbin/sshd -D -e")
+	assertExt4FileContains(t, efs, "etc/sysctl.d/90-firedoze-zram.conf", "vm.swappiness=100")
 	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-hello-service", "ExecStart=/usr/local/bin/firedoze-hello $port$verbose")
 	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-hello-service", "if [ \"$#\" -gt 0 ]; then\n  shift\nfi")
 	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-stop", "stopping this Firedoze VM")
@@ -355,8 +378,23 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-network.service"); target != "/etc/systemd/system/firedoze-network.service" {
 		t.Fatalf("firedoze-network enable symlink -> %q", target)
 	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-zram.service"); target != "/etc/systemd/system/firedoze-zram.service" {
+		t.Fatalf("firedoze-zram enable symlink -> %q", target)
+	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-slim.service"); target != "/etc/systemd/system/firedoze-slim.service" {
+		t.Fatalf("firedoze-slim enable symlink -> %q", target)
+	}
 	if target := readExt4Link(t, efs, "etc/systemd/system/cloud-init.service"); target != "/dev/null" {
 		t.Fatalf("cloud-init mask symlink -> %q", target)
+	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/cloud-init-main.service"); target != "/dev/null" {
+		t.Fatalf("cloud-init-main mask symlink -> %q", target)
+	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/cloud-init-network.service"); target != "/dev/null" {
+		t.Fatalf("cloud-init-network mask symlink -> %q", target)
+	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/snapd.service"); target != "/dev/null" {
+		t.Fatalf("snapd mask symlink -> %q", target)
 	}
 	info := statExt4(t, efs, "usr/local/bin/firedoze-hello")
 	if got := info.Mode().Perm(); got != 0o755 {
@@ -794,10 +832,19 @@ func syntheticRootTar(t *testing.T) io.Reader {
 	addDir("etc", 0o755)
 	addDir("usr", 0o755)
 	addDir("usr/bin", 0o755)
+	addDir("usr/share", 0o755)
+	addDir("usr/share/doc", 0o755)
+	addDir("usr/share/doc/base-files", 0o755)
+	addDir("var", 0o755)
+	addDir("var/lib", 0o755)
+	addDir("var/lib/cloud", 0o755)
+	addDir("var/lib/cloud/instance", 0o755)
 	addDir("boot", 0o755)
 	addFile("etc/hostname", 0o644, "demo\n")
 	addFile("etc/passwd", 0o644, "root:x:0:0:root:/root:/bin/bash\n")
 	addFile("usr/bin/tool", 0o755, "tool-data")
+	addFile("usr/share/doc/base-files/readme", 0o644, "docs")
+	addFile("var/lib/cloud/instance/user-data.txt", 0o644, "cloud")
 	addSymlink("usr/bin/tool-link", "tool")
 	addHardlink("usr/bin/tool-hard", "usr/bin/tool")
 	addFile("boot/vmlinuz-6.7.0", 0o644, "kernel-old")

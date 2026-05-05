@@ -91,11 +91,6 @@ backend = "ip6tables"
 
 [cold_storage]
 archive_stopped_after_seconds = 0
-
-[balloon]
-stats_polling_interval_seconds = 0
-reclaim_interval_seconds = 0
-reclaim_min_free_mib = 0
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -120,9 +115,6 @@ reclaim_min_free_mib = 0
 	}
 	if got, want := cfg.ColdStorage.ArchiveStoppedAfterSeconds, 30*24*60*60; got != want {
 		t.Fatalf("cold storage threshold = %d, want %d", got, want)
-	}
-	if cfg.Balloon.StatsPollingIntervalSeconds != 5 || cfg.Balloon.ReclaimIntervalSeconds != 30 || cfg.Balloon.ReclaimMinFreeMiB != 128 {
-		t.Fatalf("balloon defaults = %#v", cfg.Balloon)
 	}
 }
 

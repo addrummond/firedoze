@@ -10,9 +10,6 @@ import (
 
 	"firedoze/internal/model"
 	"firedoze/internal/store"
-
-	fcmodels "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
-	fcops "github.com/firecracker-microvm/firecracker-go-sdk/client/operations"
 )
 
 const linuxClockTicksPerSecond = 100
@@ -65,15 +62,6 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 		m.logger.Debug("read firecracker process resource usage", "vm", vm.Name, "pid", pid, "error", err)
 	} else {
 		usage.Process = &processUsage
-	}
-
-	if m.cfg.Balloon.Enabled {
-		balloonUsage, err := m.balloonResourceUsage(ctx, proc.SocketPath)
-		if err != nil {
-			m.logger.Debug("read firecracker balloon usage", "vm", vm.Name, "error", err)
-		} else {
-			usage.Balloon = &balloonUsage
-		}
 	}
 
 	return usage
@@ -146,51 +134,4 @@ func parseProcStatCPUSeconds(raw string) (float64, bool) {
 		return 0, false
 	}
 	return float64(utime+stime) / linuxClockTicksPerSecond, true
-}
-
-func (m *Manager) balloonResourceUsage(ctx context.Context, socketPath string) (model.BalloonResourceUsage, error) {
-	stats, err := firecrackerDescribeBalloonStats(ctx, socketPath)
-	if err != nil {
-		return model.BalloonResourceUsage{}, err
-	}
-	usage := model.BalloonResourceUsage{
-		Enabled:         true,
-		AvailableBytes:  stats.AvailableMemory,
-		FreeBytes:       stats.FreeMemory,
-		DiskCachesBytes: stats.DiskCaches,
-		TotalBytes:      stats.TotalMemory,
-		SwapInBytes:     stats.SwapIn,
-		SwapOutBytes:    stats.SwapOut,
-	}
-	if stats.TargetMib != nil {
-		usage.TargetMiB = *stats.TargetMib
-	}
-	if stats.ActualMib != nil {
-		usage.ActualMiB = *stats.ActualMib
-	}
-	return usage, nil
-}
-
-func firecrackerDescribeBalloonStats(ctx context.Context, socketPath string) (*fcmodels.BalloonStats, error) {
-	params := fcops.NewDescribeBalloonStatsParamsWithContext(ctx)
-	resp, err := firecrackerOperations(socketPath).DescribeBalloonStats(params)
-	if err != nil {
-		return nil, fmt.Errorf("firecracker describe balloon stats: %w", err)
-	}
-	return resp.GetPayload(), nil
-}
-
-func firecrackerSetBalloonTarget(ctx context.Context, socketPath string, targetMiB int64) error {
-	params := fcops.NewPatchBalloonParamsWithContext(ctx)
-	params.SetBody(&fcmodels.BalloonUpdate{
-		AmountMib: int64Ptr(targetMiB),
-	})
-	if _, err := firecrackerOperations(socketPath).PatchBalloon(params); err != nil {
-		return fmt.Errorf("firecracker set balloon target: %w", err)
-	}
-	return nil
-}
-
-func int64Ptr(value int64) *int64 {
-	return &value
 }
