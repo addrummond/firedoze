@@ -1526,12 +1526,60 @@ func TestRequiredVirtioMemPhysicalAddressBits(t *testing.T) {
 	}
 }
 
+func TestMemoryConfigForHostFallsBackWhenVirtioMemUnsupported(t *testing.T) {
+	restore := stubHostPhysicalAddressBits(t, func() (int, bool) { return 39, true })
+	defer restore()
+
+	cfg, err := memoryConfigForHost(store.VM{Name: "demo", MemoryMinMiB: 512, MemoryMaxMiB: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.bootMiB != 1024 || cfg.hotplug != nil || !cfg.degraded {
+		t.Fatalf("memory config = %#v, want fixed 1024MiB degraded fallback", cfg)
+	}
+}
+
+func TestMemoryConfigForHostUsesVirtioMemWhenSupported(t *testing.T) {
+	restore := stubHostPhysicalAddressBits(t, func() (int, bool) { return 40, true })
+	defer restore()
+
+	cfg, err := memoryConfigForHost(store.VM{Name: "demo", MemoryMinMiB: 512, MemoryMaxMiB: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.bootMiB != 512 || cfg.hotplug == nil || cfg.hotplug.TotalSizeMiB != 512 || cfg.degraded {
+		t.Fatalf("memory config = %#v, want 512MiB boot plus 512MiB hotplug", cfg)
+	}
+}
+
+func TestMemoryConfigForHostUsesFixedMemoryForFixedRange(t *testing.T) {
+	restore := stubHostPhysicalAddressBits(t, func() (int, bool) { return 39, true })
+	defer restore()
+
+	cfg, err := memoryConfigForHost(store.VM{Name: "demo", MemoryMinMiB: 512, MemoryMaxMiB: 512})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.bootMiB != 512 || cfg.hotplug != nil || cfg.degraded {
+		t.Fatalf("memory config = %#v, want fixed 512MiB", cfg)
+	}
+}
+
 func stubRunCommand(t *testing.T, fn func(context.Context, string, ...string) error) func() {
 	t.Helper()
 	old := runCommand
 	runCommand = fn
 	return func() {
 		runCommand = old
+	}
+}
+
+func stubHostPhysicalAddressBits(t *testing.T, fn func() (int, bool)) func() {
+	t.Helper()
+	old := hostPhysicalAddressBitsFunc
+	hostPhysicalAddressBitsFunc = fn
+	return func() {
+		hostPhysicalAddressBitsFunc = old
 	}
 }
 

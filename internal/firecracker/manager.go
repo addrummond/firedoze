@@ -55,8 +55,9 @@ const (
 )
 
 var (
-	runCommand   = run
-	deleteTapCmd = deleteTap
+	runCommand                  = run
+	deleteTapCmd                = deleteTap
+	hostPhysicalAddressBitsFunc = hostPhysicalAddressBits
 )
 
 type Manager struct {
@@ -155,7 +156,7 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	if params.MemoryMinMiB > params.MemoryMaxMiB {
 		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
 	}
-	if err := validateMemoryConfigForHost(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
 		return store.VM{}, err
 	}
 	if params.DiskBytes == 0 {
@@ -242,7 +243,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 	if params.MemoryMinMiB > params.MemoryMaxMiB {
 		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
 	}
-	if err := validateMemoryConfigForHost(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
 		return store.VM{}, err
 	}
 	if params.DefaultHTTPPort == 0 {
@@ -365,6 +366,11 @@ func (m *Manager) setVMMemoryTarget(ctx context.Context, vm store.VM, targetMiB 
 	if vm.MemoryMaxMiB == vm.MemoryMinMiB {
 		return model.MemoryHotplugUsage{
 			EffectiveMiB: vm.MemoryMinMiB,
+		}, nil
+	}
+	if !virtioMemUsableForVM(vm) {
+		return model.MemoryHotplugUsage{
+			EffectiveMiB: vm.MemoryMaxMiB,
 		}, nil
 	}
 	if err := firecrackerPatchMemoryHotplug(ctx, proc.SocketPath, requestedMiB); err != nil {
@@ -687,8 +693,12 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	if err != nil {
 		return store.VM{}, err
 	}
-	if err := validateMemoryConfigForHost(vm.MemoryMinMiB, vm.MemoryMaxMiB); err != nil {
+	memoryConfig, err := memoryConfigForHost(vm)
+	if err != nil {
 		return store.VM{}, err
+	}
+	if memoryConfig.degraded {
+		m.logger.Warn("virtio-mem unavailable on this host; starting VM with fixed max memory", "vm", vm.Name, "memory_mib", memoryConfig.bootMiB)
 	}
 	if vm.State == "sleeping" {
 		return m.resumeVM(ctx, vm)
@@ -737,13 +747,11 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		}},
 		MachineConfig: machineConfig{
 			VCPUCount:  vm.VCPUs,
-			MemSizeMiB: vm.MemoryMinMiB,
+			MemSizeMiB: memoryConfig.bootMiB,
 			SMT:        false,
 		},
 	}
-	if hotplug := memoryHotplugConfigForVM(vm); hotplug != nil {
-		fcConfig.MemoryHotplug = hotplug
-	}
+	fcConfig.MemoryHotplug = memoryConfig.hotplug
 	if err := writeFirecrackerConfig(layout.configPath, fcConfig); err != nil {
 		return store.VM{}, err
 	}
@@ -1816,15 +1824,37 @@ type memoryHotplugConfig struct {
 	BlockSizeMiB int `json:"block_size_mib,omitempty"`
 }
 
-func memoryHotplugConfigForVM(vm store.VM) *memoryHotplugConfig {
+type hostMemoryConfig struct {
+	bootMiB  int
+	hotplug  *memoryHotplugConfig
+	degraded bool
+}
+
+func memoryConfigForHost(vm store.VM) (hostMemoryConfig, error) {
+	if err := validateMemoryHotplugRange(vm.MemoryMinMiB, vm.MemoryMaxMiB); err != nil {
+		return hostMemoryConfig{}, err
+	}
 	if vm.MemoryMaxMiB <= vm.MemoryMinMiB {
-		return nil
+		return hostMemoryConfig{bootMiB: vm.MemoryMaxMiB}, nil
 	}
-	return &memoryHotplugConfig{
-		TotalSizeMiB: vm.MemoryMaxMiB - vm.MemoryMinMiB,
-		SlotSizeMiB:  128,
-		BlockSizeMiB: 2,
+	if !virtioMemUsableForVM(vm) {
+		return hostMemoryConfig{bootMiB: vm.MemoryMaxMiB, degraded: true}, nil
 	}
+	return hostMemoryConfig{
+		bootMiB: vm.MemoryMinMiB,
+		hotplug: &memoryHotplugConfig{
+			TotalSizeMiB: vm.MemoryMaxMiB - vm.MemoryMinMiB,
+			SlotSizeMiB:  128,
+			BlockSizeMiB: 2,
+		},
+	}, nil
+}
+
+func virtioMemUsableForVM(vm store.VM) bool {
+	if vm.MemoryMaxMiB <= vm.MemoryMinMiB {
+		return false
+	}
+	return virtioMemSupportedForRange(vm.MemoryMinMiB, vm.MemoryMaxMiB)
 }
 
 func validateMemoryHotplugRange(minMiB int, maxMiB int) error {
@@ -1841,22 +1871,19 @@ func validateMemoryHotplugRange(minMiB int, maxMiB int) error {
 	return nil
 }
 
-func validateMemoryConfigForHost(minMiB int, maxMiB int) error {
+func virtioMemSupportedForRange(minMiB int, maxMiB int) bool {
 	if err := validateMemoryHotplugRange(minMiB, maxMiB); err != nil {
-		return err
+		return false
 	}
 	if maxMiB == minMiB {
-		return nil
+		return false
 	}
-	physicalBits, ok := hostPhysicalAddressBits()
+	physicalBits, ok := hostPhysicalAddressBitsFunc()
 	if !ok {
-		return nil
+		return true
 	}
 	requiredBits := requiredVirtioMemPhysicalAddressBits(maxMiB - minMiB)
-	if physicalBits < requiredBits {
-		return fmt.Errorf("virtio-mem requires a host CPU with at least %d physical address bits for this memory range; host reports %d physical address bits", requiredBits, physicalBits)
-	}
-	return nil
+	return physicalBits >= requiredBits
 }
 
 func requiredVirtioMemPhysicalAddressBits(hotplugMiB int) int {

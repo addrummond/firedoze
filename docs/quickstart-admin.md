@@ -85,9 +85,9 @@ sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # You add Alice's laptop as a WireGuard peer on the server. This prints a
 # Firedoze client import config with no client private key in it.
-sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > team-dev.firedoze.toml
-# Send team-dev.firedoze.toml back to Alice:
-#     firedoze server import team-dev.firedoze.toml -default
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > team-dev.conf
+# Send team-dev.conf back to Alice:
+#     firedoze server import team-dev.conf -default
 
 sudo systemctl enable --now firedozed
 ```
@@ -97,7 +97,7 @@ For fast VM creation, set up `/var/lib/firedoze` on XFS or another reflink-capab
 Alice can now connect:
 
 ```sh
-firedoze server import team-dev.firedoze.toml -default
+firedoze server import team-dev.conf -default
 firedoze health # check API connectivity
 ```
 
@@ -250,11 +250,11 @@ public key, but it does not contain Alice's private key. Send it back to Alice s
 she can import it:
 
 ```sh
-firedoze server import /path/to/team-dev.firedoze.toml -default
+firedoze server import /path/to/team-dev.conf -default
 ```
 
 Name the file after the Firedoze server profile the client should use. For
-example, `team-dev.firedoze.toml` imports as `team-dev`.
+example, `team-dev.conf` imports as `team-dev`.
 
 If `firedozed` is already running, it watches the config file and applies WireGuard peer additions, removals, and peer address changes automatically. Other config changes still need a service restart.
 
@@ -331,7 +331,7 @@ Send the Firedoze client import config printed by `-wg-add-peer` back to the
 client. The client imports it on their laptop:
 
 ```sh
-firedoze server import /path/to/team-dev.firedoze.toml -default
+firedoze server import /path/to/team-dev.conf -default
 ```
 
 Normal `firedoze` commands do not require the user to run `wg-quick`. The client

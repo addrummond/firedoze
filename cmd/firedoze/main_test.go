@@ -253,7 +253,7 @@ func TestClientServerRequestAndImportKeepPrivateKeyLocal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	importPath := filepath.Join(t.TempDir(), "team-dev.firedoze.toml")
+	importPath := filepath.Join(t.TempDir(), "team-dev.conf")
 	importData := fmt.Sprintf(`api_url = "http://[fd7a:115c:a1e1::1]"
 client_public_key = %q
 
@@ -299,9 +299,10 @@ func TestServerNameFromImportPath(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: "/tmp/team-dev.firedoze.toml", want: "team-dev"},
+		{path: "/tmp/team-dev.firedoze.toml", want: "team-dev.firedoze"},
 		{path: "/tmp/team-dev.toml", want: "team-dev"},
 		{path: "/tmp/team-dev.conf", want: "team-dev"},
+		{path: "/tmp/team-dev.anything", want: "team-dev"},
 		{path: "/tmp/team-dev", want: "team-dev"},
 		{path: "-", want: ""},
 	}

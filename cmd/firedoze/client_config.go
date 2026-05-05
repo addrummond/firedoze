@@ -600,11 +600,8 @@ func serverNameFromImportPath(inputPath string) string {
 		return ""
 	}
 	name := strings.TrimSpace(filepath.Base(inputPath))
-	for _, suffix := range []string{".firedoze.toml", ".toml", ".conf"} {
-		if strings.HasSuffix(name, suffix) {
-			name = strings.TrimSuffix(name, suffix)
-			break
-		}
+	if ext := filepath.Ext(name); ext != "" {
+		name = strings.TrimSuffix(name, ext)
 	}
 	return strings.TrimSpace(name)
 }

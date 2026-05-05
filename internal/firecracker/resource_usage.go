@@ -62,7 +62,7 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 	}
 
 	pid := proc.Command.Process.Pid
-	if vm.MemoryMaxMiB > vm.MemoryMinMiB {
+	if virtioMemUsableForVM(vm) {
 		status, err := firecrackerGetMemoryHotplug(ctx, proc.SocketPath)
 		if err != nil {
 			m.logger.Debug("read firecracker memory hotplug status", "vm", vm.Name, "error", err)

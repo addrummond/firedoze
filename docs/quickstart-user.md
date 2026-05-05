@@ -45,7 +45,7 @@ The admin will send back a Firedoze client import config. Save it to a local
 file named after what you want to call this server locally, then import it:
 
 ```sh
-firedoze server import /path/to/team-dev.firedoze.toml -default
+firedoze server import /path/to/team-dev.conf -default
 ```
 
 That creates a local server profile named `team-dev`. If you want a different
@@ -54,7 +54,7 @@ name, rename the file before importing it or pass `-name`.
 You can also import from stdin:
 
 ```sh
-firedoze server import - -name team-dev -default < /path/to/team-dev.firedoze.toml
+firedoze server import - -name team-dev -default < /path/to/team-dev.conf
 ```
 
 For normal `firedoze` commands, you do not need to bring up WireGuard manually.
