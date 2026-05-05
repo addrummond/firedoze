@@ -14,3 +14,4 @@
 - Explore adopting running Firecracker processes across daemon restarts if less disruptive upgrades become important.
 - Add a note about swap space and sensitive data to docs.
 - Think about security implementations of not having apt-get update run for base image
+- Does image builder verify checksums of downloads?
