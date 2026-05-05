@@ -372,7 +372,7 @@ func TestWireGuardPeerConfigReturnsClientImportConfig(t *testing.T) {
 	var response map[string]string
 	decode(t, rec, &response)
 	template := response["config"]
-	if !strings.Contains(template, "# Firedoze client import config for alice.") || !strings.Contains(template, `client_public_key = "`+clientKey.PublicKey().String()+`"`) {
+	if !strings.Contains(template, "# Firedoze client import config.") || !strings.Contains(template, `client_public_key = "`+clientKey.PublicKey().String()+`"`) {
 		t.Fatalf("client import config missing expected values: %s", template)
 	}
 	if strings.Contains(template, privateKey.String()) || strings.Contains(template, "private_key") || strings.Contains(template, "<client-private-key>") {

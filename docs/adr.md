@@ -105,7 +105,7 @@ public_key = "..."
 allowed_ips = ["fd7a:115c:a1e1::2/128"]
 ```
 
-Firedoze should make WireGuard easy without asking admins to generate or see developer private keys. A developer runs `firedoze server request <name>` locally, which creates a client WireGuard key pair and stores the private key in the local client config. The developer sends only the public key to the admin. The admin runs `firedozed -wg-add-peer <name> <client-public-key>`, which updates the host config and prints a Firedoze client import TOML containing server public key, endpoint, API URL, peer address, and allowed routes. The developer imports that TOML with `firedoze server import <file> -default`; the import is matched to the locally stored pending private key.
+Firedoze should make WireGuard easy without asking admins to generate or see developer private keys. A developer runs `firedoze server request <peer-name>` locally, which creates a client WireGuard key pair and stores the private key in the local client config. The developer sends only the public key to the admin. The admin runs `firedozed -wg-add-peer <peer-name> <client-public-key>`, which updates the host config and prints a Firedoze client import TOML containing server public key, endpoint, API URL, peer address, and allowed routes. The generated import config intentionally does not include a local client-side server profile name; by default, `firedoze server import <file> -default` uses the import filename basename as the server profile name, and still matches the import to the locally stored pending private key by public key.
 
 ## Host Firewall
 

@@ -84,9 +84,8 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"# Firedoze client import config for alice-laptop.",
+		"# Firedoze client import config.",
 		"#   firedoze server import <this-file> -default",
-		`name = "alice-laptop"`,
 		`api_url = "http://[fd7a:115c:a1e1::1]"`,
 		`client_public_key = "1uDjQl5bwgSTZjHCXG3nUH1upZUhPz4PZvXeNwL7ESE="`,
 		"[wireguard]",
@@ -100,6 +99,9 @@ func TestNewPeerSetup(t *testing.T) {
 	}
 	if strings.Contains(output, "private_key") || strings.Contains(output, "<client-private-key>") {
 		t.Fatalf("output exposed or requested a client private key:\n%s", output)
+	}
+	if strings.Contains(output, "\nname = ") {
+		t.Fatalf("output should not force a client-side server profile name:\n%s", output)
 	}
 
 	info, err := os.Stat(cfg.WireGuard.PrivateKeyFile)

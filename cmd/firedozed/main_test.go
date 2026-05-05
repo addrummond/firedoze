@@ -185,7 +185,7 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 		t.Fatalf("-wg-peer-config exit = %d, stderr = %s", code, stderr)
 	}
 	for _, want := range []string{
-		"# Firedoze client import config for alice-laptop.",
+		"# Firedoze client import config.",
 		`address = "fd7a:115c:a1e1::2/128"`,
 		`server_public_key = "` + serverKey.PublicKey().String() + `"`,
 		`endpoint = "firedoze.example:51820"`,
@@ -205,7 +205,7 @@ func TestRunWireGuardPeerConfigAndAddPeer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("-wg-add-peer exit = %d, stderr = %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "# Firedoze client import config for bob-laptop.") {
+	if !strings.Contains(stdout, "# Firedoze client import config.") {
 		t.Fatalf("-wg-add-peer did not print client import config:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, `address = "fd7a:115c:a1e1::3/128"`) {

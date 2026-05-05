@@ -44,7 +44,6 @@ type clientPendingRequest struct {
 }
 
 type serverImportConfig struct {
-	Name            string                      `toml:"name"`
 	APIURL          string                      `toml:"api_url"`
 	ClientPublicKey string                      `toml:"client_public_key"`
 	WireGuard       clientWireGuardImportConfig `toml:"wireguard"`
@@ -333,7 +332,7 @@ func (a app) server(args []string) error {
 		}
 		name := strings.TrimSpace(nameOverride)
 		if name == "" {
-			name = strings.TrimSpace(importConfig.Name)
+			name = serverNameFromImportPath(inputPath)
 		}
 		if name == "" {
 			name = pending.Name
@@ -594,6 +593,20 @@ func readServerImportInput(inputPath string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(inputPath)
+}
+
+func serverNameFromImportPath(inputPath string) string {
+	if inputPath == "-" {
+		return ""
+	}
+	name := strings.TrimSpace(filepath.Base(inputPath))
+	for _, suffix := range []string{".firedoze.toml", ".toml"} {
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+			break
+		}
+	}
+	return strings.TrimSpace(name)
 }
 
 func (cfg clientWireGuardConfig) clientWGConfig() clientwg.Config {

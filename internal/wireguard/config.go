@@ -276,10 +276,9 @@ func peerConfig(cfg config.Config, peer config.WGPeer, serverPublicKey string) (
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Firedoze client import config for %s.\n", peer.Name)
+	fmt.Fprintf(&b, "# Firedoze client import config.\n")
 	fmt.Fprintf(&b, "# This contains no client private key. Send it back to the client so they can run:\n")
 	fmt.Fprintf(&b, "#   firedoze server import <this-file> -default\n\n")
-	fmt.Fprintf(&b, "name = %q\n", peer.Name)
 	fmt.Fprintf(&b, "api_url = %q\n", apiURL)
 	fmt.Fprintf(&b, "client_public_key = %q\n\n", peer.PublicKey)
 	fmt.Fprintf(&b, "[wireguard]\n")

@@ -25,8 +25,9 @@ firedoze server request alice-laptop
 ```
 
 This generates a WireGuard key pair on your laptop and stores the private key in
-your local Firedoze client config. Send only the printed public key, or the
-printed admin command, to the Firedoze admin.
+your local Firedoze client config. `alice-laptop` is the name of this access
+request and the WireGuard peer the admin will add on the server. Send only the
+printed public key, or the printed admin command, to the Firedoze admin.
 
 Do not send your private key to anyone. The admin does not need it.
 
@@ -41,16 +42,19 @@ Use the same name you passed to `firedoze server request`.
 ## 3. Import The Server Config
 
 The admin will send back a Firedoze client import config. Save it to a local
-file, then import it:
+file named after what you want to call this server locally, then import it:
 
 ```sh
-firedoze server import /path/to/alice-laptop.firedoze.toml -default
+firedoze server import /path/to/team-dev.firedoze.toml -default
 ```
+
+That creates a local server profile named `team-dev`. If you want a different
+name, rename the file before importing it or pass `-name`.
 
 You can also import from stdin:
 
 ```sh
-firedoze server import - -default < /path/to/alice-laptop.firedoze.toml
+firedoze server import - -name team-dev -default < /path/to/team-dev.firedoze.toml
 ```
 
 For normal `firedoze` commands, you do not need to bring up WireGuard manually.
@@ -61,10 +65,11 @@ If you use more than one Firedoze server, import each one with a different name:
 
 ```sh
 firedoze server list
-firedoze server use alice-laptop
+firedoze server use team-dev
 ```
 
-This guide uses `alice-laptop` consistently as the example server/profile name.
+This guide uses `alice-laptop` as the example laptop/peer name and `team-dev` as
+the example local server profile name.
 
 Check that everything is reachable:
 
@@ -212,7 +217,7 @@ Then add a host entry like this to `~/.ssh/config`, replacing the
 Host demo.firedoze
   HostName demo.firedoze
   User ubuntu
-  ProxyCommand /usr/local/bin/firedoze -server alice-laptop ssh-proxy demo
+  ProxyCommand /usr/local/bin/firedoze -server team-dev ssh-proxy demo
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR

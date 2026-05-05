@@ -85,9 +85,10 @@ sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 
 # You add Alice's laptop as a WireGuard peer on the server. This prints a
 # Firedoze client import config with no client private key in it.
-sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > alice.firedoze.toml
-# Send alice.firedoze.toml back to Alice. She imports it with:
-#     firedoze server import alice.firedoze.toml -default
+sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > team-dev.firedoze.toml
+# Send team-dev.firedoze.toml back to Alice. The filename becomes her local
+# Firedoze server profile name when she imports it:
+#     firedoze server import team-dev.firedoze.toml -default
 
 sudo systemctl enable --now firedozed
 ```
@@ -97,7 +98,7 @@ For fast VM creation, set up `/var/lib/firedoze` on XFS or another reflink-capab
 Alice can now connect:
 
 ```sh
-firedoze server import alice.firedoze.toml -default
+firedoze server import team-dev.firedoze.toml -default
 firedoze health # check API connectivity
 ```
 
@@ -250,8 +251,12 @@ public key, but it does not contain Alice's private key. Send it back to Alice s
 she can run:
 
 ```sh
-firedoze server import /path/to/alice.firedoze.toml -default
+firedoze server import /path/to/team-dev.firedoze.toml -default
 ```
+
+The import file's basename becomes the local server profile name in Alice's
+client config. For example, `team-dev.firedoze.toml` imports as `team-dev`.
+The peer name `alice-laptop` remains only the host-side WireGuard peer name.
 
 If `firedozed` is already running, it watches the config file and applies WireGuard peer additions, removals, and peer address changes automatically. Other config changes still need a service restart.
 
@@ -328,7 +333,7 @@ Send the Firedoze client import config printed by `-wg-add-peer` back to the
 client. The client imports it on their laptop:
 
 ```sh
-firedoze server import /path/to/alice.firedoze.toml -default
+firedoze server import /path/to/team-dev.firedoze.toml -default
 ```
 
 Normal `firedoze` commands do not require the user to run `wg-quick`. The client

@@ -253,9 +253,8 @@ func TestClientServerRequestAndImportKeepPrivateKeyLocal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	importPath := filepath.Join(t.TempDir(), "nuc.firedoze.toml")
-	importData := fmt.Sprintf(`name = "nuc"
-api_url = "http://[fd7a:115c:a1e1::1]"
+	importPath := filepath.Join(t.TempDir(), "team-dev.firedoze.toml")
+	importData := fmt.Sprintf(`api_url = "http://[fd7a:115c:a1e1::1]"
 client_public_key = %q
 
 [wireguard]
@@ -277,12 +276,12 @@ allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]
 	if len(cfg.PendingPeers) != 0 {
 		t.Fatalf("pending peers after import = %#v, want none", cfg.PendingPeers)
 	}
-	server, ok := cfg.findServer("nuc")
+	server, ok := cfg.findServer("team-dev")
 	if !ok {
-		t.Fatal("server nuc not found")
+		t.Fatal("server team-dev not found")
 	}
-	if cfg.DefaultServer != "nuc" {
-		t.Fatalf("default server = %q, want nuc", cfg.DefaultServer)
+	if cfg.DefaultServer != "team-dev" {
+		t.Fatalf("default server = %q, want team-dev", cfg.DefaultServer)
 	}
 	if server.WireGuard == nil {
 		t.Fatal("server missing wireguard config")
@@ -292,6 +291,23 @@ allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]
 	}
 	if strings.Contains(importData, pending.PrivateKey) {
 		t.Fatal("test import data unexpectedly contained the client private key")
+	}
+}
+
+func TestServerNameFromImportPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: "/tmp/team-dev.firedoze.toml", want: "team-dev"},
+		{path: "/tmp/team-dev.toml", want: "team-dev"},
+		{path: "/tmp/team-dev", want: "team-dev"},
+		{path: "-", want: ""},
+	}
+	for _, tt := range tests {
+		if got := serverNameFromImportPath(tt.path); got != tt.want {
+			t.Fatalf("serverNameFromImportPath(%q) = %q, want %q", tt.path, got, tt.want)
+		}
 	}
 }
 
