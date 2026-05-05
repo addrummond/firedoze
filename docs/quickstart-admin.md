@@ -86,8 +86,7 @@ sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
 # You add Alice's laptop as a WireGuard peer on the server. This prints a
 # Firedoze client import config with no client private key in it.
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> > team-dev.firedoze.toml
-# Send team-dev.firedoze.toml back to Alice. The filename becomes her local
-# Firedoze server profile name when she imports it:
+# Send team-dev.firedoze.toml back to Alice:
 #     firedoze server import team-dev.firedoze.toml -default
 
 sudo systemctl enable --now firedozed
@@ -248,15 +247,14 @@ The command picks the next free client address, updates
 `/etc/firedoze/firedoze.toml` automatically, and prints a Firedoze client import
 config for Alice. The import config contains server routing details and Alice's
 public key, but it does not contain Alice's private key. Send it back to Alice so
-she can run:
+she can import it:
 
 ```sh
 firedoze server import /path/to/team-dev.firedoze.toml -default
 ```
 
-The import file's basename becomes the local server profile name in Alice's
-client config. For example, `team-dev.firedoze.toml` imports as `team-dev`.
-The peer name `alice-laptop` remains only the host-side WireGuard peer name.
+Name the file after the Firedoze server profile the client should use. For
+example, `team-dev.firedoze.toml` imports as `team-dev`.
 
 If `firedozed` is already running, it watches the config file and applies WireGuard peer additions, removals, and peer address changes automatically. Other config changes still need a service restart.
 
