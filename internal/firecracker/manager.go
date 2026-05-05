@@ -12,12 +12,14 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"math/bits"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +42,8 @@ var ErrAlreadyExists = errors.New("already exists")
 var ErrNotRunning = errors.New("vm is not running")
 var ErrRunning = errors.New("vm is running")
 var ErrNotStopped = errors.New("vm is not stopped")
+
+const firecrackerVirtioMemBaseAddress = uint64(512) << 30
 
 const tuntapModeTap netlink.TuntapMode = 0x0002
 
@@ -149,7 +153,7 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	if params.MemoryMinMiB > params.MemoryMaxMiB {
 		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
 	}
-	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+	if err := validateMemoryConfigForHost(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
 		return store.VM{}, err
 	}
 	if params.DiskBytes == 0 {
@@ -236,7 +240,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 	if params.MemoryMinMiB > params.MemoryMaxMiB {
 		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
 	}
-	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+	if err := validateMemoryConfigForHost(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
 		return store.VM{}, err
 	}
 	if params.DefaultHTTPPort == 0 {
@@ -659,6 +663,9 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 
 	vm, err := m.store.GetVM(ctx, name)
 	if err != nil {
+		return store.VM{}, err
+	}
+	if err := validateMemoryConfigForHost(vm.MemoryMinMiB, vm.MemoryMaxMiB); err != nil {
 		return store.VM{}, err
 	}
 	if vm.State == "sleeping" {
@@ -1810,4 +1817,57 @@ func validateMemoryHotplugRange(minMiB int, maxMiB int) error {
 		return errors.New("memory_max_mib - memory_min_mib must be zero or a positive multiple of 128")
 	}
 	return nil
+}
+
+func validateMemoryConfigForHost(minMiB int, maxMiB int) error {
+	if err := validateMemoryHotplugRange(minMiB, maxMiB); err != nil {
+		return err
+	}
+	if maxMiB == minMiB {
+		return nil
+	}
+	physicalBits, ok := hostPhysicalAddressBits()
+	if !ok {
+		return nil
+	}
+	requiredBits := requiredVirtioMemPhysicalAddressBits(maxMiB - minMiB)
+	if physicalBits < requiredBits {
+		return fmt.Errorf("virtio-mem requires a host CPU with at least %d physical address bits for this memory range; host reports %d physical address bits", requiredBits, physicalBits)
+	}
+	return nil
+}
+
+func requiredVirtioMemPhysicalAddressBits(hotplugMiB int) int {
+	if hotplugMiB <= 0 {
+		return 0
+	}
+	hotplugEnd := firecrackerVirtioMemBaseAddress + (uint64(hotplugMiB) << 20) - 1
+	return bits.Len64(hotplugEnd)
+}
+
+func hostPhysicalAddressBits() (int, bool) {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return 0, false
+	}
+	return parsePhysicalAddressBits(data)
+}
+
+func parsePhysicalAddressBits(data []byte) (int, bool) {
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, "address sizes") {
+			continue
+		}
+		fields := strings.Fields(line)
+		for i, field := range fields {
+			if strings.TrimSuffix(field, ",") != "physical" || i < 2 || fields[i-1] != "bits" {
+				continue
+			}
+			value, err := strconv.Atoi(fields[i-2])
+			if err == nil && value > 0 {
+				return value, true
+			}
+		}
+	}
+	return 0, false
 }

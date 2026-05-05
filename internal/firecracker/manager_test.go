@@ -1512,6 +1512,20 @@ func TestPrepareNetworkInputValidation(t *testing.T) {
 	}
 }
 
+func TestParsePhysicalAddressBits(t *testing.T) {
+	data := []byte("processor: 0\naddress sizes\t: 39 bits physical, 48 bits virtual\n")
+	got, ok := parsePhysicalAddressBits(data)
+	if !ok || got != 39 {
+		t.Fatalf("parsePhysicalAddressBits = %d, %v; want 39, true", got, ok)
+	}
+}
+
+func TestRequiredVirtioMemPhysicalAddressBits(t *testing.T) {
+	if got := requiredVirtioMemPhysicalAddressBits(128); got != 40 {
+		t.Fatalf("required physical bits = %d, want 40", got)
+	}
+}
+
 func stubRunCommand(t *testing.T, fn func(context.Context, string, ...string) error) func() {
 	t.Helper()
 	old := runCommand
