@@ -64,6 +64,8 @@ firedoze server list
 firedoze server use alice-laptop
 ```
 
+This guide uses `alice-laptop` consistently as the example server/profile name.
+
 Check that everything is reachable:
 
 ```sh
@@ -210,7 +212,7 @@ Then add a host entry like this to `~/.ssh/config`, replacing the
 Host demo.firedoze
   HostName demo.firedoze
   User ubuntu
-  ProxyCommand /usr/local/bin/firedoze -server work ssh-proxy demo
+  ProxyCommand /usr/local/bin/firedoze -server alice-laptop ssh-proxy demo
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
