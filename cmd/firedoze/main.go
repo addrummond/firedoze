@@ -126,7 +126,11 @@ func run(args []string) int {
 		}
 		defer c.Close()
 	}
-	a := app{client: c, serverName: resolvedServer.Name, serverConfig: resolvedServer, json: *jsonOutput}
+	resolvedServerName := resolvedServer.Name
+	if resolvedServerName == "" {
+		resolvedServerName = serverName
+	}
+	a := app{client: c, serverName: resolvedServerName, serverConfig: resolvedServer, json: *jsonOutput}
 	if err := a.dispatch(flags.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -285,7 +289,7 @@ func (a app) dispatch(args []string) error {
 
 func (a app) wg(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze wg keygen")
+		return errors.New("usage: firedoze wg <keygen|pubkey>")
 	}
 	switch args[0] {
 	case "keygen":
@@ -299,9 +303,64 @@ func (a app) wg(args []string) error {
 		fmt.Printf("private_key = %s\n", keyPair.PrivateKey)
 		fmt.Printf("public_key = %s\n", keyPair.PublicKey)
 		return nil
+	case "pubkey":
+		return a.wgPubkey(args[1:])
 	default:
 		return fmt.Errorf("unknown wg command: %s", args[0])
 	}
+}
+
+func (a app) wgPubkey(args []string) error {
+	if len(args) > 1 {
+		return errors.New("usage: firedoze wg pubkey [name]")
+	}
+	name := strings.TrimSpace(a.serverName)
+	if len(args) == 1 {
+		name = strings.TrimSpace(args[0])
+	}
+	cfg, path, err := loadClientConfig()
+	if err != nil {
+		return err
+	}
+	privateKey, err := findClientWireGuardPrivateKey(cfg, name)
+	if err != nil {
+		if path != "" {
+			return fmt.Errorf("%w in %s", err, path)
+		}
+		return err
+	}
+	publicKey, err := wgconfig.PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		return err
+	}
+	fmt.Println(publicKey)
+	return nil
+}
+
+func findClientWireGuardPrivateKey(cfg clientConfig, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.TrimSpace(cfg.DefaultServer)
+	}
+	if name == "" && len(cfg.Servers) == 1 {
+		name = cfg.Servers[0].Name
+	}
+	if name == "" && len(cfg.PendingPeers) == 1 {
+		name = cfg.PendingPeers[0].Name
+	}
+	if name == "" {
+		return "", errors.New("missing Firedoze server/request name")
+	}
+	if server, ok := cfg.findServer(name); ok {
+		if server.WireGuard == nil || strings.TrimSpace(server.WireGuard.PrivateKey) == "" {
+			return "", fmt.Errorf("configured Firedoze server %q has no WireGuard private key", name)
+		}
+		return server.WireGuard.PrivateKey, nil
+	}
+	if pending, ok := cfg.findPendingByName(name); ok {
+		return pending.PrivateKey, nil
+	}
+	return "", fmt.Errorf("unknown Firedoze server/request %q", name)
 }
 
 func (a app) vm(args []string) error {
@@ -1929,6 +1988,7 @@ Commands:
   route create <route> <vm> <port>
   route delete <route>
   wg keygen
+  wg pubkey [name]
   ssh <vm> [ssh args...]
   ssh-proxy <vm>
   exec <vm> -- <command> [args...]

@@ -41,7 +41,6 @@ type clientWireGuardConfig struct {
 type clientPendingRequest struct {
 	Name       string `toml:"name"`
 	PrivateKey string `toml:"private_key"`
-	PublicKey  string `toml:"public_key"`
 }
 
 type serverImportConfig struct {
@@ -187,13 +186,17 @@ func (cfg clientConfig) findServerIndex(name string) int {
 	return -1
 }
 
-func (cfg clientConfig) findPendingByPublicKey(publicKey string) (clientPendingRequest, bool) {
+func (cfg clientConfig) findPendingByPublicKey(publicKey string) (clientPendingRequest, bool, error) {
 	for _, pending := range cfg.PendingPeers {
-		if pending.PublicKey == publicKey {
-			return pending, true
+		pendingPublicKey, err := wgconfig.PublicKeyFromPrivateKey(pending.PrivateKey)
+		if err != nil {
+			return clientPendingRequest{}, false, fmt.Errorf("pending WireGuard request %q: %w", pending.Name, err)
+		}
+		if pendingPublicKey == publicKey {
+			return pending, true, nil
 		}
 	}
-	return clientPendingRequest{}, false
+	return clientPendingRequest{}, false, nil
 }
 
 func (cfg clientConfig) findPendingIndexByName(name string) int {
@@ -205,14 +208,28 @@ func (cfg clientConfig) findPendingIndexByName(name string) int {
 	return -1
 }
 
-func (cfg *clientConfig) removePendingByPublicKey(publicKey string) {
+func (cfg clientConfig) findPendingByName(name string) (clientPendingRequest, bool) {
+	for _, pending := range cfg.PendingPeers {
+		if pending.Name == name {
+			return pending, true
+		}
+	}
+	return clientPendingRequest{}, false
+}
+
+func (cfg *clientConfig) removePendingByPublicKey(publicKey string) error {
 	out := cfg.PendingPeers[:0]
 	for _, pending := range cfg.PendingPeers {
-		if pending.PublicKey != publicKey {
+		pendingPublicKey, err := wgconfig.PublicKeyFromPrivateKey(pending.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("pending WireGuard request %q: %w", pending.Name, err)
+		}
+		if pendingPublicKey != publicKey {
 			out = append(out, pending)
 		}
 	}
 	cfg.PendingPeers = out
+	return nil
 }
 
 func (cfg clientConfig) serverSummaries() []clientServerSummary {
@@ -264,7 +281,6 @@ func (a app) server(args []string) error {
 		pending := clientPendingRequest{
 			Name:       name,
 			PrivateKey: keyPair.PrivateKey,
-			PublicKey:  keyPair.PublicKey,
 		}
 		if i := cfg.findPendingIndexByName(name); i >= 0 {
 			cfg.PendingPeers[i] = pending
@@ -308,7 +324,10 @@ func (a app) server(args []string) error {
 		if err != nil {
 			return err
 		}
-		pending, ok := cfg.findPendingByPublicKey(importConfig.ClientPublicKey)
+		pending, ok, err := cfg.findPendingByPublicKey(importConfig.ClientPublicKey)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			return errors.New("no matching pending WireGuard request: run \"firedoze server request <name>\" on this client and ask the admin to add that public key")
 		}
@@ -346,7 +365,9 @@ func (a app) server(args []string) error {
 		} else {
 			cfg.Servers = append(cfg.Servers, server)
 		}
-		cfg.removePendingByPublicKey(importConfig.ClientPublicKey)
+		if err := cfg.removePendingByPublicKey(importConfig.ClientPublicKey); err != nil {
+			return err
+		}
 		if makeDefault || cfg.DefaultServer == "" {
 			cfg.DefaultServer = name
 		}

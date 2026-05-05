@@ -15,9 +15,30 @@ import (
 
 	"firedoze/internal/clientwg"
 	"firedoze/internal/model"
+	wgconfig "firedoze/internal/wireguard"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = stdout
+	}()
+	fn()
+	_ = w.Close()
+	var out bytes.Buffer
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
 
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
@@ -204,14 +225,29 @@ func TestClientServerRequestAndImportKeepPrivateKeyLocal(t *testing.T) {
 		t.Fatalf("pending peers = %#v, want one", cfg.PendingPeers)
 	}
 	pending := cfg.PendingPeers[0]
-	if pending.Name != "nuc" || pending.PrivateKey == "" || pending.PublicKey == "" {
+	if pending.Name != "nuc" || pending.PrivateKey == "" {
 		t.Fatalf("pending peer = %#v", pending)
 	}
 	if _, err := wgtypes.ParseKey(pending.PrivateKey); err != nil {
 		t.Fatalf("pending private key is invalid: %v", err)
 	}
-	if _, err := wgtypes.ParseKey(pending.PublicKey); err != nil {
+	pendingPublicKey, err := wgconfig.PublicKeyFromPrivateKey(pending.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wgtypes.ParseKey(pendingPublicKey); err != nil {
 		t.Fatalf("pending public key is invalid: %v", err)
+	}
+	_, configPath, err := loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configData), "public_key") {
+		t.Fatalf("pending request stored a public_key field:\n%s", configData)
 	}
 	serverKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -227,7 +263,7 @@ address = "fd7a:115c:a1e1::2/128"
 server_public_key = %q
 endpoint = "203.0.113.10:51820"
 allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]
-`, pending.PublicKey, serverKey.PublicKey().String())
+`, pendingPublicKey, serverKey.PublicKey().String())
 	if err := os.WriteFile(importPath, []byte(importData), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +292,63 @@ allowed_ips = ["fd7a:115c:a1e1::1/128", "fd7a:115c:a1e0::/64"]
 	}
 	if strings.Contains(importData, pending.PrivateKey) {
 		t.Fatal("test import data unexpectedly contained the client private key")
+	}
+}
+
+func TestWGPubkeyPrintsImportedServerPublicKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	privateKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = saveClientConfig(clientConfig{
+		DefaultServer: "nuc",
+		Servers: []clientServerConfig{{
+			Name:   "nuc",
+			APIURL: "http://[fd7a:115c:a1e1::1]:8081",
+			WireGuard: &clientWireGuardConfig{
+				PrivateKey:      privateKey.String(),
+				Address:         "fd7a:115c:a1e1::2/128",
+				ServerPublicKey: "4Mu5sLOJuVp97Wp/yootAkhPlQNxZ/b9e9tF3iIpkkk=",
+				Endpoint:        "203.0.113.10:51820",
+				AllowedIPs:      []string{"fd7a:115c:a1e1::1/128"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := captureStdout(t, func() {
+		if err := (app{}).wg([]string{"pubkey"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	want := privateKey.PublicKey().String() + "\n"
+	if got != want {
+		t.Fatalf("wg pubkey output = %q, want %q", got, want)
+	}
+}
+
+func TestWGPubkeyPrintsPendingRequestPublicKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := (app{}).server([]string{"request", "nuc"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := loadClientConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPublicKey, err := wgconfig.PublicKeyFromPrivateKey(cfg.PendingPeers[0].PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := captureStdout(t, func() {
+		if err := (app{}).wg([]string{"pubkey", "nuc"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != wantPublicKey+"\n" {
+		t.Fatalf("wg pubkey output = %q, want %q", got, wantPublicKey+"\n")
 	}
 }
 

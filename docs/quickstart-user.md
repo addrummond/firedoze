@@ -21,7 +21,7 @@ Install these local tools:
 Create a local access request:
 
 ```sh
-firedoze server request work
+firedoze server request alice-laptop
 ```
 
 This generates a WireGuard key pair on your laptop and stores the private key in
@@ -30,19 +30,27 @@ printed admin command, to the Firedoze admin.
 
 Do not send your private key to anyone. The admin does not need it.
 
+If you have already created the request and need to print the public key again:
+
+```sh
+firedoze wg pubkey alice-laptop
+```
+
+Use the same name you passed to `firedoze server request`.
+
 ## 3. Import The Server Config
 
 The admin will send back a Firedoze client import config. Save it to a local
 file, then import it:
 
 ```sh
-firedoze server import /path/to/work.firedoze.toml -default
+firedoze server import /path/to/alice-laptop.firedoze.toml -default
 ```
 
 You can also import from stdin:
 
 ```sh
-firedoze server import - -default < /path/to/work.firedoze.toml
+firedoze server import - -default < /path/to/alice-laptop.firedoze.toml
 ```
 
 For normal `firedoze` commands, you do not need to bring up WireGuard manually.
@@ -53,7 +61,7 @@ If you use more than one Firedoze server, import each one with a different name:
 
 ```sh
 firedoze server list
-firedoze server use work
+firedoze server use alice-laptop
 ```
 
 Check that everything is reachable:

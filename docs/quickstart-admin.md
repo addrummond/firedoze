@@ -230,6 +230,13 @@ This generates a WireGuard key pair on the client laptop and stores the private
 key in the client config. The client sends only the printed public key, or the
 printed admin command, to the admin.
 
+If Alice already created the request and needs to print the public key again,
+she can run:
+
+```sh
+firedoze wg pubkey alice-laptop
+```
+
 To add Alice's laptop, the admin runs this on the Firedoze host:
 
 ```sh

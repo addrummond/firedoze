@@ -30,6 +30,14 @@ func GenerateClientKeyPair() (ClientKeyPair, error) {
 	}, nil
 }
 
+func PublicKeyFromPrivateKey(privateKey string) (string, error) {
+	key, err := wgtypes.ParseKey(strings.TrimSpace(privateKey))
+	if err != nil {
+		return "", fmt.Errorf("private key: %w", err)
+	}
+	return key.PublicKey().String(), nil
+}
+
 func ServerPublicKey(cfg config.Config) (string, error) {
 	privateKey, err := readServerPrivateKey(cfg.WireGuard.PrivateKeyFile)
 	if err != nil {
