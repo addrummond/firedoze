@@ -347,10 +347,12 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 
 	assertExt4FileContains(t, efs, "etc/ssh/sshd_config.d/99-firedoze.conf", "PermitEmptyPasswords yes")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-guest-network", "firedoze.guest_ip")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-guest-network", "accept_dad=0")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "modprobe zram")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "swapon -p 100")
 	assertExt4Missing(t, efs, "usr/local/sbin/firedoze-slim")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "ExecStart=/usr/local/sbin/firedoze-guest-network")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "After=local-fs.target sys-subsystem-net-devices-eth0.device")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-zram.service", "ExecStart=/usr/local/sbin/firedoze-zram")
 	assertExt4Missing(t, efs, "etc/systemd/system/firedoze-slim.service")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-sshd.service", "ExecStart=/usr/sbin/sshd -D -e")

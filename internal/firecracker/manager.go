@@ -695,7 +695,7 @@ func (m *Manager) RebootVM(ctx context.Context, name string) (store.VM, error) {
 }
 
 func (m *Manager) bootArgs(netdev preparedNetwork) string {
-	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw"
+	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw quiet loglevel=3 systemd.show_status=false rd.systemd.show_status=false"
 	args += " firedoze.guest_ip=" + netdev.guestIP.String()
 	args += " firedoze.host_ip=" + netdev.hostIP.String()
 	if m.cfg.DNS.Enabled {

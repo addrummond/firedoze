@@ -1389,6 +1389,7 @@ fi
 /bin/ip addr flush dev "$dev"
 /bin/ip -6 addr flush dev "$dev" scope global || true
 /bin/ip link set "$dev" up
+/sbin/sysctl -w "net.ipv6.conf.$dev.accept_dad=0" "net.ipv6.conf.$dev.dad_transmits=0" >/dev/null 2>&1 || true
 /bin/ip -6 addr add "$guest_ip/127" dev "$dev"
 /bin/ip -6 route replace default via "$host_ip" dev "$dev"
 if [ -n "$dns_ip" ]; then
@@ -1711,7 +1712,7 @@ esac
 			data: `[Unit]
 Description=Configure firedoze Firecracker guest networking
 DefaultDependencies=no
-After=local-fs.target systemd-udev-trigger.service sys-subsystem-net-devices-eth0.device
+After=local-fs.target sys-subsystem-net-devices-eth0.device
 Requires=sys-subsystem-net-devices-eth0.device
 Before=network.target firedoze-sshd.service
 

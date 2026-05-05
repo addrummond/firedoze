@@ -993,7 +993,7 @@ func TestBootArgsDNSAndHelpers(t *testing.T) {
 	m.cfg.DNS.ListenIP = "fd00::1"
 	m.cfg.DNS.Domain = "firedoze"
 	args := m.bootArgs(netdev)
-	for _, want := range []string{"firedoze.guest_ip=fd00::3", "firedoze.host_ip=fd00::2", "firedoze.dns_ip=fd00::1", "firedoze.dns_domain=firedoze"} {
+	for _, want := range []string{"quiet", "loglevel=3", "systemd.show_status=false", "rd.systemd.show_status=false", "firedoze.guest_ip=fd00::3", "firedoze.host_ip=fd00::2", "firedoze.dns_ip=fd00::1", "firedoze.dns_domain=firedoze"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("boot args %q missing %q", args, want)
 		}

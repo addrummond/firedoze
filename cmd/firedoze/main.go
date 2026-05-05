@@ -1002,7 +1002,7 @@ func waitForSSHWithDial(ip string, timeout time.Duration, dial func(context.Cont
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting for SSH at %s", addr)
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
