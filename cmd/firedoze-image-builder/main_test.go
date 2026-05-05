@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -348,15 +349,10 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-guest-network", "firedoze.guest_ip")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "modprobe zram")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "swapon -p 100")
-	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-slim", "snapd.service")
-	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-slim", "cloud-init-main.service")
-	if strings.Contains(readExt4File(t, efs, "usr/local/sbin/firedoze-slim"), "rm -rf") {
-		t.Fatal("firedoze-slim should not delete files at runtime")
-	}
+	assertExt4Missing(t, efs, "usr/local/sbin/firedoze-slim")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "ExecStart=/usr/local/sbin/firedoze-guest-network")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-zram.service", "ExecStart=/usr/local/sbin/firedoze-zram")
-	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-slim.service", "ExecStart=/usr/local/sbin/firedoze-slim")
-	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-slim.service", "After=firedoze-sshd.service multi-user.target")
+	assertExt4Missing(t, efs, "etc/systemd/system/firedoze-slim.service")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-sshd.service", "ExecStart=/usr/sbin/sshd -D -e")
 	assertExt4FileContains(t, efs, "etc/sysctl.d/90-firedoze-zram.conf", "vm.swappiness=100")
 	assertExt4FileContains(t, efs, "usr/local/bin/firedoze-hello-service", "ExecStart=/usr/local/bin/firedoze-hello $port$verbose")
@@ -375,15 +371,19 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	if got := readExt4File(t, efs, "usr/bin/busybox"); got != "busybox-binary" {
 		t.Fatalf("busybox binary = %q, want injected binary", got)
 	}
-	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-network.service"); target != "/etc/systemd/system/firedoze-network.service" {
+	assertExt4Missing(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-network.service")
+	assertExt4Missing(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-sshd.service")
+	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-network.service"); target != "/etc/systemd/system/firedoze-network.service" {
 		t.Fatalf("firedoze-network enable symlink -> %q", target)
 	}
-	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-zram.service"); target != "/etc/systemd/system/firedoze-zram.service" {
+	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-sshd.service"); target != "/etc/systemd/system/firedoze-sshd.service" {
+		t.Fatalf("firedoze-sshd enable symlink -> %q", target)
+	}
+	assertExt4Missing(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-zram.service")
+	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-zram.service"); target != "/etc/systemd/system/firedoze-zram.service" {
 		t.Fatalf("firedoze-zram enable symlink -> %q", target)
 	}
-	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-slim.service"); target != "/etc/systemd/system/firedoze-slim.service" {
-		t.Fatalf("firedoze-slim enable symlink -> %q", target)
-	}
+	assertExt4Missing(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-slim.service")
 	if target := readExt4Link(t, efs, "etc/systemd/system/cloud-init.service"); target != "/dev/null" {
 		t.Fatalf("cloud-init mask symlink -> %q", target)
 	}
@@ -395,6 +395,26 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	}
 	if target := readExt4Link(t, efs, "etc/systemd/system/snapd.service"); target != "/dev/null" {
 		t.Fatalf("snapd mask symlink -> %q", target)
+	}
+	for _, path := range []string{
+		"etc/systemd/system/apparmor.service",
+		"etc/systemd/system/snapd.apparmor.service",
+		"etc/systemd/system/man-db.timer",
+		"etc/systemd/system/update-notifier-download.timer",
+		"etc/systemd/system/sysstat-collect.timer",
+		"etc/systemd/system/pollinate.service",
+		"etc/systemd/system/networkd-dispatcher.service",
+		"etc/systemd/system/ModemManager.service",
+		"etc/systemd/system/systemd-binfmt.service",
+		"etc/systemd/system/proc-sys-fs-binfmt_misc.mount",
+		"etc/systemd/system/sysstat.service",
+		"etc/systemd/system/udisks2.service",
+		"etc/systemd/system/e2scrub_reap.service",
+		"etc/systemd/system/lxd-installer.socket",
+	} {
+		if target := readExt4Link(t, efs, path); target != "/dev/null" {
+			t.Fatalf("%s mask symlink -> %q", path, target)
+		}
 	}
 	info := statExt4(t, efs, "usr/local/bin/firedoze-hello")
 	if got := info.Mode().Perm(); got != 0o755 {
@@ -408,6 +428,36 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o440 {
 		t.Fatalf("sudoers mode = %v, want 0440", got)
 	}
+}
+
+func TestEnsureZramModuleDeps(t *testing.T) {
+	efs := newTestExt4(t)
+	kernelVersion := "7.0.0-test"
+	moduleDir := path.Join("usr/lib/modules", kernelVersion)
+	for _, module := range []string{
+		"kernel/drivers/block/zram/zram.ko.zst",
+		"kernel/lib/lz4/lz4hc_compress.ko.zst",
+		"kernel/lib/lz4/lz4_compress.ko.zst",
+		"kernel/lib/842/842_decompress.ko.zst",
+		"kernel/lib/842/842_compress.ko.zst",
+	} {
+		if err := writeFile(efs, path.Join(moduleDir, module), []byte("module"), 0o644, 0, 0, timeNow()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeFile(efs, path.Join(moduleDir, "modules.dep"), []byte("kernel/drivers/virtio/virtio.ko.zst:\n"), 0o644, 0, 0, timeNow()); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(efs, path.Join(moduleDir, "modules.dep.bin"), []byte("stale"), 0o644, 0, 0, timeNow()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureZramModuleDeps(efs, kernelVersion); err != nil {
+		t.Fatalf("ensureZramModuleDeps: %v", err)
+	}
+
+	assertExt4FileContains(t, efs, path.Join(moduleDir, "modules.dep"), "kernel/drivers/block/zram/zram.ko.zst: kernel/lib/lz4/lz4hc_compress.ko.zst")
+	assertExt4Missing(t, efs, path.Join(moduleDir, "modules.dep.bin"))
 }
 
 func TestTarFileModePreservesSpecialBits(t *testing.T) {
@@ -906,6 +956,13 @@ func assertExt4FileContains(t *testing.T, efs *ext4.FileSystem, path string, wan
 	got := readExt4File(t, efs, path)
 	if !strings.Contains(got, want) {
 		t.Fatalf("/%s =\n%s\nwant substring %q", path, got, want)
+	}
+}
+
+func assertExt4Missing(t *testing.T, efs *ext4.FileSystem, path string) {
+	t.Helper()
+	if _, err := efs.Stat(path); err == nil {
+		t.Fatalf("/%s exists, want missing", path)
 	}
 }
 

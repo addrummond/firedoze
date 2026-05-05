@@ -44,6 +44,7 @@ const (
 
 	baseKernelModulesURL    = "https://ubuntu.mirror.constant.com/pool/main/l/linux/linux-modules-7.0.0-14-generic_7.0.0-14.14_amd64.deb"
 	baseKernelModulesSHA256 = "5bbbd6bd424b38a9927a897259f02de1b3caff94e9dc27b931b54d65bf005b8d"
+	baseKernelVersion       = "7.0.0-14-generic"
 )
 
 var packagedGuestHelloBinaries = map[string]string{
@@ -628,6 +629,52 @@ func installKernelModulesDeb(efs *ext4.FileSystem, deb []byte) error {
 	}); err != nil {
 		return fmt.Errorf("extract kernel modules package: %w", err)
 	}
+	if err := ensureZramModuleDeps(efs, baseKernelVersion); err != nil {
+		return fmt.Errorf("prepare zram module dependencies: %w", err)
+	}
+	return nil
+}
+
+func ensureZramModuleDeps(efs *ext4.FileSystem, kernelVersion string) error {
+	moduleDir := path.Join("usr/lib/modules", kernelVersion)
+	requiredModules := []string{
+		"kernel/drivers/block/zram/zram.ko.zst",
+		"kernel/lib/lz4/lz4hc_compress.ko.zst",
+		"kernel/lib/lz4/lz4_compress.ko.zst",
+		"kernel/lib/842/842_decompress.ko.zst",
+		"kernel/lib/842/842_compress.ko.zst",
+	}
+	for _, module := range requiredModules {
+		if _, err := efs.Stat(path.Join(moduleDir, module)); err != nil {
+			return fmt.Errorf("missing /%s", path.Join(moduleDir, module))
+		}
+	}
+
+	depsPath := path.Join(moduleDir, "modules.dep")
+	data, err := efs.ReadFile(depsPath)
+	if err != nil {
+		data = nil
+	}
+	text := string(data)
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	lines := []string{
+		"kernel/drivers/block/zram/zram.ko.zst: kernel/lib/lz4/lz4hc_compress.ko.zst kernel/lib/842/842_decompress.ko.zst kernel/lib/lz4/lz4_compress.ko.zst kernel/lib/842/842_compress.ko.zst",
+		"kernel/lib/lz4/lz4hc_compress.ko.zst:",
+		"kernel/lib/lz4/lz4_compress.ko.zst:",
+		"kernel/lib/842/842_decompress.ko.zst:",
+		"kernel/lib/842/842_compress.ko.zst:",
+	}
+	for _, line := range lines {
+		if !strings.Contains(text, line+"\n") {
+			text += line + "\n"
+		}
+	}
+	if err := writeFile(efs, depsPath, []byte(text), 0o644, 0, 0, time.Now()); err != nil {
+		return fmt.Errorf("write /%s: %w", depsPath, err)
+	}
+	_ = efs.Remove(path.Join(moduleDir, "modules.dep.bin"))
 	return nil
 }
 
@@ -965,35 +1012,84 @@ func newGuestOverlay() *guestOverlay {
 			},
 		},
 		symlinks: map[string]string{
-			"etc/systemd/system/ssh.socket":                                       "/dev/null",
-			"etc/systemd/system/cloud-init.service":                               "/dev/null",
-			"etc/systemd/system/cloud-init-local.service":                         "/dev/null",
-			"etc/systemd/system/cloud-config.service":                             "/dev/null",
-			"etc/systemd/system/cloud-final.service":                              "/dev/null",
-			"etc/systemd/system/cloud-init-main.service":                          "/dev/null",
-			"etc/systemd/system/cloud-init-network.service":                       "/dev/null",
-			"etc/systemd/system/cloud-init.target":                                "/dev/null",
-			"etc/systemd/system/systemd-networkd-wait-online.service":             "/dev/null",
-			"etc/systemd/system/multipathd.service":                               "/dev/null",
-			"etc/systemd/system/multipathd.socket":                                "/dev/null",
-			"etc/systemd/system/snapd.service":                                    "/dev/null",
-			"etc/systemd/system/snapd.socket":                                     "/dev/null",
-			"etc/systemd/system/snapd.seeded.service":                             "/dev/null",
-			"etc/systemd/system/unattended-upgrades.service":                      "/dev/null",
-			"etc/systemd/system/apt-daily.service":                                "/dev/null",
-			"etc/systemd/system/apt-daily.timer":                                  "/dev/null",
-			"etc/systemd/system/apt-daily-upgrade.service":                        "/dev/null",
-			"etc/systemd/system/apt-daily-upgrade.timer":                          "/dev/null",
-			"etc/systemd/system/rsyslog.service":                                  "/dev/null",
-			"etc/systemd/system/qemu-guest-agent.service":                         "/dev/null",
-			"etc/systemd/system/ufw.service":                                      "/dev/null",
-			"etc/systemd/system/apport.service":                                   "/dev/null",
-			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                     "",
-			"etc/systemd/system/sockets.target.wants/ssh.socket":                  "",
-			"etc/systemd/system/multi-user.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
-			"etc/systemd/system/multi-user.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
-			"etc/systemd/system/multi-user.target.wants/firedoze-slim.service":    "/etc/systemd/system/firedoze-slim.service",
-			"etc/systemd/system/sysinit.target.wants/firedoze-zram.service":       "/etc/systemd/system/firedoze-zram.service",
+			"etc/systemd/system/apparmor.service":                              "/dev/null",
+			"etc/systemd/system/snapd.apparmor.service":                        "/dev/null",
+			"etc/systemd/system/ssh.socket":                                    "/dev/null",
+			"etc/systemd/system/cloud-init.service":                            "/dev/null",
+			"etc/systemd/system/cloud-init-local.service":                      "/dev/null",
+			"etc/systemd/system/cloud-config.service":                          "/dev/null",
+			"etc/systemd/system/cloud-final.service":                           "/dev/null",
+			"etc/systemd/system/cloud-init-main.service":                       "/dev/null",
+			"etc/systemd/system/cloud-init-network.service":                    "/dev/null",
+			"etc/systemd/system/cloud-init.target":                             "/dev/null",
+			"etc/systemd/system/systemd-networkd-wait-online.service":          "/dev/null",
+			"etc/systemd/system/systemd-binfmt.service":                        "/dev/null",
+			"etc/systemd/system/proc-sys-fs-binfmt_misc.mount":                 "/dev/null",
+			"etc/systemd/system/multipathd.service":                            "/dev/null",
+			"etc/systemd/system/multipathd.socket":                             "/dev/null",
+			"etc/systemd/system/open-iscsi.service":                            "/dev/null",
+			"etc/systemd/system/iscsid.socket":                                 "/dev/null",
+			"etc/systemd/system/lvm2-monitor.service":                          "/dev/null",
+			"etc/systemd/system/dm-event.socket":                               "/dev/null",
+			"etc/systemd/system/lvm2-lvmpolld.socket":                          "/dev/null",
+			"etc/systemd/system/snapd.service":                                 "/dev/null",
+			"etc/systemd/system/snapd.socket":                                  "/dev/null",
+			"etc/systemd/system/snapd.seeded.service":                          "/dev/null",
+			"etc/systemd/system/snapd.autoimport.service":                      "/dev/null",
+			"etc/systemd/system/snapd.core-fixup.service":                      "/dev/null",
+			"etc/systemd/system/snapd.recovery-chooser-trigger.service":        "/dev/null",
+			"etc/systemd/system/snapd.snap-repair.timer":                       "/dev/null",
+			"etc/systemd/system/snapd.system-shutdown.service":                 "/dev/null",
+			"etc/systemd/system/unattended-upgrades.service":                   "/dev/null",
+			"etc/systemd/system/apt-daily.service":                             "/dev/null",
+			"etc/systemd/system/apt-daily.timer":                               "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.service":                     "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.timer":                       "/dev/null",
+			"etc/systemd/system/man-db.service":                                "/dev/null",
+			"etc/systemd/system/man-db.timer":                                  "/dev/null",
+			"etc/systemd/system/motd-news.timer":                               "/dev/null",
+			"etc/systemd/system/update-notifier-download.timer":                "/dev/null",
+			"etc/systemd/system/update-notifier-motd.timer":                    "/dev/null",
+			"etc/systemd/system/sysstat-collect.timer":                         "/dev/null",
+			"etc/systemd/system/sysstat-rotate.timer":                          "/dev/null",
+			"etc/systemd/system/sysstat-summary.timer":                         "/dev/null",
+			"etc/systemd/system/sysstat.service":                               "/dev/null",
+			"etc/systemd/system/pollinate.service":                             "/dev/null",
+			"etc/systemd/system/networkd-dispatcher.service":                   "/dev/null",
+			"etc/systemd/system/ModemManager.service":                          "/dev/null",
+			"etc/systemd/system/udisks2.service":                               "/dev/null",
+			"etc/systemd/system/polkit.service":                                "/dev/null",
+			"etc/systemd/system/e2scrub_reap.service":                          "/dev/null",
+			"etc/systemd/system/e2scrub_all.timer":                             "/dev/null",
+			"etc/systemd/system/xfs_scrub_all.timer":                           "/dev/null",
+			"etc/systemd/system/fstrim.timer":                                  "/dev/null",
+			"etc/systemd/system/fwupd-refresh.timer":                           "/dev/null",
+			"etc/systemd/system/dpkg-db-backup.timer":                          "/dev/null",
+			"etc/systemd/system/logrotate.timer":                               "/dev/null",
+			"etc/systemd/system/mdcheck_continue.timer":                        "/dev/null",
+			"etc/systemd/system/mdcheck_start.timer":                           "/dev/null",
+			"etc/systemd/system/mdmonitor-oneshot.timer":                       "/dev/null",
+			"etc/systemd/system/lxd-installer.socket":                          "/dev/null",
+			"etc/systemd/system/open-vm-tools.service":                         "/dev/null",
+			"etc/systemd/system/vgauth.service":                                "/dev/null",
+			"etc/systemd/system/secureboot-db.service":                         "/dev/null",
+			"etc/systemd/system/ua-reboot-cmds.service":                        "/dev/null",
+			"etc/systemd/system/ubuntu-advantage.service":                      "/dev/null",
+			"etc/systemd/system/ua-timer.timer":                                "/dev/null",
+			"etc/systemd/system/systemd-pstore.service":                        "/dev/null",
+			"etc/systemd/system/apport-autoreport.path":                        "/dev/null",
+			"etc/systemd/system/apport-autoreport.timer":                       "/dev/null",
+			"etc/systemd/system/apport-forward.socket":                         "/dev/null",
+			"etc/systemd/system/tpm-udev.path":                                 "/dev/null",
+			"etc/systemd/system/rsyslog.service":                               "/dev/null",
+			"etc/systemd/system/qemu-guest-agent.service":                      "/dev/null",
+			"etc/systemd/system/ufw.service":                                   "/dev/null",
+			"etc/systemd/system/apport.service":                                "/dev/null",
+			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                  "",
+			"etc/systemd/system/sockets.target.wants/ssh.socket":               "",
+			"etc/systemd/system/sysinit.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
+			"etc/systemd/system/sysinit.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-zram.service": "/etc/systemd/system/firedoze-zram.service",
 		},
 		skipPrefixes: []string{
 			"usr/share/doc/",
@@ -1315,37 +1411,6 @@ fi
 `,
 		},
 		{
-			path: "usr/local/sbin/firedoze-slim",
-			mode: 0o755,
-			data: `#!/bin/sh
-set -eu
-
-stamp=/var/lib/firedoze/slim.done
-if [ -e "$stamp" ]; then
-  exit 0
-fi
-
-mkdir -p /var/lib/firedoze
-
-if command -v systemctl >/dev/null 2>&1; then
-  for unit in \
-    snapd.service snapd.socket snapd.seeded.service snapd.apparmor.service \
-    cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service cloud-init-main.service cloud-init-network.service cloud-init.target \
-    unattended-upgrades.service apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer \
-    rsyslog.service qemu-guest-agent.service multipathd.service multipathd.socket ufw.service apport.service \
-    man-db.timer man-db.service motd-news.timer update-notifier-download.timer update-notifier-motd.timer \
-    sysstat-collect.timer sysstat-rotate.timer sysstat-summary.timer
-  do
-    systemctl disable --now "$unit" >/dev/null 2>&1 || true
-    systemctl mask "$unit" >/dev/null 2>&1 || true
-  done
-  systemctl daemon-reload >/dev/null 2>&1 || true
-fi
-
-: >"$stamp"
-`,
-		},
-		{
 			path: "usr/local/sbin/firedoze-zram",
 			mode: 0o755,
 			data: `#!/bin/sh
@@ -1363,8 +1428,16 @@ if ! command -v modprobe >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! modprobe zram num_devices=1 >/dev/null 2>&1; then
-  if ! modprobe zram >/dev/null 2>&1; then
+load_zram() {
+  modprobe zram num_devices=1 >/dev/null 2>&1 || modprobe zram >/dev/null 2>&1
+}
+
+if ! load_zram; then
+  kernel="$(uname -r)"
+  if command -v depmod >/dev/null 2>&1 && [ -e "/lib/modules/$kernel/kernel/drivers/block/zram/zram.ko.zst" ]; then
+    depmod -a "$kernel" >/dev/null 2>&1 || true
+  fi
+  if ! load_zram; then
     echo "firedoze-zram: zram module unavailable; skipping zram" >&2
     exit 0
   fi
@@ -1637,9 +1710,10 @@ esac
 			mode: 0o644,
 			data: `[Unit]
 Description=Configure firedoze Firecracker guest networking
-After=systemd-networkd.service network.target cloud-init-network.service netplan-configure.service
-Before=firedoze-sshd.service
-Wants=network.target
+DefaultDependencies=no
+After=local-fs.target systemd-udev-trigger.service sys-subsystem-net-devices-eth0.device
+Requires=sys-subsystem-net-devices-eth0.device
+Before=network.target firedoze-sshd.service
 
 [Service]
 Type=oneshot
@@ -1649,7 +1723,7 @@ StandardOutput=journal+console
 StandardError=journal+console
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target
 `,
 		},
 		{
@@ -1657,9 +1731,8 @@ WantedBy=multi-user.target
 			mode: 0o644,
 			data: `[Unit]
 Description=Configure firedoze compressed zram swap
-DefaultDependencies=no
-After=systemd-modules-load.service systemd-udev-trigger.service local-fs.target
-Before=swap.target firedoze-network.service firedoze-sshd.service
+After=firedoze-sshd.service
+Wants=firedoze-sshd.service
 
 [Service]
 Type=oneshot
@@ -1670,7 +1743,7 @@ StandardOutput=journal+console
 StandardError=journal+console
 
 [Install]
-WantedBy=sysinit.target
+WantedBy=multi-user.target
 `,
 		},
 		{
@@ -1678,8 +1751,11 @@ WantedBy=sysinit.target
 			mode: 0o644,
 			data: `[Unit]
 Description=firedoze SSH daemon
-After=firedoze-network.service
+DefaultDependencies=no
+After=local-fs.target firedoze-network.service
 Requires=firedoze-network.service
+Before=multi-user.target shutdown.target
+Conflicts=shutdown.target
 ConditionPathExists=!/etc/ssh/sshd_not_to_be_run
 
 [Service]
@@ -1690,26 +1766,7 @@ ExecStart=/usr/sbin/sshd -D -e
 Restart=on-failure
 
 [Install]
-WantedBy=multi-user.target
-`,
-		},
-		{
-			path: "etc/systemd/system/firedoze-slim.service",
-			mode: 0o644,
-			data: `[Unit]
-Description=Trim non-essential firedoze guest services and caches
-After=firedoze-sshd.service multi-user.target
-Wants=firedoze-sshd.service
-ConditionPathExists=!/var/lib/firedoze/slim.done
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/firedoze-slim
-StandardOutput=journal+console
-StandardError=journal+console
-
-[Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target
 `,
 		},
 		{
