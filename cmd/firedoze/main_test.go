@@ -41,10 +41,10 @@ func TestFormatDuration(t *testing.T) {
 
 func TestParseNamesAndFlags(t *testing.T) {
 	flags := flag.NewFlagSet("test", flag.ContinueOnError)
-	memoryMiB := flags.Int("memory-mib", 0, "")
+	memoryMinMiB := flags.Int("memory-min-mib", 0, "")
 	diskBytes := flags.Int64("disk-bytes", 0, "")
 
-	names, err := parseNamesAndFlags(flags, []string{"alice", "bob", "-memory-mib", "512", "-disk-bytes=1024"})
+	names, err := parseNamesAndFlags(flags, []string{"alice", "bob", "-memory-min-mib", "512", "-disk-bytes=1024"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +54,8 @@ func TestParseNamesAndFlags(t *testing.T) {
 	if names[0] != "alice" || names[1] != "bob" {
 		t.Fatalf("names = %#v", names)
 	}
-	if *memoryMiB != 512 {
-		t.Fatalf("memoryMiB = %d, want 512", *memoryMiB)
+	if *memoryMinMiB != 512 {
+		t.Fatalf("memoryMinMiB = %d, want 512", *memoryMinMiB)
 	}
 	if *diskBytes != 1024 {
 		t.Fatalf("diskBytes = %d, want 1024", *diskBytes)
@@ -63,8 +63,8 @@ func TestParseNamesAndFlags(t *testing.T) {
 }
 
 func TestSplitUpArgs(t *testing.T) {
-	createArgs, sshArgs := splitUpArgs([]string{"demo", "-memory-mib", "1024", "--", "-L", "8080:localhost:8080"})
-	if got, want := strings.Join(createArgs, "\x00"), strings.Join([]string{"demo", "-memory-mib", "1024"}, "\x00"); got != want {
+	createArgs, sshArgs := splitUpArgs([]string{"demo", "-memory-max-mib", "1024", "--", "-L", "8080:localhost:8080"})
+	if got, want := strings.Join(createArgs, "\x00"), strings.Join([]string{"demo", "-memory-max-mib", "1024"}, "\x00"); got != want {
 		t.Fatalf("createArgs = %#v", createArgs)
 	}
 	if got, want := strings.Join(sshArgs, "\x00"), strings.Join([]string{"-L", "8080:localhost:8080"}, "\x00"); got != want {
@@ -484,7 +484,8 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 			"name":"demo",
 			"state":"running",
 			"vcpus":2,
-			"memory_mib":512,
+			"memory_min_mib":128,
+			"memory_max_mib":512,
 			"disk_bytes":4294967296,
 			"disk_allocated_bytes":1073741824,
 			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65}
@@ -705,7 +706,8 @@ func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
 		"base",
 		"demo",
 		"-vcpus", "2",
-		"-memory-mib", "1024",
+		"-memory-min-mib", "256",
+		"-memory-max-mib", "1024",
 		"-disk-bytes", "8589934592",
 		"-http-port", "3000",
 		"-idle-sleep-after", "900",
@@ -721,7 +723,8 @@ func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
 	body := restoreSnapshotBody(params, vmName)
 	if body["vm"] != "demo" ||
 		body["vcpus"] != 2 ||
-		body["memory_mib"] != 1024 ||
+		body["memory_min_mib"] != 256 ||
+		body["memory_max_mib"] != 1024 ||
 		body["disk_bytes"] != int64(8589934592) ||
 		body["default_http_port"] != 3000 ||
 		body["idle_sleep_after_seconds"] != 900 ||

@@ -73,7 +73,7 @@ func TestDefaultHostAndCaddyFallbackRoute(t *testing.T) {
 func TestCaddyReconcileAndStopUseAdapter(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
+		Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestCaddyReconcileAndStopUseAdapter(t *testing.T) {
 func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
+		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
 
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "demo", PrivateIP: "192.0.2.10", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true, PublicHTTP: true,
+		Name: "demo", PrivateIP: "192.0.2.10", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true, PublicHTTP: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
 func TestWakeProxySleepingStartFailuresAndPostCaptcha(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 1, AutoWake: true, PublicHTTP: true,
+		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 1, AutoWake: true, PublicHTTP: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestTCPWakeRedirectCommands(t *testing.T) {
 
 func TestTCPWakeVMByPrivateIPAndRunSSHIPv6Noop(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := testConfig()
@@ -474,7 +474,7 @@ func TestTCPWakeHandleSSHConn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := testStore(t)
 			if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-				Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: tt.autoWake, AutoWakeSet: true,
+				Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: tt.autoWake, AutoWakeSet: true,
 			}); err != nil {
 				t.Fatal(err)
 			}

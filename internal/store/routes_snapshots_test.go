@@ -55,7 +55,7 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "dev", VMName: "api", Port: 8080}); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("CreateRoute with VM name error = %v, want ErrAlreadyExists", err)
 	}
-	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "web", PrivateIP: "fd00::4", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); !errors.Is(err, ErrAlreadyExists) {
+	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "web", PrivateIP: "fd00::4", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("CreateVM with route name error = %v, want ErrAlreadyExists", err)
 	}
 
@@ -242,7 +242,8 @@ func TestMigrateOldSchemaAddsColumnsAndDefaults(t *testing.T) {
 			state text not null,
 			private_ip text,
 			vcpus integer not null,
-			memory_mib integer not null,
+			memory_min_mib integer not null,
+			memory_max_mib integer not null,
 			disk_bytes integer not null,
 			default_http_port integer not null,
 			created_at text not null default '',
@@ -257,8 +258,8 @@ func TestMigrateOldSchemaAddsColumnsAndDefaults(t *testing.T) {
 			kernel_id text not null,
 			created_at text not null default ''
 		);
-		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, updated_at)
-		values ('old', 'stopped', 'fd00::2', 1, 128, 1024, 8080, '2026-05-04T00:00:00Z');
+		insert into vms (name, state, private_ip, vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, updated_at)
+		values ('old', 'stopped', 'fd00::2', 1, 128, 512, 1024, 8080, '2026-05-04T00:00:00Z');
 		insert into snapshots (name, source_vm, state_path, disk_path, base_image_id, kernel_id)
 		values ('snap-old', 'old', '/state', '/disk', 'base', 'kernel');
 	`); err != nil {
@@ -308,7 +309,8 @@ func createTestVM(t *testing.T, st *Store, name string) VM {
 		Name:                  name,
 		PrivateIP:             "fd00::2",
 		VCPUs:                 1,
-		MemoryMiB:             128,
+		MemoryMinMiB:          128,
+		MemoryMaxMiB:          128,
 		DiskBytes:             1024,
 		DefaultHTTPPort:       8080,
 		IdleSleepAfterSeconds: 60,

@@ -76,7 +76,7 @@ func (m *fakeManager) VMResourceUsage(ctx context.Context, name string) (model.V
 	if m.vmResourceUsageFunc != nil {
 		return m.vmResourceUsageFunc(ctx, name)
 	}
-	return model.VMResourceUsage{Name: name, State: "running", VCPUs: 1, MemoryMiB: 128}, nil
+	return model.VMResourceUsage{Name: name, State: "running", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128}, nil
 }
 
 func (m *fakeManager) CreateVM(ctx context.Context, params store.CreateVMParams) (store.VM, error) {
@@ -306,11 +306,11 @@ func TestResourceUsageEndpoints(t *testing.T) {
 		listVMResourceUsageFunc: func(_ context.Context, got []string) ([]model.VMResourceUsage, error) {
 			patterns = append([]string(nil), got...)
 			return []model.VMResourceUsage{{
-				Name:      "demo",
-				State:     "running",
-				VCPUs:     2,
-				MemoryMiB: 512,
-				Process:   &model.ProcessResourceUsage{PID: 123, RSSBytes: 64 << 20},
+				Name:         "demo",
+				State:        "running",
+				VCPUs:        2,
+				MemoryMinMiB: 512, MemoryMaxMiB: 512,
+				Process: &model.ProcessResourceUsage{PID: 123, RSSBytes: 64 << 20},
 			}}, nil
 		},
 		vmResourceUsageFunc: func(_ context.Context, name string) (model.VMResourceUsage, error) {
@@ -439,7 +439,8 @@ func TestCreateAndUpdateVMUseManagerParamsAndReconcileProxy(t *testing.T) {
 	rec := request(t, handler, http.MethodPost, "/vms", map[string]any{
 		"name":                     "dev-a",
 		"vcpus":                    2,
-		"memory_mib":               1024,
+		"memory_min_mib":           256,
+		"memory_max_mib":           1024,
 		"disk_bytes":               42,
 		"default_http_port":        3000,
 		"idle_sleep_after_seconds": 12,
@@ -447,7 +448,7 @@ func TestCreateAndUpdateVMUseManagerParamsAndReconcileProxy(t *testing.T) {
 		"public_http":              true,
 	})
 	assertStatus(t, rec, http.StatusCreated)
-	if createParams.Name != "dev-a" || createParams.VCPUs != 2 || createParams.MemoryMiB != 1024 || createParams.DiskBytes != 42 || createParams.DefaultHTTPPort != 3000 {
+	if createParams.Name != "dev-a" || createParams.VCPUs != 2 || createParams.MemoryMinMiB != 256 || createParams.MemoryMaxMiB != 1024 || createParams.DiskBytes != 42 || createParams.DefaultHTTPPort != 3000 {
 		t.Fatalf("unexpected create params: %#v", createParams)
 	}
 	if !createParams.AutoWakeSet || !createParams.AutoWake || !createParams.PublicHTTP {
@@ -596,7 +597,7 @@ func TestCreateUpdateAndProxyErrorMappings(t *testing.T) {
 func TestRoutesUseStoreValidationAndProxyReconcile(t *testing.T) {
 	st := testStore(t)
 	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name: "dev", PrivateIP: "fd00::2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080,
+		Name: "dev", PrivateIP: "fd00::2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -688,14 +689,15 @@ func TestSnapshotHandlersValidateMapErrorsAndReconcileRestore(t *testing.T) {
 	rec = request(t, handler, http.MethodPost, "/snapshots/snap.1/restore", map[string]any{
 		"vm_name":                  "copy",
 		"vcpus":                    3,
-		"memory_mib":               2048,
+		"memory_min_mib":           512,
+		"memory_max_mib":           2048,
 		"default_http_port":        9090,
 		"idle_sleep_after_seconds": 120,
 		"auto_wake":                true,
 		"public_http":              true,
 	})
 	assertStatus(t, rec, http.StatusCreated)
-	if restoreName != "snap.1" || restoreParams.Name != "copy" || restoreParams.VCPUs != 3 || restoreParams.MemoryMiB != 2048 || restoreParams.DefaultHTTPPort != 9090 {
+	if restoreName != "snap.1" || restoreParams.Name != "copy" || restoreParams.VCPUs != 3 || restoreParams.MemoryMinMiB != 512 || restoreParams.MemoryMaxMiB != 2048 || restoreParams.DefaultHTTPPort != 9090 {
 		t.Fatalf("restore params = %q %#v", restoreName, restoreParams)
 	}
 	if !restoreParams.AutoWakeSet || !restoreParams.AutoWake || !restoreParams.PublicHTTP {
@@ -828,7 +830,8 @@ func testVM(name string) store.VM {
 		State:                 "stopped",
 		PrivateIP:             "fd01::2",
 		VCPUs:                 1,
-		MemoryMiB:             128,
+		MemoryMinMiB:          128,
+		MemoryMaxMiB:          128,
 		DiskBytes:             512,
 		DefaultHTTPPort:       8080,
 		IdleSleepAfterSeconds: 60,
@@ -839,7 +842,8 @@ func testVM(name string) store.VM {
 func vmFromParams(params store.CreateVMParams) store.VM {
 	vm := testVM(params.Name)
 	vm.VCPUs = params.VCPUs
-	vm.MemoryMiB = params.MemoryMiB
+	vm.MemoryMinMiB = params.MemoryMinMiB
+	vm.MemoryMaxMiB = params.MemoryMaxMiB
 	vm.DiskBytes = params.DiskBytes
 	vm.DefaultHTTPPort = params.DefaultHTTPPort
 	vm.IdleSleepAfterSeconds = params.IdleSleepAfterSeconds

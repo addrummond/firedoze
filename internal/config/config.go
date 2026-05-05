@@ -22,6 +22,7 @@ type Config struct {
 	Metadata        MetadataConfig     `toml:"metadata"`
 	WireGuard       WireGuardConfig    `toml:"wireguard"`
 	HostFirewall    HostFirewallConfig `toml:"host_firewall"`
+	GuestControl    GuestControlConfig `toml:"guest_control"`
 	VMNetwork       VMNetworkConfig    `toml:"vm_network"`
 	DNS             DNSConfig          `toml:"dns"`
 	SSH             SSHConfig          `toml:"ssh"`
@@ -118,6 +119,10 @@ type HostFirewallConfig struct {
 	Backend string `toml:"backend"`
 }
 
+type GuestControlConfig struct {
+	MemoryPort int `toml:"memory_port"`
+}
+
 type VMNetworkConfig struct {
 	Subnet string `toml:"subnet"`
 }
@@ -147,13 +152,14 @@ type ColdStorageConfig struct {
 }
 
 type FirecrackerConfig struct {
-	BinaryPath       string `toml:"binary_path"`
-	BaseKernelPath   string `toml:"base_kernel_path"`
-	BaseInitrdPath   string `toml:"base_initrd_path"`
-	BaseRootfsPath   string `toml:"base_rootfs_path"`
-	DefaultVCPUs     int    `toml:"default_vcpus"`
-	DefaultMemoryMiB int    `toml:"default_memory_mib"`
-	DefaultDiskBytes int64  `toml:"default_disk_bytes"`
+	BinaryPath          string `toml:"binary_path"`
+	BaseKernelPath      string `toml:"base_kernel_path"`
+	BaseInitrdPath      string `toml:"base_initrd_path"`
+	BaseRootfsPath      string `toml:"base_rootfs_path"`
+	DefaultVCPUs        int    `toml:"default_vcpus"`
+	DefaultMemoryMinMiB int    `toml:"default_memory_min_mib"`
+	DefaultMemoryMaxMiB int    `toml:"default_memory_max_mib"`
+	DefaultDiskBytes    int64  `toml:"default_disk_bytes"`
 }
 
 func Default() Config {
@@ -183,6 +189,9 @@ func Default() Config {
 			Enabled: true,
 			Backend: "ip6tables",
 		},
+		GuestControl: GuestControlConfig{
+			MemoryPort: 18084,
+		},
 		VMNetwork: VMNetworkConfig{
 			Subnet: "fd7a:115c:a1e0::/64",
 		},
@@ -205,12 +214,13 @@ func Default() Config {
 			ArchiveStoppedAfterSeconds: 30 * 24 * 60 * 60,
 		},
 		Firecracker: FirecrackerConfig{
-			BinaryPath:       "/usr/local/bin/firecracker",
-			BaseKernelPath:   "/var/lib/firedoze/images/vmlinux.bin",
-			BaseRootfsPath:   "/var/lib/firedoze/images/rootfs.ext4",
-			DefaultVCPUs:     1,
-			DefaultMemoryMiB: 128,
-			DefaultDiskBytes: 512 * 1024 * 1024,
+			BinaryPath:          "/usr/local/bin/firecracker",
+			BaseKernelPath:      "/var/lib/firedoze/images/vmlinux.bin",
+			BaseRootfsPath:      "/var/lib/firedoze/images/rootfs.ext4",
+			DefaultVCPUs:        1,
+			DefaultMemoryMinMiB: 256,
+			DefaultMemoryMaxMiB: 1024,
+			DefaultDiskBytes:    512 * 1024 * 1024,
 		},
 	}
 }
@@ -328,6 +338,9 @@ func (c Config) Validate() error {
 	if err := c.HostFirewall.Validate(); err != nil {
 		return err
 	}
+	if c.GuestControl.MemoryPort <= 0 || c.GuestControl.MemoryPort > 65535 {
+		return fmt.Errorf("guest_control.memory_port must be between 1 and 65535")
+	}
 	if ip, _, err := net.ParseCIDR(c.VMNetwork.Subnet); err != nil {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
 	} else if ip.To4() != nil {
@@ -383,8 +396,14 @@ func (c Config) Validate() error {
 	if c.Firecracker.DefaultVCPUs <= 0 {
 		return fmt.Errorf("firecracker.default_vcpus must be positive")
 	}
-	if c.Firecracker.DefaultMemoryMiB <= 0 {
-		return fmt.Errorf("firecracker.default_memory_mib must be positive")
+	if c.Firecracker.DefaultMemoryMinMiB <= 0 {
+		return fmt.Errorf("firecracker.default_memory_min_mib must be positive")
+	}
+	if c.Firecracker.DefaultMemoryMaxMiB <= 0 {
+		return fmt.Errorf("firecracker.default_memory_max_mib must be positive")
+	}
+	if c.Firecracker.DefaultMemoryMinMiB > c.Firecracker.DefaultMemoryMaxMiB {
+		return fmt.Errorf("firecracker.default_memory_min_mib must be less than or equal to firecracker.default_memory_max_mib")
 	}
 	if c.Firecracker.DefaultDiskBytes <= 0 {
 		return fmt.Errorf("firecracker.default_disk_bytes must be positive")

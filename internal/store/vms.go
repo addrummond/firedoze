@@ -19,7 +19,8 @@ type CreateVMParams struct {
 	Name                  string
 	PrivateIP             string
 	VCPUs                 int
-	MemoryMiB             int
+	MemoryMinMiB          int
+	MemoryMaxMiB          int
 	DiskBytes             int64
 	DefaultHTTPPort       int
 	IdleSleepAfterSeconds int
@@ -53,9 +54,9 @@ func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error)
 		return VM{}, fmt.Errorf("%w: route %q reserves VM name", ErrAlreadyExists, params.Name)
 	}
 	_, err = tx.ExecContext(ctx, `
-		insert into vms (name, state, private_ip, vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
-		values (?, 'stopped', ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
-	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
+		insert into vms (name, state, private_ip, vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
+		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
+	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMinMiB, params.MemoryMaxMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
 	if err != nil {
 		return VM{}, err
 	}
@@ -71,7 +72,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 
 func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]VM, error) {
 	query := `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 	`
 	args := []any{}
@@ -97,7 +98,7 @@ func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]V
 		var vm VM
 		var autoWake int
 		var publicHTTP int
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP); err != nil {
+		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP); err != nil {
 			return nil, err
 		}
 		vm.AutoWake = autoWake != 0
@@ -133,10 +134,30 @@ func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
 	var autoWake int
 	var publicHTTP int
 	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
+	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
+	if errors.Is(err, sql.ErrNoRows) {
+		return VM{}, ErrNotFound
+	}
+	if err != nil {
+		return VM{}, err
+	}
+	vm.AutoWake = autoWake != 0
+	vm.PublicHTTP = publicHTTP != 0
+	return vm, nil
+}
+
+func (s *Store) GetVMByPrivateIP(ctx context.Context, privateIP string) (VM, error) {
+	var vm VM
+	var autoWake int
+	var publicHTTP int
+	err := s.db.QueryRowContext(ctx, `
+		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		from vms
+		where private_ip = ?
+	`, privateIP).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}

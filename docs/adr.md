@@ -434,11 +434,16 @@ Only stopped VM disks are eligible for cold storage. Sleeping VMs are not moved 
 
 Users are trusted to size VMs sensibly.
 
-Per-VM memory, vCPU, and disk size are configurable.
+Per-VM memory range, vCPU count, and disk size are configurable. Memory is
+represented as a minimum and maximum; Firecracker boots at the minimum and uses
+virtio-mem for hotplug growth up to the maximum.
 
 No hard maximums are required in daemon config for v1.
 
-Firedoze exposes VM resource usage through the API and `firedoze vm usage`, but does not enforce resource limits or live memory reclamation.
+Firedoze exposes VM resource usage through the API and `firedoze vm usage`.
+Elastic memory is implemented with Firecracker virtio-mem plus a constrained
+guest hint path: the guest can report a desired target, but the host clamps that
+target to the VM's configured min/max and applies it through Firecracker.
 
 ## Caddy and ACME Assumptions
 

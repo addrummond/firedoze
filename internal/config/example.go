@@ -80,6 +80,10 @@ enabled = true
 # for now; future versions may add an nftables backend.
 backend = "ip6tables"
 
+[guest_control]
+# Host-side port used by guest utilities to send constrained memory hints.
+memory_port = 18084
+
 [vm_network]
 # Private IPv6 ULA range used for VM addresses. Change it if it overlaps with
 # another routed IPv6 range on your network.
@@ -117,7 +121,8 @@ base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_mib = 512
+default_memory_min_mib = 256
+default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 `, baseDomainComment, t.BaseDomain, t.WGAddress, endpointComment, t.Endpoint, t.VMSubnet)
 }

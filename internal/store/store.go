@@ -58,6 +58,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "vms", "idle_sleep_after_seconds", "integer not null default 0"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "vms", "memory_min_mib", "integer not null default 256"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "vms", "memory_max_mib", "integer not null default 1024"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "vms", "last_started_at", "text not null default ''"); err != nil {
 		return err
 	}
@@ -115,7 +121,8 @@ create table if not exists vms (
 	state text not null,
 	private_ip text,
 	vcpus integer not null,
-	memory_mib integer not null,
+	memory_min_mib integer not null,
+	memory_max_mib integer not null,
 	disk_bytes integer not null,
 	default_http_port integer not null,
 	idle_sleep_after_seconds integer not null default 0,

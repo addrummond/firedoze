@@ -50,7 +50,8 @@ func TestVMCreatePostsOptionsForEachName(t *testing.T) {
 	err := (app{client: testClient(t, handler), json: true}).vm([]string{
 		"create", "alpha", "beta",
 		"-vcpus", "2",
-		"-memory-mib", "1024",
+		"-memory-min-mib", "256",
+		"-memory-max-mib", "1024",
 		"-disk-bytes", "123456",
 		"-http-port", "3000",
 		"-idle-sleep-after", "600",
@@ -72,7 +73,8 @@ func TestVMCreatePostsOptionsForEachName(t *testing.T) {
 		}
 		if body["name"] != wantName ||
 			body["vcpus"] != float64(2) ||
-			body["memory_mib"] != float64(1024) ||
+			body["memory_min_mib"] != float64(256) ||
+			body["memory_max_mib"] != float64(1024) ||
 			body["disk_bytes"] != float64(123456) ||
 			body["default_http_port"] != float64(3000) ||
 			body["idle_sleep_after_seconds"] != float64(600) ||
@@ -191,7 +193,7 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		{"list"},
 		{"inspect", "snap"},
 		{"save", "snap", "demo"},
-		{"restore", "snap", "copy", "-vcpus", "2", "-memory-mib", "512", "-http-port", "3000", "-publish"},
+		{"restore", "snap", "copy", "-vcpus", "2", "-memory-min-mib", "128", "-memory-max-mib", "512", "-http-port", "3000", "-publish"},
 		{"export", "snap", outputPath},
 		{"import", "imported", inputPath},
 		{"delete", "snap"},
@@ -228,7 +230,8 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	}
 	if restoreBody["vm"] != "copy" ||
 		restoreBody["vcpus"] != float64(2) ||
-		restoreBody["memory_mib"] != float64(512) ||
+		restoreBody["memory_min_mib"] != float64(128) ||
+		restoreBody["memory_max_mib"] != float64(512) ||
 		restoreBody["default_http_port"] != float64(3000) ||
 		restoreBody["public_http"] != true {
 		t.Fatalf("restore body = %#v", restoreBody)
@@ -490,7 +493,7 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 			return nil
 		},
 	}
-	if err := a.up([]string{"demo", "-memory-mib", "256", "--", "-A"}); err != nil {
+	if err := a.up([]string{"demo", "-memory-min-mib", "128", "-memory-max-mib", "256", "--", "-A"}); err != nil {
 		t.Fatal(err)
 	}
 	got := requestKeys(requests)
@@ -502,7 +505,7 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 	if err := json.Unmarshal([]byte(requests[2].body), &createBody); err != nil {
 		t.Fatal(err)
 	}
-	if createBody["name"] != "demo" || createBody["memory_mib"] != float64(256) || createBody["public_http"] != true {
+	if createBody["name"] != "demo" || createBody["memory_min_mib"] != float64(128) || createBody["memory_max_mib"] != float64(256) || createBody["public_http"] != true {
 		t.Fatalf("up create body = %#v", createBody)
 	}
 	if waitedIP != "fd00::2" {

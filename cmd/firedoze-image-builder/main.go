@@ -1089,6 +1089,7 @@ func newGuestOverlay() *guestOverlay {
 			"etc/systemd/system/sockets.target.wants/ssh.socket":               "",
 			"etc/systemd/system/sysinit.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
 			"etc/systemd/system/sysinit.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-memd.service": "/etc/systemd/system/firedoze-memd.service",
 			"etc/systemd/system/multi-user.target.wants/firedoze-zram.service": "/etc/systemd/system/firedoze-zram.service",
 		},
 		skipPrefixes: []string{
@@ -1409,6 +1410,75 @@ nameserver 1.1.1.1
 nameserver 8.8.8.8
 RESOLV
 fi
+`,
+		},
+		{
+			path: "usr/local/sbin/firedoze-memd",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+host_ip=""
+memory_port="18084"
+for arg in $(cat /proc/cmdline 2>/dev/null || true); do
+  case "$arg" in
+    firedoze.host_ip=*) host_ip="${arg#firedoze.host_ip=}" ;;
+    firedoze.memory_port=*) memory_port="${arg#firedoze.memory_port=}" ;;
+  esac
+done
+
+if [ -z "$host_ip" ]; then
+  echo "firedoze-memd: missing firedoze.host_ip kernel arg" >&2
+  exit 1
+fi
+
+post_target() {
+  target="$1"
+  body="{\"target_mib\":$target}"
+  len="$(printf "%s" "$body" | wc -c)"
+  {
+    printf "POST /memory-hint HTTP/1.1\r\n"
+    printf "Host: firedoze-host\r\n"
+    printf "Content-Type: application/json\r\n"
+    printf "Content-Length: %s\r\n" "$len"
+    printf "Connection: close\r\n\r\n"
+    printf "%s" "$body"
+  } | /usr/bin/busybox nc "$host_ip" "$memory_port" >/dev/null 2>&1 || true
+}
+
+last_target=""
+spare_count=0
+while true; do
+  set -- $(awk '
+    $1 == "MemTotal:" { total = int($2 / 1024) }
+    $1 == "MemAvailable:" { available = int($2 / 1024) }
+    END { print total, available }
+  ' /proc/meminfo)
+  total="${1:-0}"
+  available="${2:-0}"
+  target=""
+
+  if [ "$total" -gt 0 ] && [ "$available" -gt 0 ]; then
+    if [ "$available" -lt $((total / 5)) ]; then
+      target=$((total + 128))
+      spare_count=0
+    elif [ "$available" -gt $((total / 2)) ]; then
+      spare_count=$((spare_count + 1))
+      if [ "$spare_count" -ge 12 ]; then
+        target=$((total - 128))
+        spare_count=0
+      fi
+    else
+      spare_count=0
+    fi
+  fi
+
+  if [ -n "$target" ] && [ "$target" -gt 0 ] && [ "$target" != "$last_target" ]; then
+    post_target "$target"
+    last_target="$target"
+  fi
+  sleep 5
+done
 `,
 		},
 		{
@@ -1742,6 +1812,25 @@ ExecStart=/usr/local/sbin/firedoze-zram
 ExecStop=/bin/sh -c 'swapoff /dev/zram0 >/dev/null 2>&1 || true; [ ! -e /sys/block/zram0/reset ] || echo 1 >/sys/block/zram0/reset'
 StandardOutput=journal+console
 StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+`,
+		},
+		{
+			path: "etc/systemd/system/firedoze-memd.service",
+			mode: 0o644,
+			data: `[Unit]
+Description=Firedoze guest memory hints
+After=firedoze-network.service
+Requires=firedoze-network.service
+
+[Service]
+ExecStart=/usr/local/sbin/firedoze-memd
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

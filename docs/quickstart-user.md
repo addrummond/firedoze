@@ -114,11 +114,14 @@ firedoze vm usage
 firedoze vm usage 'demo*'
 ```
 
+`MEMORY` is the configured min-max range. `HOTPLUG` shows how much extra
+virtio-mem memory is currently plugged/requested.
+
 Create one or more VMs (hidden from public web by default, not started):
 
 ```sh
 firedoze vm create demo
-firedoze vm create app1 app2 app3 -memory-mib 1024
+firedoze vm create app1 app2 app3 -memory-min-mib 256 -memory-max-mib 1024
 ```
 
 Start, reboot, sleep, stop, or delete VMs:
@@ -380,7 +383,7 @@ firedoze snapshot restore demo-base demo-copy
 Restore with larger resources:
 
 ```sh
-firedoze snapshot restore demo-base bigger-demo -memory-mib 2048 -vcpus 2
+firedoze snapshot restore demo-base bigger-demo -memory-min-mib 512 -memory-max-mib 2048 -vcpus 2
 ```
 
 Delete a snapshot:

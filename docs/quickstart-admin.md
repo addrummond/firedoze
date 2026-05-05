@@ -217,7 +217,8 @@ The main fields to check are:
 - `base_domain`: the wildcard DNS domain for VM URLs.
 - `wireguard.endpoint`: the public host and UDP port laptops will connect to.
 - `wireguard.peers`: one peer per laptop.
-- `firecracker.default_memory_mib`: the default VM memory size.
+- `firecracker.default_memory_min_mib` and `firecracker.default_memory_max_mib`:
+  the default elastic memory range.
 
 Each client requests access locally:
 
@@ -384,7 +385,7 @@ firedoze vm up demo
 Create several VMs with the same settings:
 
 ```sh
-firedoze vm create alice bob charlie -memory-mib 512 -disk-bytes 8589934592
+firedoze vm create alice bob charlie -memory-min-mib 256 -memory-max-mib 1024 -disk-bytes 8589934592
 ```
 
 Toggle public HTTPS access:
@@ -562,7 +563,7 @@ firedoze snapshot restore demo-base demo-copy
 Override clone settings while restoring:
 
 ```sh
-firedoze snapshot restore demo-base bigger-demo -memory-mib 2048 -vcpus 2 -disk-bytes 17179869184
+firedoze snapshot restore demo-base bigger-demo -memory-min-mib 512 -memory-max-mib 2048 -vcpus 2 -disk-bytes 17179869184
 ```
 
 Delete a snapshot and its files:
@@ -698,6 +699,9 @@ Use the client to inspect what Firedoze can currently see:
 firedoze vm usage
 ```
 
+The `MEMORY` column shows the configured min-max range. The `HOTPLUG` column
+shows currently plugged/requested virtio-mem memory for running VMs.
+
 ## Cold Storage For Stopped VMs
 
 Cold storage is optional. If configured, Firedoze periodically moves disks from VMs that have been stopped for long enough to a cheaper/slower directory. The VM stays in the normal metadata store and can still be listed, started, snapshotted, or deleted.
@@ -791,7 +795,8 @@ base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_mib = 512
+default_memory_min_mib = 256
+default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 ```
 

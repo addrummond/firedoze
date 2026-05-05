@@ -37,11 +37,12 @@ func (m *Manager) VMResourceUsage(ctx context.Context, name string) (model.VMRes
 
 func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMResourceUsage {
 	usage := model.VMResourceUsage{
-		Name:      vm.Name,
-		State:     vm.State,
-		VCPUs:     vm.VCPUs,
-		MemoryMiB: vm.MemoryMiB,
-		DiskBytes: vm.DiskBytes,
+		Name:         vm.Name,
+		State:        vm.State,
+		VCPUs:        vm.VCPUs,
+		MemoryMinMiB: vm.MemoryMinMiB,
+		MemoryMaxMiB: vm.MemoryMaxMiB,
+		DiskBytes:    vm.DiskBytes,
 	}
 	if diskPath, err := m.vmDiskPath(vm); err == nil {
 		if _, allocated, err := fileDiskUsage(diskPath); err == nil {
@@ -57,6 +58,19 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 	}
 
 	pid := proc.Command.Process.Pid
+	if vm.MemoryMaxMiB > vm.MemoryMinMiB {
+		status, err := firecrackerGetMemoryHotplug(ctx, proc.SocketPath)
+		if err != nil {
+			m.logger.Debug("read firecracker memory hotplug status", "vm", vm.Name, "error", err)
+		} else {
+			usage.MemoryHotplug = &model.MemoryHotplugUsage{
+				TotalMiB:     status.TotalSizeMiB,
+				RequestedMiB: status.RequestedSizeMiB,
+				PluggedMiB:   status.PluggedSizeMiB,
+				EffectiveMiB: vm.MemoryMinMiB + status.PluggedSizeMiB,
+			}
+		}
+	}
 	processUsage, err := readProcessResourceUsage(pid)
 	if err != nil {
 		m.logger.Debug("read firecracker process resource usage", "vm", vm.Name, "pid", pid, "error", err)

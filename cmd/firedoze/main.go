@@ -365,7 +365,7 @@ func (a app) vm(args []string) error {
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
+			return fmt.Errorf("%w\nusage: firedoze vm create <name> [name...] [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
 		}
 		return a.createVMs(params, names)
 	case "start", "stop":
@@ -482,13 +482,14 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tRSS\tCPU\tDISK")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tHOTPLUG\tRSS\tCPU\tDISK")
 	for _, vm := range out.VMs {
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
 			vm.Name,
 			vm.State,
 			vm.VCPUs,
-			formatMiB(int64(vm.MemoryMiB)),
+			displayMemoryRange(vm),
+			displayMemoryHotplug(vm),
 			displayProcessRSS(vm),
 			displayProcessCPU(vm),
 			displayDiskUsage(vm),
@@ -499,7 +500,8 @@ func (a app) vmUsage(args []string) error {
 
 type vmCreateParams struct {
 	VCPUs                 int
-	MemoryMiB             int
+	MemoryMinMiB          int
+	MemoryMaxMiB          int
 	DiskBytes             int64
 	DefaultHTTPPort       int
 	IdleSleepAfterSeconds int
@@ -512,7 +514,8 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	vcpus := flags.Int("vcpus", 0, "vCPUs")
-	memoryMiB := flags.Int("memory-mib", 0, "memory in MiB")
+	memoryMinMiB := flags.Int("memory-min-mib", 0, "minimum memory in MiB")
+	memoryMaxMiB := flags.Int("memory-max-mib", 0, "maximum memory in MiB")
 	diskBytes := flags.Int64("disk-bytes", 0, "disk size in bytes")
 	httpPort := flags.Int("http-port", 0, "default guest HTTP port")
 	idle := flags.Int("idle-sleep-after", 0, "idle sleep timeout in seconds")
@@ -526,9 +529,13 @@ func parseVMCreateArgs(command string, args []string) (vmCreateParams, []string,
 	if *autoWake && *noAutoWake {
 		return vmCreateParams{}, nil, errors.New("-auto-wake and -no-auto-wake cannot both be set")
 	}
+	if *memoryMinMiB != 0 && *memoryMaxMiB != 0 && *memoryMinMiB > *memoryMaxMiB {
+		return vmCreateParams{}, nil, errors.New("-memory-min-mib must be less than or equal to -memory-max-mib")
+	}
 	return vmCreateParams{
 		VCPUs:                 *vcpus,
-		MemoryMiB:             *memoryMiB,
+		MemoryMinMiB:          *memoryMinMiB,
+		MemoryMaxMiB:          *memoryMaxMiB,
 		DiskBytes:             *diskBytes,
 		DefaultHTTPPort:       *httpPort,
 		IdleSleepAfterSeconds: *idle,
@@ -574,7 +581,8 @@ func (a app) warmBaseImageMetadata() error {
 func (a app) createVM(params vmCreateParams, name string) (vmInfo, error) {
 	body := map[string]any{"name": name}
 	addInt(body, "vcpus", params.VCPUs)
-	addInt(body, "memory_mib", params.MemoryMiB)
+	addInt(body, "memory_min_mib", params.MemoryMinMiB)
+	addInt(body, "memory_max_mib", params.MemoryMaxMiB)
 	addInt64(body, "disk_bytes", params.DiskBytes)
 	addInt(body, "default_http_port", params.DefaultHTTPPort)
 	addInt(body, "idle_sleep_after_seconds", params.IdleSleepAfterSeconds)
@@ -718,7 +726,7 @@ func (a app) snapshot(args []string) error {
 	case "restore":
 		params, snapshotName, vmName, err := parseSnapshotRestoreArgs(args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
+			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
 		}
 		var out map[string]any
 		body := restoreSnapshotBody(params, vmName)
@@ -857,10 +865,10 @@ func (a app) up(args []string) error {
 	createArgs, sshArgs := splitUpArgs(args)
 	params, names, err := parseVMCreateArgs("firedoze vm up", createArgs)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm up <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]", err)
 	}
 	if len(names) != 1 {
-		return errors.New("usage: firedoze vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]")
+		return errors.New("usage: firedoze vm up <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]")
 	}
 	name := names[0]
 	publishOnUp := true
@@ -1699,6 +1707,23 @@ func addInt64(body map[string]any, key string, value int64) {
 	}
 }
 
+func displayMemoryRange(vm model.VMResourceUsage) string {
+	if vm.MemoryMinMiB == vm.MemoryMaxMiB {
+		return formatMiB(int64(vm.MemoryMaxMiB))
+	}
+	return fmt.Sprintf("%s-%s", formatMiB(int64(vm.MemoryMinMiB)), formatMiB(int64(vm.MemoryMaxMiB)))
+}
+
+func displayMemoryHotplug(vm model.VMResourceUsage) string {
+	if vm.MemoryHotplug == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%s/%s",
+		formatMiB(int64(vm.MemoryHotplug.PluggedMiB)),
+		formatMiB(int64(vm.MemoryHotplug.RequestedMiB)),
+	)
+}
+
 func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, error) {
 	params, names, err := parseVMCreateArgs("firedoze snapshot restore", args)
 	if err != nil {
@@ -1713,7 +1738,8 @@ func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, er
 func restoreSnapshotBody(params vmCreateParams, vmName string) map[string]any {
 	body := map[string]any{"vm": vmName}
 	addInt(body, "vcpus", params.VCPUs)
-	addInt(body, "memory_mib", params.MemoryMiB)
+	addInt(body, "memory_min_mib", params.MemoryMinMiB)
+	addInt(body, "memory_max_mib", params.MemoryMaxMiB)
 	addInt64(body, "disk_bytes", params.DiskBytes)
 	addInt(body, "default_http_port", params.DefaultHTTPPort)
 	addInt(body, "idle_sleep_after_seconds", params.IdleSleepAfterSeconds)
@@ -1858,8 +1884,8 @@ Commands:
   vm list [-names] [name-glob...]
   vm usage [name-glob...]
   vm inspect <name>
-  vm create <name> [name...] [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
-  vm up <name> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
+  vm create <name> [name...] [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
+  vm up <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
   vm start <name>
   vm reboot <name> [name...]
   vm sleep <name> [name...]
@@ -1871,7 +1897,7 @@ Commands:
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
-  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
+  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   snapshot export <snapshot> <file>
   snapshot import <snapshot> <file>
   snapshot delete <snapshot>

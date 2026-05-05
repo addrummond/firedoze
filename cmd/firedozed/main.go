@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -250,6 +251,22 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	guestServer := &http.Server{
+		Addr:    net.JoinHostPort("::", strconv.Itoa(cfg.GuestControl.MemoryPort)),
+		Handler: api.NewGuestServer(manager),
+	}
+	go func() {
+		logger.Info("guest memory control listening", "addr", guestServer.Addr)
+		if err := guestServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("guest memory control stopped", "error", err)
+		}
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), api.ShutdownTimeout)
+		defer cancel()
+		_ = guestServer.Shutdown(shutdownCtx)
+	}()
 
 	server := &http.Server{
 		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),

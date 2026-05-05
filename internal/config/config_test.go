@@ -171,7 +171,9 @@ func TestConfigValidateErrors(t *testing.T) {
 		{name: "firecracker kernel", mutate: func(c *Config) { c.Firecracker.BaseKernelPath = "" }, want: "firecracker.base_kernel_path"},
 		{name: "firecracker rootfs", mutate: func(c *Config) { c.Firecracker.BaseRootfsPath = "" }, want: "firecracker.base_rootfs_path"},
 		{name: "firecracker vcpus", mutate: func(c *Config) { c.Firecracker.DefaultVCPUs = 0 }, want: "firecracker.default_vcpus"},
-		{name: "firecracker memory", mutate: func(c *Config) { c.Firecracker.DefaultMemoryMiB = 0 }, want: "firecracker.default_memory_mib"},
+		{name: "firecracker memory min", mutate: func(c *Config) { c.Firecracker.DefaultMemoryMinMiB = 0 }, want: "firecracker.default_memory_min_mib"},
+		{name: "firecracker memory max", mutate: func(c *Config) { c.Firecracker.DefaultMemoryMaxMiB = 0 }, want: "firecracker.default_memory_max_mib"},
+		{name: "firecracker memory range", mutate: func(c *Config) { c.Firecracker.DefaultMemoryMinMiB = c.Firecracker.DefaultMemoryMaxMiB + 1 }, want: "firecracker.default_memory_min_mib"},
 		{name: "firecracker disk", mutate: func(c *Config) { c.Firecracker.DefaultDiskBytes = 0 }, want: "firecracker.default_disk_bytes"},
 	}
 	for _, tt := range tests {
@@ -238,7 +240,8 @@ binary_path = "/usr/local/bin/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_mib = 512
+default_memory_min_mib = 256
+default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -295,7 +298,8 @@ binary_path = "/usr/local/bin/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_mib = 512
+default_memory_min_mib = 256
+default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 `), 0o644); err != nil {
 		t.Fatal(err)

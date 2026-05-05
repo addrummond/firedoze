@@ -36,7 +36,7 @@ func TestListVMsMatching(t *testing.T) {
 	}
 
 	for _, name := range []string{"alice-one", "alice-two", "bob-one", "literal_%"} {
-		if _, err := st.CreateVM(ctx, CreateVMParams{Name: name, PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+		if _, err := st.CreateVM(ctx, CreateVMParams{Name: name, PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,7 +70,7 @@ func TestSetVMStateAllowsLost(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(ctx, "demo", "lost"); err != nil {
@@ -95,7 +95,7 @@ func TestVMStoppedAtTracksStoppedState(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	vm, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	vm, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ import (
 
 func TestAnswersVMName(t *testing.T) {
 	ctx, st := newTestStore(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestAnswersVMName(t *testing.T) {
 
 func TestAnswersAnyButNotA(t *testing.T) {
 	ctx, st := newTestStore(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	server := NewServer(config.DNSConfig{Domain: "firedoze", TTLSeconds: 30}, st, nil)
@@ -91,7 +91,7 @@ func TestUnknownVMNameIsNXDOMAIN(t *testing.T) {
 
 func TestVMNameWithInvalidPrivateIPIsNXDOMAIN(t *testing.T) {
 	ctx, st := newTestStore(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	server := NewServer(config.DNSConfig{Domain: "firedoze", TTLSeconds: 30}, st, nil)
@@ -161,7 +161,7 @@ func TestForwardFailure(t *testing.T) {
 
 func TestRunServesAndShutsDown(t *testing.T) {
 	ctx, st := newTestStore(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	port := freeDNSPort(t)

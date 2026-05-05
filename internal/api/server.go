@@ -156,6 +156,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"vm_network": map[string]any{
 			"subnet": s.cfg.VMNetwork.Subnet,
 		},
+		"guest_control": map[string]any{
+			"memory_port": s.cfg.GuestControl.MemoryPort,
+		},
 		"dns": map[string]any{
 			"enabled":          s.cfg.DNS.Enabled,
 			"domain":           s.cfg.DNS.Domain,
@@ -176,13 +179,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"archive_stopped_after_seconds": s.cfg.ColdStorage.ArchiveStoppedAfterSeconds,
 		},
 		"firecracker": map[string]any{
-			"binary_path":        s.cfg.Firecracker.BinaryPath,
-			"base_kernel_path":   s.cfg.Firecracker.BaseKernelPath,
-			"base_initrd_path":   s.cfg.Firecracker.BaseInitrdPath,
-			"base_rootfs_path":   s.cfg.Firecracker.BaseRootfsPath,
-			"default_vcpus":      s.cfg.Firecracker.DefaultVCPUs,
-			"default_memory_mib": s.cfg.Firecracker.DefaultMemoryMiB,
-			"default_disk_bytes": s.cfg.Firecracker.DefaultDiskBytes,
+			"binary_path":            s.cfg.Firecracker.BinaryPath,
+			"base_kernel_path":       s.cfg.Firecracker.BaseKernelPath,
+			"base_initrd_path":       s.cfg.Firecracker.BaseInitrdPath,
+			"base_rootfs_path":       s.cfg.Firecracker.BaseRootfsPath,
+			"default_vcpus":          s.cfg.Firecracker.DefaultVCPUs,
+			"default_memory_min_mib": s.cfg.Firecracker.DefaultMemoryMinMiB,
+			"default_memory_max_mib": s.cfg.Firecracker.DefaultMemoryMaxMiB,
+			"default_disk_bytes":     s.cfg.Firecracker.DefaultDiskBytes,
 		},
 	})
 }
@@ -239,7 +243,8 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                  string `json:"name"`
 		VCPUs                 int    `json:"vcpus"`
-		MemoryMiB             int    `json:"memory_mib"`
+		MemoryMinMiB          int    `json:"memory_min_mib"`
+		MemoryMaxMiB          int    `json:"memory_max_mib"`
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
@@ -257,7 +262,8 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	vm, err := s.manager.CreateVM(r.Context(), store.CreateVMParams{
 		Name:                  req.Name,
 		VCPUs:                 req.VCPUs,
-		MemoryMiB:             req.MemoryMiB,
+		MemoryMinMiB:          req.MemoryMinMiB,
+		MemoryMaxMiB:          req.MemoryMaxMiB,
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
@@ -550,7 +556,8 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		VMName                string `json:"vm_name"`
 		VM                    string `json:"vm"`
 		VCPUs                 int    `json:"vcpus"`
-		MemoryMiB             int    `json:"memory_mib"`
+		MemoryMinMiB          int    `json:"memory_min_mib"`
+		MemoryMaxMiB          int    `json:"memory_max_mib"`
 		DiskBytes             int64  `json:"disk_bytes"`
 		DefaultHTTPPort       int    `json:"default_http_port"`
 		IdleSleepAfterSeconds int    `json:"idle_sleep_after_seconds"`
@@ -575,7 +582,8 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	vm, err := s.manager.RestoreSnapshot(r.Context(), snapshotName, store.CreateVMParams{
 		Name:                  req.VMName,
 		VCPUs:                 req.VCPUs,
-		MemoryMiB:             req.MemoryMiB,
+		MemoryMinMiB:          req.MemoryMinMiB,
+		MemoryMaxMiB:          req.MemoryMaxMiB,
 		DiskBytes:             req.DiskBytes,
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,

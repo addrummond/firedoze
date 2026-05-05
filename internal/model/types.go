@@ -49,7 +49,8 @@ type VM struct {
 	State                 string   `json:"state"`
 	PrivateIP             string   `json:"private_ip,omitempty"`
 	VCPUs                 int      `json:"vcpus"`
-	MemoryMiB             int      `json:"memory_mib"`
+	MemoryMinMiB          int      `json:"memory_min_mib"`
+	MemoryMaxMiB          int      `json:"memory_max_mib"`
 	DiskBytes             int64    `json:"disk_bytes"`
 	DefaultHTTPPort       int      `json:"default_http_port"`
 	IdleSleepAfterSeconds int      `json:"idle_sleep_after_seconds,omitempty"`
@@ -86,10 +87,19 @@ type VMResourceUsage struct {
 	Name               string                `json:"name"`
 	State              string                `json:"state"`
 	VCPUs              int                   `json:"vcpus"`
-	MemoryMiB          int                   `json:"memory_mib"`
+	MemoryMinMiB       int                   `json:"memory_min_mib"`
+	MemoryMaxMiB       int                   `json:"memory_max_mib"`
 	DiskBytes          int64                 `json:"disk_bytes"`
 	DiskAllocatedBytes int64                 `json:"disk_allocated_bytes,omitempty"`
+	MemoryHotplug      *MemoryHotplugUsage   `json:"memory_hotplug,omitempty"`
 	Process            *ProcessResourceUsage `json:"process,omitempty"`
+}
+
+type MemoryHotplugUsage struct {
+	TotalMiB     int `json:"total_mib"`
+	RequestedMiB int `json:"requested_mib"`
+	PluggedMiB   int `json:"plugged_mib"`
+	EffectiveMiB int `json:"effective_mib"`
 }
 
 type ProcessResourceUsage struct {

@@ -79,7 +79,7 @@ func TestCreateVMDefaultsAndBaseImageMetadata(t *testing.T) {
 	if vm.PrivateIP != "fd00::3" {
 		t.Fatalf("PrivateIP = %q, want fd00::3", vm.PrivateIP)
 	}
-	if vm.VCPUs != m.cfg.Firecracker.DefaultVCPUs || vm.MemoryMiB != m.cfg.Firecracker.DefaultMemoryMiB || vm.DiskBytes != m.cfg.Firecracker.DefaultDiskBytes {
+	if vm.VCPUs != m.cfg.Firecracker.DefaultVCPUs || vm.MemoryMinMiB != m.cfg.Firecracker.DefaultMemoryMinMiB || vm.MemoryMaxMiB != m.cfg.Firecracker.DefaultMemoryMaxMiB || vm.DiskBytes != m.cfg.Firecracker.DefaultDiskBytes {
 		t.Fatalf("VM defaults = %#v", vm)
 	}
 	if vm.DefaultHTTPPort != m.cfg.DefaultHTTPPort {
@@ -128,7 +128,7 @@ func TestCreateVMValidationAndExplicitAutoWake(t *testing.T) {
 func TestCreateAndRestoreRejectRouteNameConflict(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "owner", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "owner", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "alias", VMName: "owner", Port: 8080}); err != nil {
@@ -204,7 +204,7 @@ func TestNextPrivateIPSkipsUsedAndDetectsExhaustion(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
 	m.cfg.VMNetwork.Subnet = "fd00::/125"
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "first", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "first", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	ip, err := m.nextPrivateIP(ctx)
@@ -231,7 +231,7 @@ func TestNextPrivateIPSkipsUsedAndDetectsExhaustion(t *testing.T) {
 func TestUpdateVMValidation(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	badPort := 70000
@@ -280,11 +280,11 @@ func TestRestoreSnapshotCopiesDiskAndMetadata(t *testing.T) {
 		return nil
 	}
 
-	vm, err := m.RestoreSnapshot(ctx, "snap", store.CreateVMParams{Name: "copy", MemoryMiB: 256, PublicHTTP: true})
+	vm, err := m.RestoreSnapshot(ctx, "snap", store.CreateVMParams{Name: "copy", MemoryMinMiB: 256, MemoryMaxMiB: 256, PublicHTTP: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vm.Name != "copy" || vm.MemoryMiB != 256 || !vm.AutoWake || !vm.PublicHTTP || vm.BaseImageID != "base-id" || vm.KernelID != "kernel-id" || string(vm.BaseImageMetadata) != `{"image":"metadata"}` {
+	if vm.Name != "copy" || vm.MemoryMinMiB != 256 || vm.MemoryMaxMiB != 256 || !vm.AutoWake || !vm.PublicHTTP || vm.BaseImageID != "base-id" || vm.KernelID != "kernel-id" || string(vm.BaseImageMetadata) != `{"image":"metadata"}` {
 		t.Fatalf("restored VM = %#v", vm)
 	}
 	data, err := os.ReadFile(m.layout("copy").diskPath)
@@ -317,10 +317,10 @@ func TestRestoreSnapshotValidation(t *testing.T) {
 func TestManagerListAndGetWrappers(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "alpha", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "alpha", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "beta", PrivateIP: "fd00::5", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "beta", PrivateIP: "fd00::5", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateSnapshot(ctx, store.CreateSnapshotParams{Name: "snap", DiskPath: "/disk"}); err != nil {
@@ -367,10 +367,10 @@ func TestManagerListAndGetWrappers(t *testing.T) {
 func TestReconcileStartupMarksRunningVMsLostAndIgnoresCleanupErrors(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "stopped", PrivateIP: "fd00::3", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "stopped", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "running", PrivateIP: "fd00::5", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "running", PrivateIP: "fd00::5", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(ctx, "running", "running"); err != nil {
@@ -559,10 +559,10 @@ func allocatedBlocks(t *testing.T, info os.FileInfo) int64 {
 func createSnapshotTestVM(t *testing.T, m *Manager, st *store.Store, name string, state string) store.VM {
 	t.Helper()
 	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
-		Name:            name,
-		PrivateIP:       "fd7a:115c:a1e0::3",
-		VCPUs:           1,
-		MemoryMiB:       128,
+		Name:         name,
+		PrivateIP:    "fd7a:115c:a1e0::3",
+		VCPUs:        1,
+		MemoryMinMiB: 128, MemoryMaxMiB: 128,
 		DiskBytes:       1024,
 		DefaultHTTPPort: 8080,
 		BaseImageID:     "base",
@@ -1451,7 +1451,7 @@ func TestStartAndRebootEarlyErrorPaths(t *testing.T) {
 		t.Fatalf("RebootVM missing error = %v, want ErrNotFound", err)
 	}
 
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "badip", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "badip", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := m.StartVM(ctx, "badip")
@@ -1459,7 +1459,7 @@ func TestStartAndRebootEarlyErrorPaths(t *testing.T) {
 		t.Fatalf("StartVM bad IP error = %v", err)
 	}
 
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "sleepy", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "sleepy", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetVMState(ctx, "sleepy", "sleeping"); err != nil {

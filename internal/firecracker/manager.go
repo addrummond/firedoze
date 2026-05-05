@@ -1,6 +1,7 @@
 package firecracker
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"firedoze/internal/config"
+	"firedoze/internal/model"
 	"firedoze/internal/store"
 
 	fcclient "github.com/firecracker-microvm/firecracker-go-sdk/client"
@@ -138,8 +140,17 @@ func (m *Manager) CreateVM(ctx context.Context, params store.CreateVMParams) (st
 	if params.VCPUs == 0 {
 		params.VCPUs = m.cfg.Firecracker.DefaultVCPUs
 	}
-	if params.MemoryMiB == 0 {
-		params.MemoryMiB = m.cfg.Firecracker.DefaultMemoryMiB
+	if params.MemoryMinMiB == 0 {
+		params.MemoryMinMiB = m.cfg.Firecracker.DefaultMemoryMinMiB
+	}
+	if params.MemoryMaxMiB == 0 {
+		params.MemoryMaxMiB = m.cfg.Firecracker.DefaultMemoryMaxMiB
+	}
+	if params.MemoryMinMiB > params.MemoryMaxMiB {
+		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
+	}
+	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+		return store.VM{}, err
 	}
 	if params.DiskBytes == 0 {
 		params.DiskBytes = m.cfg.Firecracker.DefaultDiskBytes
@@ -216,8 +227,17 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 	if params.VCPUs == 0 {
 		params.VCPUs = m.cfg.Firecracker.DefaultVCPUs
 	}
-	if params.MemoryMiB == 0 {
-		params.MemoryMiB = m.cfg.Firecracker.DefaultMemoryMiB
+	if params.MemoryMinMiB == 0 {
+		params.MemoryMinMiB = m.cfg.Firecracker.DefaultMemoryMinMiB
+	}
+	if params.MemoryMaxMiB == 0 {
+		params.MemoryMaxMiB = m.cfg.Firecracker.DefaultMemoryMaxMiB
+	}
+	if params.MemoryMinMiB > params.MemoryMaxMiB {
+		return store.VM{}, errors.New("memory_min_mib must be less than or equal to memory_max_mib")
+	}
+	if err := validateMemoryHotplugRange(params.MemoryMinMiB, params.MemoryMaxMiB); err != nil {
+		return store.VM{}, err
 	}
 	if params.DefaultHTTPPort == 0 {
 		params.DefaultHTTPPort = m.cfg.DefaultHTTPPort
@@ -293,6 +313,53 @@ func (m *Manager) UpdateVM(ctx context.Context, name string, params store.Update
 		return store.VM{}, errors.New("idle_sleep_after_seconds cannot be negative")
 	}
 	return m.store.UpdateVM(ctx, name, params)
+}
+
+func (m *Manager) SetVMMemoryTargetByPrivateIP(ctx context.Context, privateIP string, targetMiB int) (model.MemoryHotplugUsage, error) {
+	vm, err := m.store.GetVMByPrivateIP(ctx, privateIP)
+	if err != nil {
+		return model.MemoryHotplugUsage{}, err
+	}
+	if targetMiB < vm.MemoryMinMiB {
+		targetMiB = vm.MemoryMinMiB
+	}
+	if targetMiB > vm.MemoryMaxMiB {
+		targetMiB = vm.MemoryMaxMiB
+	}
+	requestedMiB := targetMiB - vm.MemoryMinMiB
+	if requestedMiB < 0 {
+		requestedMiB = 0
+	}
+	if requestedMiB > 0 {
+		requestedMiB = ((requestedMiB + 127) / 128) * 128
+	}
+	if maxRequested := vm.MemoryMaxMiB - vm.MemoryMinMiB; requestedMiB > maxRequested {
+		requestedMiB = maxRequested
+	}
+	m.mu.Lock()
+	proc, running := m.running[vm.Name]
+	m.mu.Unlock()
+	if !running || proc == nil {
+		return model.MemoryHotplugUsage{}, ErrNotRunning
+	}
+	if vm.MemoryMaxMiB == vm.MemoryMinMiB {
+		return model.MemoryHotplugUsage{
+			EffectiveMiB: vm.MemoryMinMiB,
+		}, nil
+	}
+	if err := firecrackerPatchMemoryHotplug(ctx, proc.SocketPath, requestedMiB); err != nil {
+		return model.MemoryHotplugUsage{}, err
+	}
+	status, err := firecrackerGetMemoryHotplug(ctx, proc.SocketPath)
+	if err != nil {
+		return model.MemoryHotplugUsage{}, err
+	}
+	return model.MemoryHotplugUsage{
+		TotalMiB:     status.TotalSizeMiB,
+		RequestedMiB: status.RequestedSizeMiB,
+		PluggedMiB:   status.PluggedSizeMiB,
+		EffectiveMiB: vm.MemoryMinMiB + status.PluggedSizeMiB,
+	}, nil
 }
 
 type BaseImageMetadata struct {
@@ -622,7 +689,7 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 	if err != nil {
 		return store.VM{}, fmt.Errorf("prepare network: %w", err)
 	}
-	if err := writeFirecrackerConfig(layout.configPath, firecrackerConfig{
+	fcConfig := firecrackerConfig{
 		BootSource: bootSource{
 			KernelImagePath: m.cfg.Firecracker.BaseKernelPath,
 			InitrdPath:      m.cfg.Firecracker.BaseInitrdPath,
@@ -641,10 +708,14 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 		}},
 		MachineConfig: machineConfig{
 			VCPUCount:  vm.VCPUs,
-			MemSizeMiB: vm.MemoryMiB,
+			MemSizeMiB: vm.MemoryMinMiB,
 			SMT:        false,
 		},
-	}); err != nil {
+	}
+	if hotplug := memoryHotplugConfigForVM(vm); hotplug != nil {
+		fcConfig.MemoryHotplug = hotplug
+	}
+	if err := writeFirecrackerConfig(layout.configPath, fcConfig); err != nil {
 		return store.VM{}, err
 	}
 
@@ -695,9 +766,10 @@ func (m *Manager) RebootVM(ctx context.Context, name string) (store.VM, error) {
 }
 
 func (m *Manager) bootArgs(netdev preparedNetwork) string {
-	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw quiet loglevel=3 systemd.show_status=false rd.systemd.show_status=false"
+	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw memhp_default_state=online_movable quiet loglevel=3 systemd.show_status=false rd.systemd.show_status=false"
 	args += " firedoze.guest_ip=" + netdev.guestIP.String()
 	args += " firedoze.host_ip=" + netdev.hostIP.String()
+	args += fmt.Sprintf(" firedoze.memory_port=%d", m.cfg.GuestControl.MemoryPort)
 	if m.cfg.DNS.Enabled {
 		args += " firedoze.dns_ip=" + m.cfg.DNS.ListenIP
 		args += " firedoze.dns_domain=" + m.cfg.DNS.Domain
@@ -1577,6 +1649,64 @@ func firecrackerSetVMState(ctx context.Context, socketPath string, state string)
 	return nil
 }
 
+type memoryHotplugSizeUpdate struct {
+	RequestedSizeMiB int `json:"requested_size_mib"`
+}
+
+type memoryHotplugStatus struct {
+	TotalSizeMiB     int `json:"total_size_mib"`
+	SlotSizeMiB      int `json:"slot_size_mib"`
+	BlockSizeMiB     int `json:"block_size_mib"`
+	PluggedSizeMiB   int `json:"plugged_size_mib"`
+	RequestedSizeMiB int `json:"requested_size_mib"`
+}
+
+func firecrackerPatchMemoryHotplug(ctx context.Context, socketPath string, requestedMiB int) error {
+	return firecrackerREST(ctx, socketPath, http.MethodPatch, "/hotplug/memory", memoryHotplugSizeUpdate{RequestedSizeMiB: requestedMiB}, nil)
+}
+
+func firecrackerGetMemoryHotplug(ctx context.Context, socketPath string) (memoryHotplugStatus, error) {
+	var status memoryHotplugStatus
+	err := firecrackerREST(ctx, socketPath, http.MethodGet, "/hotplug/memory", nil, &status)
+	return status, err
+}
+
+func firecrackerREST(ctx context.Context, socketPath string, method string, path string, body any, out any) error {
+	var reqBody io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reqBody = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, reqBody)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("firecracker %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 func firecrackerCreateSnapshot(ctx context.Context, socketPath string, statePath string, memPath string) error {
 	params := fcops.NewCreateSnapshotParamsWithContext(ctx)
 	params.SetBody(&fcmodels.SnapshotCreateParams{
@@ -1619,10 +1749,11 @@ func stringPtr(value string) *string {
 }
 
 type firecrackerConfig struct {
-	BootSource        bootSource         `json:"boot-source"`
-	Drives            []drive            `json:"drives"`
-	NetworkInterfaces []networkInterface `json:"network-interfaces,omitempty"`
-	MachineConfig     machineConfig      `json:"machine-config"`
+	BootSource        bootSource           `json:"boot-source"`
+	Drives            []drive              `json:"drives"`
+	NetworkInterfaces []networkInterface   `json:"network-interfaces,omitempty"`
+	MachineConfig     machineConfig        `json:"machine-config"`
+	MemoryHotplug     *memoryHotplugConfig `json:"memory-hotplug,omitempty"`
 }
 
 type bootSource struct {
@@ -1648,4 +1779,35 @@ type machineConfig struct {
 	VCPUCount  int  `json:"vcpu_count"`
 	MemSizeMiB int  `json:"mem_size_mib"`
 	SMT        bool `json:"smt"`
+}
+
+type memoryHotplugConfig struct {
+	TotalSizeMiB int `json:"total_size_mib"`
+	SlotSizeMiB  int `json:"slot_size_mib,omitempty"`
+	BlockSizeMiB int `json:"block_size_mib,omitempty"`
+}
+
+func memoryHotplugConfigForVM(vm store.VM) *memoryHotplugConfig {
+	if vm.MemoryMaxMiB <= vm.MemoryMinMiB {
+		return nil
+	}
+	return &memoryHotplugConfig{
+		TotalSizeMiB: vm.MemoryMaxMiB - vm.MemoryMinMiB,
+		SlotSizeMiB:  128,
+		BlockSizeMiB: 2,
+	}
+}
+
+func validateMemoryHotplugRange(minMiB int, maxMiB int) error {
+	if minMiB <= 0 || maxMiB <= 0 {
+		return errors.New("memory_min_mib and memory_max_mib must be positive")
+	}
+	delta := maxMiB - minMiB
+	if delta == 0 {
+		return nil
+	}
+	if delta < 128 || delta%128 != 0 {
+		return errors.New("memory_max_mib - memory_min_mib must be zero or a positive multiple of 128")
+	}
+	return nil
 }
