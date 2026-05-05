@@ -26,7 +26,7 @@ func (m *fakeGuestMemoryManager) RecordVMMemoryReportByPrivateIP(_ context.Conte
 func TestGuestMemoryHintAcceptsReportWithoutTarget(t *testing.T) {
 	manager := &fakeGuestMemoryManager{}
 	handler := NewGuestServer(manager)
-	req := httptest.NewRequest(http.MethodPost, "/memory-hint", strings.NewReader(`{"total_mib":512,"available_mib":384,"swap_total_mib":256,"swap_free_mib":200,"load1":0.25}`))
+	req := httptest.NewRequest(http.MethodPost, "/memory-hint", strings.NewReader(`{"total_mib":512,"available_mib":384,"swap_total_mib":256,"swap_free_mib":200,"root_disk_total_bytes":4294967296,"root_disk_free_bytes":3221225472,"load1":0.25}`))
 	req.RemoteAddr = "[fd00::3]:1234"
 	rec := httptest.NewRecorder()
 
@@ -39,7 +39,7 @@ func TestGuestMemoryHintAcceptsReportWithoutTarget(t *testing.T) {
 	if manager.target != nil {
 		t.Fatalf("target = %#v, want nil", manager.target)
 	}
-	if manager.report.TotalMiB != 512 || manager.report.AvailableMiB != 384 || manager.report.Load1 != 0.25 {
+	if manager.report.TotalMiB != 512 || manager.report.AvailableMiB != 384 || manager.report.Load1 != 0.25 || manager.report.RootDiskTotalBytes != 4294967296 || manager.report.RootDiskFreeBytes != 3221225472 {
 		t.Fatalf("report = %#v", manager.report)
 	}
 }

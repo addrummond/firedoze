@@ -1439,7 +1439,7 @@ post_report() {
   if [ -n "$target" ]; then
     target_json=",\"target_mib\":$target"
   fi
-  body="{\"total_mib\":$total,\"available_mib\":$available,\"free_mib\":$free,\"buffers_mib\":$buffers,\"cached_mib\":$cached,\"swap_total_mib\":$swap_total,\"swap_free_mib\":$swap_free,\"load1\":$load$target_json}"
+  body="{\"total_mib\":$total,\"available_mib\":$available,\"free_mib\":$free,\"buffers_mib\":$buffers,\"cached_mib\":$cached,\"swap_total_mib\":$swap_total,\"swap_free_mib\":$swap_free,\"root_disk_total_bytes\":$root_disk_total_bytes,\"root_disk_free_bytes\":$root_disk_free_bytes,\"load1\":$load$target_json}"
   len="$(printf "%s" "$body" | wc -c)"
   {
     printf "POST /memory-hint HTTP/1.1\r\n"
@@ -1472,6 +1472,9 @@ while true; do
   swap_total="${6:-0}"
   swap_free="${7:-0}"
   load1="$(cut -d ' ' -f 1 /proc/loadavg 2>/dev/null || printf 0)"
+  set -- $(df -kP / 2>/dev/null | awk 'NR == 2 { print $2, $4 }')
+  root_disk_total_bytes=$((${1:-0} * 1024))
+  root_disk_free_bytes=$((${2:-0} * 1024))
   target=""
 
   if [ "$total" -gt 0 ] && [ "$available" -gt 0 ]; then

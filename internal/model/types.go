@@ -104,18 +104,20 @@ type MemoryHotplugUsage struct {
 }
 
 type GuestMemoryReport struct {
-	ReportedAt    string  `json:"reported_at,omitempty"`
-	TotalMiB      int     `json:"total_mib,omitempty"`
-	AvailableMiB  int     `json:"available_mib,omitempty"`
-	FreeMiB       int     `json:"free_mib,omitempty"`
-	BuffersMiB    int     `json:"buffers_mib,omitempty"`
-	CachedMiB     int     `json:"cached_mib,omitempty"`
-	SwapTotalMiB  int     `json:"swap_total_mib,omitempty"`
-	SwapFreeMiB   int     `json:"swap_free_mib,omitempty"`
-	Load1         float64 `json:"load1,omitempty"`
-	Load5         float64 `json:"load5,omitempty"`
-	Load15        float64 `json:"load15,omitempty"`
-	LastTargetMiB int     `json:"last_target_mib,omitempty"`
+	ReportedAt         string  `json:"reported_at,omitempty"`
+	TotalMiB           int     `json:"total_mib,omitempty"`
+	AvailableMiB       int     `json:"available_mib,omitempty"`
+	FreeMiB            int     `json:"free_mib,omitempty"`
+	BuffersMiB         int     `json:"buffers_mib,omitempty"`
+	CachedMiB          int     `json:"cached_mib,omitempty"`
+	SwapTotalMiB       int     `json:"swap_total_mib,omitempty"`
+	SwapFreeMiB        int     `json:"swap_free_mib,omitempty"`
+	RootDiskTotalBytes uint64  `json:"root_disk_total_bytes,omitempty"`
+	RootDiskFreeBytes  uint64  `json:"root_disk_free_bytes,omitempty"`
+	Load1              float64 `json:"load1,omitempty"`
+	Load5              float64 `json:"load5,omitempty"`
+	Load15             float64 `json:"load15,omitempty"`
+	LastTargetMiB      int     `json:"last_target_mib,omitempty"`
 }
 
 type ProcessResourceUsage struct {

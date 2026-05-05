@@ -700,7 +700,9 @@ firedoze vm usage
 ```
 
 The `MEMORY` column shows the configured min-max range. The `HOTPLUG` column
-shows currently plugged/requested virtio-mem memory for running VMs.
+shows currently plugged/requested virtio-mem memory for running VMs. `GUEST DISK
+FREE/TOTAL` is reported from inside the VM and reflects usable guest filesystem
+space, not host-side image allocation.
 
 ## Cold Storage For Stopped VMs
 

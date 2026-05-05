@@ -38,17 +38,19 @@ func (s *GuestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *GuestServer) handleMemoryHint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TargetMiB    *int    `json:"target_mib,omitempty"`
-		TotalMiB     int     `json:"total_mib,omitempty"`
-		AvailableMiB int     `json:"available_mib,omitempty"`
-		FreeMiB      int     `json:"free_mib,omitempty"`
-		BuffersMiB   int     `json:"buffers_mib,omitempty"`
-		CachedMiB    int     `json:"cached_mib,omitempty"`
-		SwapTotalMiB int     `json:"swap_total_mib,omitempty"`
-		SwapFreeMiB  int     `json:"swap_free_mib,omitempty"`
-		Load1        float64 `json:"load1,omitempty"`
-		Load5        float64 `json:"load5,omitempty"`
-		Load15       float64 `json:"load15,omitempty"`
+		TargetMiB          *int    `json:"target_mib,omitempty"`
+		TotalMiB           int     `json:"total_mib,omitempty"`
+		AvailableMiB       int     `json:"available_mib,omitempty"`
+		FreeMiB            int     `json:"free_mib,omitempty"`
+		BuffersMiB         int     `json:"buffers_mib,omitempty"`
+		CachedMiB          int     `json:"cached_mib,omitempty"`
+		SwapTotalMiB       int     `json:"swap_total_mib,omitempty"`
+		SwapFreeMiB        int     `json:"swap_free_mib,omitempty"`
+		RootDiskTotalBytes uint64  `json:"root_disk_total_bytes,omitempty"`
+		RootDiskFreeBytes  uint64  `json:"root_disk_free_bytes,omitempty"`
+		Load1              float64 `json:"load1,omitempty"`
+		Load5              float64 `json:"load5,omitempty"`
+		Load15             float64 `json:"load15,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -65,16 +67,18 @@ func (s *GuestServer) handleMemoryHint(w http.ResponseWriter, r *http.Request) {
 	}
 	remoteIP = strings.Trim(remoteIP, "[]")
 	report := model.GuestMemoryReport{
-		TotalMiB:     req.TotalMiB,
-		AvailableMiB: req.AvailableMiB,
-		FreeMiB:      req.FreeMiB,
-		BuffersMiB:   req.BuffersMiB,
-		CachedMiB:    req.CachedMiB,
-		SwapTotalMiB: req.SwapTotalMiB,
-		SwapFreeMiB:  req.SwapFreeMiB,
-		Load1:        req.Load1,
-		Load5:        req.Load5,
-		Load15:       req.Load15,
+		TotalMiB:           req.TotalMiB,
+		AvailableMiB:       req.AvailableMiB,
+		FreeMiB:            req.FreeMiB,
+		BuffersMiB:         req.BuffersMiB,
+		CachedMiB:          req.CachedMiB,
+		SwapTotalMiB:       req.SwapTotalMiB,
+		SwapFreeMiB:        req.SwapFreeMiB,
+		RootDiskTotalBytes: req.RootDiskTotalBytes,
+		RootDiskFreeBytes:  req.RootDiskFreeBytes,
+		Load1:              req.Load1,
+		Load5:              req.Load5,
+		Load15:             req.Load15,
 	}
 	opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

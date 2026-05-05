@@ -482,7 +482,7 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM AVAIL/TOTAL\tGUEST SWAP FREE/TOTAL\tLOAD\tHOTPLUG\tRSS\tCPU\tDISK USED/SIZE")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM AVAIL/TOTAL\tGUEST SWAP FREE/TOTAL\tGUEST DISK FREE/TOTAL\tLOAD\tHOTPLUG\tRSS\tCPU")
 	for _, vm := range out.VMs {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			vm.Name,
@@ -491,11 +491,11 @@ func (a app) vmUsage(args []string) error {
 			displayMemoryRange(vm),
 			displayGuestMemory(vm),
 			displayGuestSwap(vm),
+			displayGuestDisk(vm),
 			displayGuestLoad(vm),
 			displayMemoryHotplug(vm),
 			displayProcessRSS(vm),
 			displayProcessCPU(vm),
-			displayDiskUsage(vm),
 		)
 	}
 	return w.Flush()
@@ -1556,16 +1556,6 @@ func displayProcessCPU(vm model.VMResourceUsage) string {
 	return formatDuration(time.Duration(vm.Process.CPUSeconds * float64(time.Second)))
 }
 
-func displayDiskUsage(vm model.VMResourceUsage) string {
-	if vm.DiskBytes == 0 && vm.DiskAllocatedBytes == 0 {
-		return "-"
-	}
-	if vm.DiskAllocatedBytes == 0 {
-		return formatBytes(uint64(vm.DiskBytes))
-	}
-	return fmt.Sprintf("%s/%s", formatBytes(uint64(vm.DiskAllocatedBytes)), formatBytes(uint64(vm.DiskBytes)))
-}
-
 func formatMiB(value int64) string {
 	return fmt.Sprintf("%dMiB", value)
 }
@@ -1742,6 +1732,13 @@ func displayGuestSwap(vm model.VMResourceUsage) string {
 		return "-"
 	}
 	return fmt.Sprintf("%s/%s", formatMiB(int64(vm.GuestMemory.SwapFreeMiB)), formatMiB(int64(vm.GuestMemory.SwapTotalMiB)))
+}
+
+func displayGuestDisk(vm model.VMResourceUsage) string {
+	if vm.GuestMemory == nil || vm.GuestMemory.RootDiskTotalBytes == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%s/%s", formatBytes(vm.GuestMemory.RootDiskFreeBytes), formatBytes(vm.GuestMemory.RootDiskTotalBytes))
 }
 
 func displayGuestLoad(vm model.VMResourceUsage) string {

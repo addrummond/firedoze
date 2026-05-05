@@ -115,7 +115,9 @@ firedoze vm usage 'demo*'
 ```
 
 `MEMORY` is the configured min-max range. `HOTPLUG` shows how much extra
-virtio-mem memory is currently plugged/requested.
+virtio-mem memory is currently plugged/requested. `GUEST DISK FREE/TOTAL` is
+reported from inside the VM, so it shows the filesystem space the VM user can
+actually use.
 
 Create one or more VMs (hidden from public web by default, not started):
 
