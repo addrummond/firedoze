@@ -9,17 +9,17 @@
 
 Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like a small computer: its own filesystem, systemd, SSH, and long-running processes.
 
-🛠️ **Spin up a Linux VM in seconds and access it via SSH.**
+✨ **Spin up a Linux VM in seconds and access it via SSH.**
 
-🛠️ **Idle VMs sleep automatically, consuming only disk space.**
+✨ **Idle VMs sleep automatically, consuming only disk space.**
 
-🛠️ **Give your VMs public https URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
+✨ **Give your VMs public https URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
 
-🛠️ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
+✨ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
 
-🛠️ **Snapshot and clone VMs to quickly create reproducible dev environments.**
+✨ **Snapshot and clone VMs to quickly create reproducible dev environments.**
 
-🛠️ **Management interface secured via [Wireguard](https://www.wireguard.com/).**
+✨ **Management interface secured via [Wireguard](https://www.wireguard.com/).**
 
 ⚠️ _Firedoze is early-stage software. Don't use it for production workloads or in production infrastructure accounts._
 
@@ -35,7 +35,7 @@ Because sometimes you want:
 
 Firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. WireGuard authentication built into the client, so the management plane stays private.
 
-Unlike container workflows, Firedoze does not urge any particular shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine.
+Unlike container workflows, Firedoze does not urge any particular shape for a dev environment. Prefer a single hand-tended VM running multiple services together? Fine. Prefer small per-service VMs built from scripts and snapshots? Also fine (if you have the RAM to spare!)
 
 Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the idea of a persistent computer that can sleep cheaply when idle, then narrows the target to shared dev environments. This enables a much simpler implementation – no need to worry about a global fleet, production networking, durable object-storage layer, or a hosted platform.
 
