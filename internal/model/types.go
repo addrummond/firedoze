@@ -92,6 +92,7 @@ type VMResourceUsage struct {
 	DiskBytes          int64                 `json:"disk_bytes"`
 	DiskAllocatedBytes int64                 `json:"disk_allocated_bytes,omitempty"`
 	MemoryHotplug      *MemoryHotplugUsage   `json:"memory_hotplug,omitempty"`
+	GuestMemory        *GuestMemoryReport    `json:"guest_memory,omitempty"`
 	Process            *ProcessResourceUsage `json:"process,omitempty"`
 }
 
@@ -100,6 +101,21 @@ type MemoryHotplugUsage struct {
 	RequestedMiB int `json:"requested_mib"`
 	PluggedMiB   int `json:"plugged_mib"`
 	EffectiveMiB int `json:"effective_mib"`
+}
+
+type GuestMemoryReport struct {
+	ReportedAt    string  `json:"reported_at,omitempty"`
+	TotalMiB      int     `json:"total_mib,omitempty"`
+	AvailableMiB  int     `json:"available_mib,omitempty"`
+	FreeMiB       int     `json:"free_mib,omitempty"`
+	BuffersMiB    int     `json:"buffers_mib,omitempty"`
+	CachedMiB     int     `json:"cached_mib,omitempty"`
+	SwapTotalMiB  int     `json:"swap_total_mib,omitempty"`
+	SwapFreeMiB   int     `json:"swap_free_mib,omitempty"`
+	Load1         float64 `json:"load1,omitempty"`
+	Load5         float64 `json:"load5,omitempty"`
+	Load15        float64 `json:"load15,omitempty"`
+	LastTargetMiB int     `json:"last_target_mib,omitempty"`
 }
 
 type ProcessResourceUsage struct {

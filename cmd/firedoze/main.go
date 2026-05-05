@@ -482,13 +482,16 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tHOTPLUG\tRSS\tCPU\tDISK")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM\tGUEST SWAP\tLOAD\tHOTPLUG\tRSS\tCPU\tDISK")
 	for _, vm := range out.VMs {
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			vm.Name,
 			vm.State,
 			vm.VCPUs,
 			displayMemoryRange(vm),
+			displayGuestMemory(vm),
+			displayGuestSwap(vm),
+			displayGuestLoad(vm),
 			displayMemoryHotplug(vm),
 			displayProcessRSS(vm),
 			displayProcessCPU(vm),
@@ -1722,6 +1725,30 @@ func displayMemoryHotplug(vm model.VMResourceUsage) string {
 		formatMiB(int64(vm.MemoryHotplug.PluggedMiB)),
 		formatMiB(int64(vm.MemoryHotplug.RequestedMiB)),
 	)
+}
+
+func displayGuestMemory(vm model.VMResourceUsage) string {
+	if vm.GuestMemory == nil || vm.GuestMemory.TotalMiB == 0 {
+		return "-"
+	}
+	if vm.GuestMemory.AvailableMiB == 0 {
+		return formatMiB(int64(vm.GuestMemory.TotalMiB))
+	}
+	return fmt.Sprintf("%s/%s", formatMiB(int64(vm.GuestMemory.AvailableMiB)), formatMiB(int64(vm.GuestMemory.TotalMiB)))
+}
+
+func displayGuestSwap(vm model.VMResourceUsage) string {
+	if vm.GuestMemory == nil || vm.GuestMemory.SwapTotalMiB == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%s/%s", formatMiB(int64(vm.GuestMemory.SwapFreeMiB)), formatMiB(int64(vm.GuestMemory.SwapTotalMiB)))
+}
+
+func displayGuestLoad(vm model.VMResourceUsage) string {
+	if vm.GuestMemory == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f", vm.GuestMemory.Load1)
 }
 
 func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, error) {

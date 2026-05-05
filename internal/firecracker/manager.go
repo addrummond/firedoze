@@ -68,6 +68,7 @@ type Manager struct {
 	running                  map[string]*Process
 	vmOps                    map[string]struct{}
 	coldArchives             map[string]*coldArchiveOperation
+	guestMemoryReports       map[string]model.GuestMemoryReport
 	copyColdFile             func(context.Context, string, string) error
 	rewriteGuestIdentityFunc func(context.Context, string, string) error
 
@@ -96,13 +97,14 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:          cfg,
-		store:        st,
-		logger:       logger,
-		running:      make(map[string]*Process),
-		vmOps:        make(map[string]struct{}),
-		coldArchives: make(map[string]*coldArchiveOperation),
-		copyColdFile: copyRegularFile,
+		cfg:                cfg,
+		store:              st,
+		logger:             logger,
+		running:            make(map[string]*Process),
+		vmOps:              make(map[string]struct{}),
+		coldArchives:       make(map[string]*coldArchiveOperation),
+		guestMemoryReports: make(map[string]model.GuestMemoryReport),
+		copyColdFile:       copyRegularFile,
 	}
 }
 
@@ -319,11 +321,25 @@ func (m *Manager) UpdateVM(ctx context.Context, name string, params store.Update
 	return m.store.UpdateVM(ctx, name, params)
 }
 
-func (m *Manager) SetVMMemoryTargetByPrivateIP(ctx context.Context, privateIP string, targetMiB int) (model.MemoryHotplugUsage, error) {
+func (m *Manager) RecordVMMemoryReportByPrivateIP(ctx context.Context, privateIP string, targetMiB *int, report model.GuestMemoryReport) (model.MemoryHotplugUsage, error) {
 	vm, err := m.store.GetVMByPrivateIP(ctx, privateIP)
 	if err != nil {
 		return model.MemoryHotplugUsage{}, err
 	}
+	report.ReportedAt = time.Now().UTC().Format(time.RFC3339)
+	if targetMiB != nil {
+		report.LastTargetMiB = *targetMiB
+	}
+	m.mu.Lock()
+	m.guestMemoryReports[vm.Name] = report
+	m.mu.Unlock()
+	if targetMiB == nil {
+		return model.MemoryHotplugUsage{}, nil
+	}
+	return m.setVMMemoryTarget(ctx, vm, *targetMiB)
+}
+
+func (m *Manager) setVMMemoryTarget(ctx context.Context, vm store.VM, targetMiB int) (model.MemoryHotplugUsage, error) {
 	if targetMiB < vm.MemoryMinMiB {
 		targetMiB = vm.MemoryMinMiB
 	}
@@ -533,7 +549,13 @@ func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 	if err := m.store.DeleteRoutesForVM(ctx, name); err != nil {
 		return err
 	}
-	return m.store.DeleteVM(ctx, name)
+	if err := m.store.DeleteVM(ctx, name); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	delete(m.guestMemoryReports, name)
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) DeleteSnapshot(ctx context.Context, name string) error {

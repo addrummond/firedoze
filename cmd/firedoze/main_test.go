@@ -488,6 +488,7 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 			"memory_max_mib":512,
 			"disk_bytes":4294967296,
 			"disk_allocated_bytes":1073741824,
+			"guest_memory":{"total_mib":480,"available_mib":320,"swap_total_mib":256,"swap_free_mib":200,"load1":0.25},
 			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65}
 		}]}`)
 	})
@@ -513,6 +514,10 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 	for _, want := range []string{
 		"NAME",
 		"demo",
+		"GUEST MEM",
+		"320MiB/480MiB",
+		"200MiB/256MiB",
+		"0.25",
 		"64MiB",
 		"1m5s",
 		"1.0GiB/4.0GiB",

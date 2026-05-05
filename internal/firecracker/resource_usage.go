@@ -52,6 +52,10 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 
 	m.mu.Lock()
 	proc, running := m.running[vm.Name]
+	if report, ok := m.guestMemoryReports[vm.Name]; ok {
+		reportCopy := report
+		usage.GuestMemory = &reportCopy
+	}
 	m.mu.Unlock()
 	if !running || proc == nil || proc.Command == nil || proc.Command.Process == nil {
 		return usage

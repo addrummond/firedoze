@@ -1432,9 +1432,14 @@ if [ -z "$host_ip" ]; then
   exit 1
 fi
 
-post_target() {
-  target="$1"
-  body="{\"target_mib\":$target}"
+post_report() {
+  target="${1:-}"
+  load="${load1:-0}"
+  target_json=""
+  if [ -n "$target" ]; then
+    target_json=",\"target_mib\":$target"
+  fi
+  body="{\"total_mib\":$total,\"available_mib\":$available,\"free_mib\":$free,\"buffers_mib\":$buffers,\"cached_mib\":$cached,\"swap_total_mib\":$swap_total,\"swap_free_mib\":$swap_free,\"load1\":$load$target_json}"
   len="$(printf "%s" "$body" | wc -c)"
   {
     printf "POST /memory-hint HTTP/1.1\r\n"
@@ -1452,10 +1457,21 @@ while true; do
   set -- $(awk '
     $1 == "MemTotal:" { total = int($2 / 1024) }
     $1 == "MemAvailable:" { available = int($2 / 1024) }
-    END { print total, available }
+    $1 == "MemFree:" { free = int($2 / 1024) }
+    $1 == "Buffers:" { buffers = int($2 / 1024) }
+    $1 == "Cached:" { cached = int($2 / 1024) }
+    $1 == "SwapTotal:" { swap_total = int($2 / 1024) }
+    $1 == "SwapFree:" { swap_free = int($2 / 1024) }
+    END { print total, available, free, buffers, cached, swap_total, swap_free }
   ' /proc/meminfo)
   total="${1:-0}"
   available="${2:-0}"
+  free="${3:-0}"
+  buffers="${4:-0}"
+  cached="${5:-0}"
+  swap_total="${6:-0}"
+  swap_free="${7:-0}"
+  load1="$(cut -d ' ' -f 1 /proc/loadavg 2>/dev/null || printf 0)"
   target=""
 
   if [ "$total" -gt 0 ] && [ "$available" -gt 0 ]; then
@@ -1473,10 +1489,12 @@ while true; do
     fi
   fi
 
+  report_target=""
   if [ -n "$target" ] && [ "$target" -gt 0 ] && [ "$target" != "$last_target" ]; then
-    post_target "$target"
+    report_target="$target"
     last_target="$target"
   fi
+  post_report "$report_target"
   sleep 5
 done
 `,
