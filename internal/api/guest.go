@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"firedoze/internal/firecracker"
 	"firedoze/internal/model"
@@ -75,7 +76,9 @@ func (s *GuestServer) handleMemoryHint(w http.ResponseWriter, r *http.Request) {
 		Load5:        req.Load5,
 		Load15:       req.Load15,
 	}
-	usage, err := s.manager.RecordVMMemoryReportByPrivateIP(r.Context(), remoteIP, req.TargetMiB, report)
+	opCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	usage, err := s.manager.RecordVMMemoryReportByPrivateIP(opCtx, remoteIP, req.TargetMiB, report)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):

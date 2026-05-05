@@ -482,7 +482,7 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM\tGUEST SWAP\tLOAD\tHOTPLUG\tRSS\tCPU\tDISK")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM AVAIL/TOTAL\tGUEST SWAP FREE/TOTAL\tLOAD\tHOTPLUG\tRSS\tCPU\tDISK USED/SIZE")
 	for _, vm := range out.VMs {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			vm.Name,
