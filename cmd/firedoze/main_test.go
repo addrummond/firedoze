@@ -301,6 +301,7 @@ func TestServerNameFromImportPath(t *testing.T) {
 	}{
 		{path: "/tmp/team-dev.firedoze.toml", want: "team-dev"},
 		{path: "/tmp/team-dev.toml", want: "team-dev"},
+		{path: "/tmp/team-dev.conf", want: "team-dev"},
 		{path: "/tmp/team-dev", want: "team-dev"},
 		{path: "-", want: ""},
 	}
