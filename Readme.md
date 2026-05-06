@@ -17,7 +17,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 ✨ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
 
-✨ **Snapshot and clone VMs to quickly create reproducible dev environments.**
+✨ **Snapshot and clone VMs to quickly create quasi-reproducible dev environments.**
 
 ✨ **Management interface secured via [Wireguard](https://www.wireguard.com/).**
 
