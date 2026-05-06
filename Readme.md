@@ -103,7 +103,9 @@ Firedoze needs a Linux host that can run KVM-backed Firecracker VMs. That means 
 
 Low-cost options include small dedicated servers from providers like [Hetzner](https://www.hetzner.com), or VPS providers with nested virtualization support, such as [DigitalOcean](https://www.digitalocean.com).
 
-_Note that while some VPSs in the $1-5 range may support nested virtualization, they are too RAM limited to usefully run multiple full Linux VMs. To reliably run a significant number of non-trivial VMs, you are probably looking at least in the $30/month range._
+Nested virtualization tends not to be cost effective. It is useful for testing small Firedoze deployments without the commitment of a dedicated server, but is not recommended for sustained use.
+
+Each VM requires around 512MB RAM to boot reliably.
 
 ## Documentation
 
