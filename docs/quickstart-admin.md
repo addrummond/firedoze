@@ -28,7 +28,6 @@ actually exercised.
 On Ubuntu, the host packages are roughly:
 
 ```sh
-sudo apt-get update
 sudo apt-get install -y ca-certificates curl wireguard-tools e2fsprogs xfsprogs iptables
 ```
 
