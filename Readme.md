@@ -74,7 +74,7 @@ firedoze vm start cockpit
 firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
 ```
 
-Done for the day? Put them to sleep. They keep everything and wake again when traffic arrives:
+Done for the day? Put your VMs to sleep. They keep everything and wake again when traffic arrives:
 
 ```sh
 firedoze vm sleep cockpit
