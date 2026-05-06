@@ -17,7 +17,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 ✨ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
 
-✨ **Snapshot and clone VMs to quickly create quasi-reproducible dev environments.**
+✨ **Snapshot and clone VMs to quickly instantiate dev environments.**
 
 ✨ **Management interface secured via [Wireguard](https://www.wireguard.com/).**
 
@@ -46,6 +46,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 - **Idle sleep with full state preservation** — sleeping VMs cost nothing but disk.
 - **Optional cold storage** for long-stopped VMs.
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team.
+- **Ordinary SSH** — use `ssh`, `scp`, `rsync`, and VS Code Remote SSH against VMs like normal Linux boxes.
 - **One CLI** covering the full lifecycle: create, ssh, copy files, manage routes, snapshot, restore.
 - **Dynamic resourcing**: VM RAM allocation grows and shrinks with demand; disk space grows with demand.
 
