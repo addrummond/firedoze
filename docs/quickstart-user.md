@@ -134,6 +134,19 @@ virtio-mem memory is currently plugged/requested. `GUEST DISK FREE/TOTAL` is
 reported from inside the VM, so it shows the filesystem space the VM user can
 actually use.
 
+### Resource Allocation
+
+VM memory is elastic when the host supports Firecracker virtio-mem. The minimum
+memory is what the VM boots with. The maximum memory is the cap Firedoze can grow
+to under pressure. When pressure goes away, Firedoze gradually asks the VM to
+give hotplugged memory back, down to the configured minimum.
+
+VM disk size is different. The configured disk size is the capacity the guest
+sees, not necessarily the amount of host disk consumed immediately. On a server
+using XFS or another reflink/sparse-file capable filesystem, new VM disks should
+be cheap to create and mostly consume host space as the VM writes new data. If
+the guest deletes files, guest free space increases, but host disk allocation may
+not shrink automatically.
 Create one or more VMs (hidden from public web by default, not started):
 
 ```sh

@@ -47,6 +47,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 - **Optional cold storage** for long-stopped VMs.
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team.
 - **A single `firedoze` CLI** covering the full lifecycle: create, SSH, exec, copy files, manage routes, snapshot, restore.
+- **Dynamic resource allocation**: VM RAM allocation grows and shrinks with demand; disk space grows with demand.
 - **Deliberately single-node** — one box, local SQLite, no scheduler, no cluster to babysit.
 
 ## Quick example
