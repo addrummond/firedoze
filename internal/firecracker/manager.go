@@ -1724,11 +1724,14 @@ func firecrackerREST(ctx context.Context, socketPath string, method string, path
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	client := http.Client{Transport: &http.Transport{
+	transport := &http.Transport{
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 		},
-	}}
+	}
+	defer transport.CloseIdleConnections()
+	client := http.Client{Transport: transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -1774,6 +1777,7 @@ func firecrackerLoadSnapshot(ctx context.Context, socketPath string, statePath s
 func firecrackerOperations(socketPath string) fcops.ClientIface {
 	transport := httptransport.New(fcclient.DefaultHost, fcclient.DefaultBasePath, fcclient.DefaultSchemes)
 	transport.Transport = &http.Transport{
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 		},
