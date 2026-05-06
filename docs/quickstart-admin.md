@@ -25,6 +25,14 @@ The current tested host is **Ubuntu 24.04.4 LTS (Noble Numbat)** with kernel
 Other modern Linux distributions should work, but this is the baseline we have
 actually exercised.
 
+Firedoze's optional host firewall support currently uses `ip6tables`. On modern
+systems this is usually the nftables-backed iptables compatibility layer, not
+the old legacy firewall stack. Make sure the `iptables`/`ip6tables` tools are
+installed and that the kernel has the required netfilter modules available. On
+minimal hosts, `sudo modprobe nf_tables nft_compat` is a useful quick check; if
+those modules are missing, install the distribution's normal kernel/modules
+package before enabling Firedoze firewall management.
+
 On Ubuntu, the host packages are roughly:
 
 ```sh
