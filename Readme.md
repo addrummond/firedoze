@@ -56,22 +56,26 @@ Create a VM, publish it, and drop in a tiny web app:
 ```sh
 firedoze vm create launchpad -publish
 firedoze vm start launchpad
-firedoze exec launchpad -- sh -lc 'cat > app.html <<EOF
+
+firedoze exec launchpad -- sh -lc 'cat > index.html <<EOF
 <h1>hello from $(hostname)</h1>
 <p>this is a whole disposable computer, not a container</p>
 EOF
 busybox httpd -p 8080 -h .'
+
 firedoze vm list launchpad
 ```
 
 Open the `PUBLIC URL` from `firedoze vm list` in your browser. It is a real https URL for the service running inside that VM.
 
-Start a second VM and call the first one by name over the private VM network:
+Start a second VM, then run a command inside it that calls the first VM by name
+over the private VM network:
 
 ```sh
 firedoze vm create cockpit
 firedoze vm start cockpit
-firedoze exec cockpit -- wget -qO- http://launchpad.firedoze:8080
+firedoze exec cockpit -- hostname
+firedoze exec cockpit -- curl -fsS http://launchpad.firedoze:8080
 ```
 
 Done for the day? Put your VMs to sleep. They keep everything and wake again when traffic arrives:
