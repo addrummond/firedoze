@@ -56,8 +56,10 @@ image, create the host config, add each laptop as a WireGuard peer, then start
 
 ```sh
 version=0.1.0
-curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
-sudo apt install "./firedoze_${version}_linux_amd64.deb"
+deb="/tmp/firedoze_${version}_linux_amd64.deb"
+curl -fsSL -o "$deb" "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+chmod 0644 "$deb"
+sudo apt-get install -y -o DPkg::Post-Invoke::= "$deb"
 # OR
 sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 
@@ -102,9 +104,15 @@ On Debian or Ubuntu:
 
 ```sh
 version=0.1.0
-curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
-sudo apt install "./firedoze_${version}_linux_amd64.deb"
+deb="/tmp/firedoze_${version}_linux_amd64.deb"
+curl -fsSL -o "$deb" "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+chmod 0644 "$deb"
+sudo apt-get install -y -o DPkg::Post-Invoke::= "$deb"
 ```
+
+The `DPkg::Post-Invoke` override skips Ubuntu's `needrestart` scan for this
+one local package install. It does not change Firedoze's package contents or
+systemd service.
 
 On RPM-based distributions:
 
@@ -810,8 +818,10 @@ To upgrade, install the newer release package, then restart the daemon:
 
 ```sh
 version=0.1.1
-curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
-sudo apt install "./firedoze_${version}_linux_amd64.deb"
+deb="/tmp/firedoze_${version}_linux_amd64.deb"
+curl -fsSL -o "$deb" "https://github.com/addrummond/firedoze/releases/download/v${version}/firedoze_${version}_linux_amd64.deb"
+chmod 0644 "$deb"
+sudo apt-get install -y -o DPkg::Post-Invoke::= "$deb"
 sudo systemctl restart firedozed
 ```
 

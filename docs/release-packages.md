@@ -58,8 +58,14 @@ shasum -a 256 --ignore-missing -c "firedoze_${version}_checksums.txt"
 On Debian or Ubuntu:
 
 ```sh
-sudo apt install "./firedoze_${version}_linux_amd64.deb"
+deb="/tmp/firedoze_${version}_linux_amd64.deb"
+install -m 0644 "./firedoze_${version}_linux_amd64.deb" "$deb"
+sudo apt-get install -y -o DPkg::Post-Invoke::= "$deb"
 ```
+
+Installing from `/tmp` avoids apt's local-file sandbox warning. The
+`DPkg::Post-Invoke` override skips Ubuntu's `needrestart` scan for this one
+package install.
 
 On RPM-based distributions:
 
