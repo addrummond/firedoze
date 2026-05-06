@@ -83,7 +83,7 @@ dir = ""
 archive_stopped_after_seconds = 2592000
 
 [firecracker]
-binary_path = "/usr/local/bin/firecracker"
+binary_path = "/usr/lib/firedoze/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"

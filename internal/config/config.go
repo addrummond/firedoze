@@ -214,7 +214,7 @@ func Default() Config {
 			ArchiveStoppedAfterSeconds: 30 * 24 * 60 * 60,
 		},
 		Firecracker: FirecrackerConfig{
-			BinaryPath:          "/usr/local/bin/firecracker",
+			BinaryPath:          "/usr/lib/firedoze/firecracker",
 			BaseKernelPath:      "/var/lib/firedoze/images/vmlinux.bin",
 			BaseRootfsPath:      "/var/lib/firedoze/images/rootfs.ext4",
 			DefaultVCPUs:        1,

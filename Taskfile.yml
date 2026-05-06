@@ -112,7 +112,7 @@ tasks:
       - sudo ./firedoze-image-builder install {{.CLI_ARGS}}
 
   firecracker:install:
-    desc: Download and install the upstream Firecracker binary to /usr/local/bin/firecracker
+    desc: Download and install the upstream Firecracker binary to /usr/lib/firedoze/firecracker
     cmds:
       - |
         set -eu
@@ -129,5 +129,6 @@ tasks:
         curl -fsSL "$release_url/download/$version/$tarball" -o "$tmp/$tarball"
         printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c -
         tar -xzf "$tmp/$tarball" -C "$tmp"
-        sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker
-        /usr/local/bin/firecracker --version
+        sudo install -d -m 0755 /usr/lib/firedoze
+        sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/lib/firedoze/firecracker
+        /usr/lib/firedoze/firecracker --version

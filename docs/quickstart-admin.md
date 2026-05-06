@@ -11,7 +11,7 @@ Use an x86_64 Linux box with:
 - KVM available at `/dev/kvm`.
 - Kernel WireGuard support.
 - `debugfs`, `ssh-keygen`, and `systemd`.
-- Firecracker installed at `/usr/local/bin/firecracker`; the setup steps below install it from the upstream release tarball.
+- Firecracker installed at `/usr/lib/firedoze/firecracker`; the Firedoze release package installs the pinned supported version.
 - Enough disk space to build and store base images, VM disks, and snapshots.
 - Recommended on small hosts: add a modest swap file as a memory-spike guardrail. Swap is not a substitute for real RAM, but it makes tiny test hosts less brittle.
 - Recommended: **put `state_dir` on a filesystem with reflink support for fast VM disk clones**. XFS with reflinks enabled is a good default choice (see [Fast VM Disk Clones](#fast-vm-disk-clones)).
@@ -50,10 +50,9 @@ or use a larger host.
 
 ## 2. Setup
 
-The fastest possible setup is to install a release package, install the pinned
-Firecracker binary, build the base image, create the host config, add each
-laptop as a WireGuard peer, then start `firedozed`. Replace `0.1.0` with the
-current Firedoze release:
+The fastest possible setup is to install a release package, build the base
+image, create the host config, add each laptop as a WireGuard peer, then start
+`firedozed`. Replace `0.1.0` with the current Firedoze release:
 
 ```sh
 version=0.1.0
@@ -61,14 +60,6 @@ curl -LO "https://github.com/addrummond/firedoze/releases/download/v${version}/f
 sudo apt install "./firedoze_${version}_linux_amd64.deb"
 # OR
 sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
-
-# install required firecracker version
-tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
-  curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
-  printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c - && \
-  tar -xzf "$tmp/$tarball" -C "$tmp" && \
-  sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker && \
-  /usr/local/bin/firecracker --version && rm -rf "$tmp"
 
 # Optional, but recommended before installing the base image:
 # set up XFS at /var/lib/firedoze (see ‘Fast VM Disk Clones’ below).
@@ -126,6 +117,7 @@ sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 The package:
 
 - Installs `firedoze`, `firedozed`, and `firedoze-image-builder` to `/usr/bin`.
+- Installs the pinned upstream Firecracker binary to `/usr/lib/firedoze/firecracker`.
 - Installs the packaged Linux guest helper used by the base image builder.
 - Creates the `firedoze` system user and adds it to the `kvm` group when that group exists.
 - Creates `/etc/firedoze`, `/var/lib/firedoze`, `/var/lib/firedoze/images`, and `/var/log/firedoze`.
@@ -134,22 +126,7 @@ The package:
 
 Existing config and VM state are left alone when you reinstall. The real config is created later with `firedozed -init-config`.
 
-### 2.2 Install Firecracker
-
-Install the pinned upstream Firecracker VMM binary:
-
-```sh
-tmp="$(mktemp -d)" && version="v1.15.1" && arch="$(uname -m)" && test "$arch" = "x86_64" && sha256="d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a" && tarball="firecracker-$version-$arch.tgz" && \
-  curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$version/$tarball" -o "$tmp/$tarball" && \
-  printf '%s  %s\n' "$sha256" "$tmp/$tarball" | sha256sum -c - && \
-  tar -xzf "$tmp/$tarball" -C "$tmp" && \
-  sudo install -m 0755 "$tmp/release-$version-$arch/firecracker-$version-$arch" /usr/local/bin/firecracker && \
-  /usr/local/bin/firecracker --version && rm -rf "$tmp"
-```
-
-This downloads Firecracker `v1.15.1`, validates the pinned SHA-256 checksum, and installs it as `/usr/local/bin/firecracker`.
-
-### 2.3 Build and install base images
+### 2.2 Build and install base images
 
 Build the Firedoze Ubuntu 26.04 LTS base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, a source checkout, or host ext4 support.
 
@@ -178,7 +155,7 @@ These files are installed here:
 
 The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. Firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
 
-### 2.4 Configure Firedoze
+### 2.3 Configure Firedoze
 
 Firedoze uses WireGuard as the access-control layer. The generated base image configures the `ubuntu` guest account for passwordless SSH, and VM SSH is reachable only through the WireGuard-routed private VM network.
 
@@ -263,7 +240,7 @@ To choose the client address yourself, pass a unique `/128` address inside the g
 sudo firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY> fd7a:115c:a1e1::2/128
 ```
 
-### 2.5 Configure firewall and public DNS
+### 2.4 Configure firewall and public DNS
 
 Open these inbound ports to the host:
 
@@ -296,7 +273,7 @@ Set public wildcard DNS for web routes:
 
 Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
 
-### 2.6 Start firedozed
+### 2.5 Start firedozed
 
 ```sh
 sudo systemctl enable --now firedozed
@@ -324,7 +301,7 @@ The daemon runs as the `firedoze` system user. It is not UID 0, but systemd gran
 
 Config and key material under `/etc/firedoze` are not world-readable. Use `sudo firedozed ...` for admin helper commands such as `-wg-add-peer`, `-wg-peer-config`, and `-print-api-env`.
 
-### 2.7 Import Client Config
+### 2.6 Import Client Config
 
 Send the Firedoze client import config printed by `-wg-add-peer` back to the
 client. The client imports it on their laptop:
@@ -801,7 +778,7 @@ dir = ""
 archive_stopped_after_seconds = 2592000
 
 [firecracker]
-binary_path = "/usr/local/bin/firecracker"
+binary_path = "/usr/lib/firedoze/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"

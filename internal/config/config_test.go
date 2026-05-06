@@ -236,7 +236,7 @@ check_interval_seconds = 30
 default_sleep_after_seconds = 21600
 
 [firecracker]
-binary_path = "/usr/local/bin/firecracker"
+binary_path = "/usr/lib/firedoze/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
@@ -294,7 +294,7 @@ check_interval_seconds = 30
 default_sleep_after_seconds = 21600
 
 [firecracker]
-binary_path = "/usr/local/bin/firecracker"
+binary_path = "/usr/lib/firedoze/firecracker"
 base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1

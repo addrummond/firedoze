@@ -47,6 +47,12 @@ contents:
     file_info:
       mode: 0755
 
+  - src: ${FIREDOZE_PACKAGE_ROOT}/usr/lib/firedoze/firecracker
+    dst: /usr/lib/firedoze/firecracker
+    expand: true
+    file_info:
+      mode: 0755
+
   - src: packaging/firedozed.service
     dst: /usr/lib/systemd/system/firedozed.service
     file_info:
@@ -82,6 +88,11 @@ contents:
 
   - src: LICENSE
     dst: /usr/share/doc/firedoze/LICENSE
+    file_info:
+      mode: 0644
+
+  - src: packaging/licenses/firecracker-LICENSE
+    dst: /usr/share/doc/firedoze/firecracker-LICENSE
     file_info:
       mode: 0644
 

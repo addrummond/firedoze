@@ -6,6 +6,7 @@ artifacts. There is no APT/YUM repository yet.
 The current packages are for `linux/amd64` hosts. They install:
 
 - `firedoze`, `firedozed`, and `firedoze-image-builder` to `/usr/bin`.
+- The pinned upstream Firecracker VMM binary to `/usr/lib/firedoze/firecracker`.
 - The packaged Linux guest helper used by `firedoze-image-builder` to
   `/usr/lib/firedoze`.
 - The `firedozed` systemd unit to `/usr/lib/systemd/system`.
@@ -13,9 +14,9 @@ The current packages are for `linux/amd64` hosts. They install:
 - Documentation to `/usr/share/doc/firedoze`.
 - The `firedoze` system user and standard config/state/log directories.
 
-The packages do **not** install Firecracker, create your real config, build the
-base image, or start the daemon. Follow the [admin quickstart](quickstart-admin.md)
-for those host setup steps after installing the package.
+The packages do **not** create your real config, build the base image, or start
+the daemon. Follow the [admin quickstart](quickstart-admin.md) for those host
+setup steps after installing the package.
 
 ## Verify A Release
 
@@ -66,5 +67,5 @@ On RPM-based distributions:
 sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 ```
 
-After installation, continue with the admin quickstart from the Firecracker,
-base image, config, and peer setup steps.
+After installation, continue with the admin quickstart from the base image,
+config, and peer setup steps.

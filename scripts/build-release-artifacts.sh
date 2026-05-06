@@ -11,6 +11,8 @@ fi
 
 version="${version#v}"
 nfpm_version="${NFPM_VERSION:-v2.46.1}"
+firecracker_version="${FIRECRACKER_VERSION:-v1.15.1}"
+firecracker_x86_64_sha256="${FIRECRACKER_X86_64_SHA256:-d4a32ab2322d887ca1bc4a4e7afa9cc35393e6362dfc2b3becb389d362e4275a}"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 tmp_dir="$(mktemp -d)"
@@ -34,6 +36,37 @@ run_nfpm() {
   else
     go run "github.com/goreleaser/nfpm/v2/cmd/nfpm@$nfpm_version" "$@"
   fi
+}
+
+verify_sha256() {
+  local expected="$1"
+  local path="$2"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$expected" "$path" | sha256sum -c -
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s  %s\n' "$expected" "$path" | shasum -a 256 -c -
+  else
+    echo "sha256sum or shasum is required to verify Firecracker" >&2
+    exit 1
+  fi
+}
+
+stage_firecracker_linux_amd64() {
+  local package_root="$1"
+  local arch="x86_64"
+  local tarball="firecracker-$firecracker_version-$arch.tgz"
+  local work="$tmp_dir/firecracker-$firecracker_version-$arch"
+
+  mkdir -p "$work" "$package_root/usr/lib/firedoze"
+  curl -fsSL \
+    "https://github.com/firecracker-microvm/firecracker/releases/download/$firecracker_version/$tarball" \
+    -o "$work/$tarball"
+  verify_sha256 "$firecracker_x86_64_sha256" "$work/$tarball"
+  tar -xzf "$work/$tarball" -C "$work"
+  install -m 0755 \
+    "$work/release-$firecracker_version-$arch/firecracker-$firecracker_version-$arch" \
+    "$package_root/usr/lib/firedoze/firecracker"
 }
 
 build_bundle() {
@@ -73,6 +106,7 @@ build_linux_packages() {
   build_binary linux amd64 ./cmd/firedozed "$package_root/usr/bin/firedozed"
   build_binary linux amd64 ./cmd/firedoze-image-builder "$package_root/usr/bin/firedoze-image-builder"
   build_binary linux amd64 ./cmd/firedoze-hello "$package_root/usr/lib/firedoze/firedoze-hello-linux-amd64"
+  stage_firecracker_linux_amd64 "$package_root"
 
   export FIREDOZE_VERSION="$version"
   export FIREDOZE_PACKAGE_RELEASE="${FIREDOZE_PACKAGE_RELEASE:-1}"
