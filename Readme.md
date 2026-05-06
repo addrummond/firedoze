@@ -27,11 +27,10 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 Because sometimes you want:
 
-- A persistent filesystem that survives restarts without volume gymnastics
-- `systemd` running like normal
-- Ordinary SSH without any container runtime in the way
-- Snapshots you can clone and hand to a teammate
-- A place to run services that keep running
+- A persistent root filesystem, without deciding up front which paths need volumes
+- Systemd running in its normal role as PID 1
+- VM snapshots you can clone and hand to a teammate
+- Long-running background services managed like they would be on a server
 
 Firedoze puts all that behind a simple model. One beefy box to run your VMs. One CLI. WireGuard authentication built into the client, so the management plane stays private.
 
