@@ -574,7 +574,7 @@ func TestExtractBusyBoxFromDeb(t *testing.T) {
 func TestReadDebPackageInfo(t *testing.T) {
 	deb := makeDebAr(t, map[string][]byte{
 		"debian-binary": []byte("2.0\n"),
-		"control.tar.gz": compressedTarGzip(t, func(tw *tar.Writer) {
+		"control.tar": compressedTar(t, func(tw *tar.Writer) {
 			control := "Package: busybox-static\nVersion: 1.37.0-7ubuntu1\nArchitecture: amd64\n"
 			if err := tw.WriteHeader(&tar.Header{Name: "./control", Mode: 0o644, Size: int64(len(control))}); err != nil {
 				t.Fatal(err)
@@ -909,21 +909,27 @@ func compressedBusyBoxTarGzip(t *testing.T, data string) []byte {
 
 func compressedTarGzip(t *testing.T, write func(*tar.Writer)) []byte {
 	t.Helper()
-	var dataTar bytes.Buffer
-	tw := tar.NewWriter(&dataTar)
-	write(tw)
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
+	dataTar := compressedTar(t, write)
 	var compressed bytes.Buffer
 	gz := gzip.NewWriter(&compressed)
-	if _, err := gz.Write(dataTar.Bytes()); err != nil {
+	if _, err := gz.Write(dataTar); err != nil {
 		t.Fatal(err)
 	}
 	if err := gz.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return compressed.Bytes()
+}
+
+func compressedTar(t *testing.T, write func(*tar.Writer)) []byte {
+	t.Helper()
+	var dataTar bytes.Buffer
+	tw := tar.NewWriter(&dataTar)
+	write(tw)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dataTar.Bytes()
 }
 
 func syntheticRootTar(t *testing.T) io.Reader {

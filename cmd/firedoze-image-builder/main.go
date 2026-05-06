@@ -975,7 +975,7 @@ func extractDataTarToRootfs(efs *ext4.FileSystem, name string, data []byte, incl
 
 func compressedTarReader(name string, data []byte) (io.Reader, func(), error) {
 	switch {
-	case name == "data.tar":
+	case strings.HasSuffix(name, ".tar"):
 		return bytes.NewReader(data), func() {}, nil
 	case strings.HasSuffix(name, ".zst"):
 		dec, err := zstd.NewReader(bytes.NewReader(data))
