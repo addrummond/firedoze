@@ -109,8 +109,7 @@ Next steps:
   1. To run the full host setup from scratch, use: task setup:host
      To do only the remaining image steps now, use:
        task firecracker:install
-       task image:build
-       task image:install
+       task image:setup
   2. Create $config_dst:
      If you have a domain name:
        sudo firedozed -init-config -init-host <DOMAIN_NAME>

@@ -59,8 +59,7 @@ tasks:
       - task: install
       - task: firecracker:install
       - task: build
-      - task: image:build
-      - task: image:install
+      - task: image:setup
 
   install:
     desc: Build and install firedoze binaries, docs, config example, and systemd unit
@@ -110,6 +109,12 @@ tasks:
     cmds:
       - task: build:image-builder
       - sudo ./firedoze-image-builder install {{.CLI_ARGS}}
+
+  image:setup:
+    desc: Build and install the Ubuntu base image into /var/lib/firedoze/images
+    cmds:
+      - task: build:image-builder
+      - sudo ./firedoze-image-builder setup {{.CLI_ARGS}}
 
   firecracker:install:
     desc: Download and install the upstream Firecracker binary to /usr/lib/firedoze/firecracker

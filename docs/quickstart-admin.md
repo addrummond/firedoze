@@ -66,8 +66,7 @@ sudo dnf install "./firedoze_${version}_linux_amd64.rpm"
 # Optional, but recommended before installing the base image:
 # set up XFS at /var/lib/firedoze (see ‘Fast VM Disk Clones’ below).
 
-firedoze-image-builder build -out /var/tmp/firedoze-base-image
-sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
+sudo firedoze-image-builder setup
 
 # use -init-host <DOMAIN_NAME> if you have a real domain
 sudo firedozed -init-config -init-sslip-host $(curl -4 https://ifconfig.me)
@@ -136,21 +135,17 @@ Existing config and VM state are left alone when you reinstall. The real config 
 
 ### 2.2 Build and install base images
 
-Build the Firedoze Ubuntu 26.04 LTS base image on the Linux host. The builder is native Go; it does not require Docker, Podman, root, mounting, a source checkout, or host ext4 support.
+Build and install the Firedoze Ubuntu 26.04 LTS base image on the Linux host.
+The builder is native Go; it does not require Docker, Podman, mounting, a
+source checkout, or host ext4 support.
 
 Run:
 
 ```sh
-firedoze-image-builder build -out /var/tmp/firedoze-base-image
+sudo firedoze-image-builder setup
 ```
 
 The image builder downloads pinned Ubuntu 26.04 cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
-
-Install the generated image artifacts:
-
-```sh
-sudo firedoze-image-builder install -src /var/tmp/firedoze-base-image
-```
 
 These files are installed here:
 
@@ -160,6 +155,10 @@ These files are installed here:
 /var/lib/firedoze/images/rootfs.ext4
 /var/lib/firedoze/images/manifest.txt
 ```
+
+For debugging or offline copying, you can still split this into
+`firedoze-image-builder build -out DIR` and
+`sudo firedoze-image-builder install -src DIR`.
 
 The generated image uses the normal Ubuntu `ubuntu` user for passwordless SSH. Firedoze relies on WireGuard for access control; do not expose VM SSH publicly.
 

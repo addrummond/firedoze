@@ -32,6 +32,7 @@ func TestRunCommandDispatch(t *testing.T) {
 		{name: "unknown", args: []string{"bogus"}, want: 2, err: "unknown command: bogus"},
 		{name: "build error", args: []string{"build", "-does-not-exist"}, want: 1, err: "flag provided but not defined"},
 		{name: "install error", args: []string{"install", "-src", t.TempDir(), "-dst", t.TempDir(), "-user", "", "-group", ""}, want: 1, err: "open"},
+		{name: "setup error", args: []string{"setup", "-does-not-exist"}, want: 1, err: "flag provided but not defined"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,6 +96,33 @@ func TestInstallImageRejectsUnexpectedArgs(t *testing.T) {
 	err := installImage([]string{"extra"})
 	if err == nil || !strings.Contains(err.Error(), "unexpected arguments: extra") {
 		t.Fatalf("installImage unexpected arg error = %v", err)
+	}
+}
+
+func TestSetupImageFlagValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "help", args: []string{"-h"}, want: ""},
+		{name: "unexpected args", args: []string{"extra"}, want: "unexpected arguments: extra"},
+		{name: "bad flag", args: []string{"-does-not-exist"}, want: "flag provided but not defined"},
+		{name: "too small", args: []string{"-work-parent", t.TempDir(), "-size", "128M", "-user", "", "-group", ""}, want: "image size must be at least 512M"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := setupImage(tt.args)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("setupImage(%v): %v", tt.args, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("setupImage(%v) error = %v, want containing %q", tt.args, err, tt.want)
+			}
+		})
 	}
 }
 

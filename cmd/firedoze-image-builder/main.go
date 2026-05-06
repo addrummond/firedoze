@@ -73,6 +73,12 @@ func run(args []string) int {
 			return 1
 		}
 		return 0
+	case "setup":
+		if err := setupImage(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		usage()
@@ -84,6 +90,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Usage:
   firedoze-image-builder build [options]
   firedoze-image-builder install [options]
+  firedoze-image-builder setup [options]
 
 Build a Firecracker-ready Ubuntu root filesystem and matching boot artifacts.
 
@@ -95,6 +102,14 @@ Build options:
 Install options:
   -src DIR        Built artifact directory. Default: dist/base-image
   -dst DIR        Image install directory. Default: /var/lib/firedoze/images
+  -user USER      Installed file owner. Default: firedoze
+  -group GROUP    Installed file group. Default: firedoze
+
+Setup options:
+  -dst DIR        Image install directory. Default: /var/lib/firedoze/images
+  -size SIZE      Root filesystem image size. Default: 4G
+  -work-parent DIR
+                  Parent directory for temporary build output. Default: /var/tmp
   -user USER      Installed file owner. Default: firedoze
   -group GROUP    Installed file group. Default: firedoze
 
@@ -282,6 +297,42 @@ builder=firedoze-image-builder native-go
 	fmt.Println("  vmlinux.bin")
 	fmt.Println("  initrd.img")
 	fmt.Println("  manifest.txt")
+	return nil
+}
+
+func setupImage(args []string) error {
+	fs := flag.NewFlagSet("firedoze-image-builder setup", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	dstDir := fs.String("dst", defaultImageInstallDir, "image install directory")
+	sizeText := fs.String("size", defaultSize, "root filesystem image size")
+	workParent := fs.String("work-parent", "/var/tmp", "parent directory for temporary build output")
+	userName := fs.String("user", "firedoze", "installed file owner")
+	groupName := fs.String("group", "firedoze", "installed file group")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			usage()
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	workDir, err := os.MkdirTemp(*workParent, "firedoze-base-image-*")
+	if err != nil {
+		return fmt.Errorf("create temporary build directory: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	if err := build([]string{"-out", workDir, "-size", *sizeText}); err != nil {
+		return err
+	}
+	if err := installImage([]string{"-src", workDir, "-dst", *dstDir, "-user", *userName, "-group", *groupName}); err != nil {
+		return err
+	}
 	return nil
 }
 
