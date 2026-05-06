@@ -30,6 +30,7 @@ import (
 const (
 	baseImageRelease       = "resolute"
 	baseImageVersion       = "26.04"
+	baseImageSerial        = "20260421"
 	baseImageArch          = "amd64"
 	defaultSize            = "4G"
 	defaultOutDir          = "dist/base-image"
@@ -194,7 +195,7 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	kernelModulesDeb, err := readKernelModulesDeb()
+	kernelModulesDeb, kernelModulesInfo, err := readKernelModulesDeb()
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
@@ -205,13 +206,13 @@ func build(args []string) error {
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	helloBinary, err := buildGuestHelloBinary(baseImageArch)
+	helloBinary, helloSource, err := buildGuestHelloBinary(baseImageArch)
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
 		return err
 	}
-	busyBoxBinary, err := readBusyBoxStatic()
+	busyBoxBinary, busyBoxInfo, err := readBusyBoxStatic()
 	if err != nil {
 		_ = backend.Close()
 		_ = os.Remove(tmpRootfsPath)
@@ -266,23 +267,37 @@ func build(args []string) error {
 	manifest := fmt.Sprintf(`release=%s
 ubuntu_version=%s
 arch=%s
+cloud_image_serial=%s
 source=%s
 rootfs=rootfs.ext4
 root_sha256=%s
+root_source_sha256=%s
 kernel=vmlinux.bin
 kernel_source=%s
 kernel_sha256=%s
+kernel_source_sha256=%s
 initrd=initrd.img
 initrd_source=%s
 initrd_sha256=%s
+initrd_source_sha256=%s
+busybox_package=%s
+busybox_package_version=%s
+busybox_package_arch=%s
+busybox_package_source=%s
+busybox_package_sha256=%s
+kernel_modules_package=%s
+kernel_modules_package_version=%s
+kernel_modules_package_arch=%s
 kernel_modules_source=%s
 kernel_modules_sha256=%s
+guest_helper_source=%s
+guest_helper_sha256=%s
 size=%s
 ssh_auth=passwordless-ubuntu-over-wireguard
 network=IPv6-only private VM network configured from firedoze kernel args
 zram=enabled at boot, half guest RAM with 128MiB floor and 1024MiB cap
 builder=firedoze-image-builder native-go
-`, baseImageRelease, baseImageVersion, baseImageArch, source.name, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, baseKernelModulesURL, baseKernelModulesSHA256, *sizeText)
+`, baseImageRelease, baseImageVersion, baseImageArch, baseImageSerial, source.name, baseRootSHA256, baseRootSHA256, artifacts.kernel.path, baseKernelSHA256, baseKernelSHA256, artifacts.initrd.path, baseInitrdSHA256, baseInitrdSHA256, busyBoxInfo.name, busyBoxInfo.version, busyBoxInfo.arch, baseBusyBoxStaticURL, baseBusyBoxStaticSHA256, kernelModulesInfo.name, kernelModulesInfo.version, kernelModulesInfo.arch, baseKernelModulesURL, baseKernelModulesSHA256, helloSource, sha256Hex(helloBinary), *sizeText)
 	if err := replaceFile(filepath.Join(absOut, "manifest.txt"), []byte(manifest), 0o644); err != nil {
 		_ = os.Remove(tmpRootfsPath)
 		return err
@@ -466,15 +481,15 @@ func copyInstallArtifact(src string, dst string, mode os.FileMode, uid int, gid 
 }
 
 func defaultImageURL() string {
-	return "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64-root.tar.xz"
+	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/%s/%s-server-cloudimg-%s-root.tar.xz", baseImageRelease, baseImageSerial, baseImageRelease, baseImageArch)
 }
 
 func defaultKernelURL() string {
-	return "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-vmlinuz-generic"
+	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/%s/unpacked/%s-server-cloudimg-%s-vmlinuz-generic", baseImageRelease, baseImageSerial, baseImageRelease, baseImageArch)
 }
 
 func defaultInitrdURL() string {
-	return "https://cloud-images.ubuntu.com/resolute/20260421/unpacked/resolute-server-cloudimg-amd64-initrd-generic"
+	return fmt.Sprintf("https://cloud-images.ubuntu.com/%s/%s/unpacked/%s-server-cloudimg-%s-initrd-generic", baseImageRelease, baseImageSerial, baseImageRelease, baseImageArch)
 }
 
 func parseSize(value string) (int64, error) {
@@ -507,6 +522,12 @@ func parseSize(value string) (int64, error) {
 type artifactData struct {
 	name string
 	data []byte
+}
+
+type debPackageInfo struct {
+	name    string
+	version string
+	arch    string
 }
 
 func readArtifact(localPath string, url string, expectedSHA256 string, insecure bool) (artifactData, error) {
@@ -553,24 +574,32 @@ func readBootArtifact(localPath string, url string, expectedSHA256 string, insec
 	return &bootArtifact{path: artifact.name, data: artifact.data}, nil
 }
 
-func readBusyBoxStatic() ([]byte, error) {
+func readBusyBoxStatic() ([]byte, debPackageInfo, error) {
 	artifact, err := readArtifact("", baseBusyBoxStaticURL, baseBusyBoxStaticSHA256, false)
 	if err != nil {
-		return nil, fmt.Errorf("read busybox-static package: %w", err)
+		return nil, debPackageInfo{}, fmt.Errorf("read busybox-static package: %w", err)
+	}
+	info, err := readDebPackageInfo(artifact.data)
+	if err != nil {
+		return nil, debPackageInfo{}, fmt.Errorf("read busybox-static metadata: %w", err)
 	}
 	binary, err := extractBusyBoxFromDeb(artifact.data)
 	if err != nil {
-		return nil, fmt.Errorf("extract busybox-static package: %w", err)
+		return nil, debPackageInfo{}, fmt.Errorf("extract busybox-static package: %w", err)
 	}
-	return binary, nil
+	return binary, info, nil
 }
 
-func readKernelModulesDeb() ([]byte, error) {
+func readKernelModulesDeb() ([]byte, debPackageInfo, error) {
 	artifact, err := readArtifact("", baseKernelModulesURL, baseKernelModulesSHA256, false)
 	if err != nil {
-		return nil, fmt.Errorf("read kernel modules package: %w", err)
+		return nil, debPackageInfo{}, fmt.Errorf("read kernel modules package: %w", err)
 	}
-	return artifact.data, nil
+	info, err := readDebPackageInfo(artifact.data)
+	if err != nil {
+		return nil, debPackageInfo{}, fmt.Errorf("read kernel modules metadata: %w", err)
+	}
+	return artifact.data, info, nil
 }
 
 func verifySHA256(name string, data []byte, expected string) error {
@@ -584,6 +613,11 @@ func verifySHA256(name string, data []byte, expected string) error {
 		return fmt.Errorf("SHA-256 mismatch for %s: got %s, want %s", name, actual, expected)
 	}
 	return nil
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func extractBusyBoxFromDeb(deb []byte) ([]byte, error) {
@@ -622,6 +656,103 @@ func extractBusyBoxFromDeb(deb []byte) ([]byte, error) {
 		}
 	}
 	return nil, errors.New("deb package has no data.tar member")
+}
+
+func readDebPackageInfo(deb []byte) (debPackageInfo, error) {
+	const globalHeader = "!<arch>\n"
+	if !bytes.HasPrefix(deb, []byte(globalHeader)) {
+		return debPackageInfo{}, errors.New("invalid deb ar header")
+	}
+	offset := len(globalHeader)
+	for offset < len(deb) {
+		if offset+60 > len(deb) {
+			return debPackageInfo{}, errors.New("truncated deb ar member header")
+		}
+		header := deb[offset : offset+60]
+		offset += 60
+		name := strings.TrimSpace(string(header[:16]))
+		name = strings.TrimSuffix(name, "/")
+		sizeText := strings.TrimSpace(string(header[48:58]))
+		size, err := strconv.ParseInt(sizeText, 10, 64)
+		if err != nil || size < 0 {
+			return debPackageInfo{}, fmt.Errorf("invalid deb ar member size %q", sizeText)
+		}
+		if string(header[58:60]) != "`\n" {
+			return debPackageInfo{}, fmt.Errorf("invalid deb ar member trailer for %s", name)
+		}
+		end := offset + int(size)
+		if end < offset || end > len(deb) {
+			return debPackageInfo{}, fmt.Errorf("truncated deb ar member %s", name)
+		}
+		data := deb[offset:end]
+		offset = end
+		if size%2 != 0 {
+			offset++
+		}
+		if isDebControlMember(name) {
+			return parseDebControlTar(name, data)
+		}
+	}
+	return debPackageInfo{}, errors.New("deb package has no control.tar member")
+}
+
+func isDebControlMember(name string) bool {
+	return name == "control.tar" || strings.HasPrefix(name, "control.tar.")
+}
+
+func parseDebControlTar(name string, data []byte) (debPackageInfo, error) {
+	r, closeFn, err := compressedTarReader(name, data)
+	if err != nil {
+		return debPackageInfo{}, err
+	}
+	defer closeFn()
+
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return debPackageInfo{}, err
+		}
+		clean, ok := cleanTarPath(hdr.Name)
+		if !ok || clean != "control" {
+			continue
+		}
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			return debPackageInfo{}, errors.New("deb control file is not a regular file")
+		}
+		control, err := io.ReadAll(tr)
+		if err != nil {
+			return debPackageInfo{}, err
+		}
+		return parseDebControl(control)
+	}
+	return debPackageInfo{}, errors.New("control.tar does not contain control")
+}
+
+func parseDebControl(data []byte) (debPackageInfo, error) {
+	fields := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		fields[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+	info := debPackageInfo{
+		name:    fields["package"],
+		version: fields["version"],
+		arch:    fields["architecture"],
+	}
+	if info.name == "" || info.version == "" || info.arch == "" {
+		return debPackageInfo{}, errors.New("deb control file missing Package, Version, or Architecture")
+	}
+	return info, nil
 }
 
 func extractBusyBoxFromDataTar(name string, data []byte) ([]byte, error) {
@@ -869,17 +1000,21 @@ func compressedTarReader(name string, data []byte) (io.Reader, func(), error) {
 	}
 }
 
-func buildGuestHelloBinary(arch string) ([]byte, error) {
+func buildGuestHelloBinary(arch string) ([]byte, string, error) {
 	if path := packagedGuestHelloBinaries[arch]; path != "" {
 		data, err := os.ReadFile(path)
 		if err == nil {
-			return data, nil
+			return data, path, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("read packaged firedoze-hello guest binary %s: %w", path, err)
+			return nil, "", fmt.Errorf("read packaged firedoze-hello guest binary %s: %w", path, err)
 		}
 	}
-	return buildGuestHelloBinaryFromSource(arch)
+	data, err := buildGuestHelloBinaryFromSource(arch)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "source:./cmd/firedoze-hello", nil
 }
 
 func buildGuestHelloBinaryFromSource(arch string) ([]byte, error) {

@@ -54,7 +54,10 @@ sudo sysctl --system
 For a 4 GiB RAM test host, 4-8 GiB of swap is reasonable.
 For larger hosts, 8-16 GiB is usually enough as a safety buffer. If active VM
 memory is regularly spilling into swap, reduce the number or size of running VMs
-or use a larger host.
+or use a larger host. Swap can contain fragments of VM memory, so treat the
+host swap device or swap file as sensitive data. If that matters for your
+threat model, use encrypted host storage or skip swap and size the host with
+enough physical RAM instead.
 
 ## 2. Setup
 
@@ -153,7 +156,12 @@ Run:
 sudo firedoze-image-builder setup
 ```
 
-The image builder downloads pinned Ubuntu 26.04 cloud image artifacts, verifies their SHA-256 checksums, turns the root tarball into a raw ext4 root filesystem, and adds the small Firedoze guest configuration needed for SSH and Firecracker networking.
+The image builder downloads pinned Ubuntu 26.04 cloud image artifacts, verifies
+their SHA-256 checksums, turns the root tarball into a raw ext4 root
+filesystem, and adds the small Firedoze guest configuration needed for SSH and
+Firecracker networking. It does not boot the image or run `apt-get update`
+inside it; the generated image is built from the pinned artifacts and packages
+recorded in `manifest.txt`.
 
 These files are installed here:
 
@@ -163,6 +171,21 @@ These files are installed here:
 /var/lib/firedoze/images/rootfs.ext4
 /var/lib/firedoze/images/manifest.txt
 ```
+
+Keep `manifest.txt` with any copied or archived base image. It records the
+Ubuntu release, cloud image serial, artifact URLs, SHA-256 checksums, extra
+package versions, and the Firedoze guest helper hash used for the build.
+
+Rebuild and reinstall the base image periodically to pick up Ubuntu security
+updates for newly created VMs:
+
+```sh
+sudo firedoze-image-builder setup
+```
+
+This only changes VMs created after the new image is installed. Existing VMs are
+persistent computers; update them from inside the VM or recreate them from a
+fresh image/snapshot workflow if you need their packages refreshed.
 
 For debugging or offline copying, you can still split this into
 `firedoze-image-builder build -out DIR` and

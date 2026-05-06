@@ -571,6 +571,52 @@ func TestExtractBusyBoxFromDeb(t *testing.T) {
 	}
 }
 
+func TestReadDebPackageInfo(t *testing.T) {
+	deb := makeDebAr(t, map[string][]byte{
+		"debian-binary": []byte("2.0\n"),
+		"control.tar.gz": compressedTarGzip(t, func(tw *tar.Writer) {
+			control := "Package: busybox-static\nVersion: 1.37.0-7ubuntu1\nArchitecture: amd64\n"
+			if err := tw.WriteHeader(&tar.Header{Name: "./control", Mode: 0o644, Size: int64(len(control))}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tw.Write([]byte(control)); err != nil {
+				t.Fatal(err)
+			}
+		}),
+	})
+	got, err := readDebPackageInfo(deb)
+	if err != nil {
+		t.Fatalf("readDebPackageInfo: %v", err)
+	}
+	want := debPackageInfo{name: "busybox-static", version: "1.37.0-7ubuntu1", arch: "amd64"}
+	if got != want {
+		t.Fatalf("readDebPackageInfo = %#v, want %#v", got, want)
+	}
+}
+
+func TestReadDebPackageInfoErrors(t *testing.T) {
+	deb := makeDebAr(t, map[string][]byte{
+		"debian-binary": []byte("2.0\n"),
+		"control.tar.gz": compressedTarGzip(t, func(tw *tar.Writer) {
+			control := "Package: busybox-static\nArchitecture: amd64\n"
+			if err := tw.WriteHeader(&tar.Header{Name: "control", Mode: 0o644, Size: int64(len(control))}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tw.Write([]byte(control)); err != nil {
+				t.Fatal(err)
+			}
+		}),
+	})
+	if _, err := readDebPackageInfo(deb); err == nil || !strings.Contains(err.Error(), "missing Package, Version, or Architecture") {
+		t.Fatalf("readDebPackageInfo missing field error = %v", err)
+	}
+
+	deb = makeDebAr(t, map[string][]byte{"debian-binary": []byte("2.0\n")})
+	if _, err := readDebPackageInfo(deb); err == nil || !strings.Contains(err.Error(), "no control.tar member") {
+		t.Fatalf("readDebPackageInfo no control error = %v", err)
+	}
+}
+
 func TestExtractBusyBoxFromDebErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -733,7 +779,7 @@ func TestFindRepoRoot(t *testing.T) {
 }
 
 func TestBuildGuestHelloBinaryRejectsUnsupportedArch(t *testing.T) {
-	if _, err := buildGuestHelloBinary("not-an-arch"); err == nil || !strings.Contains(err.Error(), "unsupported GOOS/GOARCH pair") {
+	if _, _, err := buildGuestHelloBinary("not-an-arch"); err == nil || !strings.Contains(err.Error(), "unsupported GOOS/GOARCH pair") {
 		t.Fatalf("buildGuestHelloBinary unsupported arch error = %v", err)
 	}
 }
@@ -751,12 +797,15 @@ func TestBuildGuestHelloBinaryUsesPackagedBinary(t *testing.T) {
 		packagedGuestHelloBinaries = old
 	})
 
-	got, err := buildGuestHelloBinary("amd64")
+	got, source, err := buildGuestHelloBinary("amd64")
 	if err != nil {
 		t.Fatalf("buildGuestHelloBinary: %v", err)
 	}
 	if string(got) != "packaged-hello" {
 		t.Fatalf("buildGuestHelloBinary = %q, want packaged binary", got)
+	}
+	if source != binPath {
+		t.Fatalf("buildGuestHelloBinary source = %q, want %q", source, binPath)
 	}
 }
 
@@ -824,7 +873,7 @@ func makeDebAr(t *testing.T, members map[string][]byte) []byte {
 	t.Helper()
 	var out bytes.Buffer
 	out.WriteString("!<arch>\n")
-	for _, name := range []string{"debian-binary", "data.tar.zst"} {
+	for _, name := range []string{"debian-binary", "control.tar", "control.tar.gz", "control.tar.xz", "control.tar.zst", "data.tar", "data.tar.gz", "data.tar.xz", "data.tar.zst"} {
 		data, ok := members[name]
 		if !ok {
 			continue
