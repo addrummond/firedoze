@@ -1,8 +1,6 @@
 # Quickstart
 
-Firedoze runs shared, persistent Firecracker dev VMs on one Linux host. The management API and VM SSH access are only reachable through WireGuard.
-
-This is early dev software. Use it for shared development environments, not production.
+This guide explains how to install and use Firedoze on a Linux host. It is written for the administrator who sets up the Firedoze server and manages access for client laptops. If you are a developer who just wants to connect to an existing Firedoze server, see [Quickstart for Developers](quickstart-dev.md) instead.
 
 ## 1. Host Requirements
 

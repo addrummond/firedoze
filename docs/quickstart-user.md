@@ -2,8 +2,6 @@
 
 This guide is for someone using an existing Firedoze server. It does not cover installing or administering `firedozed`.
 
-Firedoze gives you persistent dev VMs that you can create, sleep, wake, SSH into, copy files to, and expose over public HTTPS when needed.
-
 ## 1. What You Need
 
 Ask the Firedoze admin for:
