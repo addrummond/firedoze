@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"firedoze/internal/store"
-
-	"github.com/vishvananda/netlink"
 )
 
 type Reconciler interface {
@@ -18,12 +16,6 @@ type IdleMonitor struct {
 	manager    *Manager
 	reconciler Reconciler
 	logger     *slog.Logger
-	seen       map[string]idleObservation
-}
-
-type idleObservation struct {
-	bytes      uint64
-	lastActive time.Time
 }
 
 func NewIdleMonitor(manager *Manager, reconciler Reconciler, logger *slog.Logger) *IdleMonitor {
@@ -34,7 +26,6 @@ func NewIdleMonitor(manager *Manager, reconciler Reconciler, logger *slog.Logger
 		manager:    manager,
 		reconciler: reconciler,
 		logger:     logger,
-		seen:       make(map[string]idleObservation),
 	}
 }
 
@@ -67,44 +58,22 @@ func (m *IdleMonitor) check(ctx context.Context, now time.Time) {
 		return
 	}
 
-	running := make(map[string]struct{}, len(vms))
 	for _, vm := range vms {
 		if vm.State != "running" {
-			delete(m.seen, vm.Name)
 			continue
 		}
-		running[vm.Name] = struct{}{}
 
 		threshold := m.threshold(vm)
 		if threshold <= 0 {
-			delete(m.seen, vm.Name)
 			continue
 		}
 
-		total, ok := tapTrafficBytes(vm.Name)
-		if !ok {
-			continue
-		}
-		obs, ok := m.seen[vm.Name]
-		if !ok || obs.bytes != total {
-			m.seen[vm.Name] = idleObservation{
-				bytes:      total,
-				lastActive: now,
-			}
-			continue
-		}
-		if now.Sub(obs.lastActive) < threshold {
+		lastActive, ok := vmLastActivity(vm)
+		if !ok || now.Sub(lastActive) < threshold {
 			continue
 		}
 
-		m.sleepIdleVM(ctx, vm, now.Sub(obs.lastActive))
-		delete(m.seen, vm.Name)
-	}
-
-	for name := range m.seen {
-		if _, ok := running[name]; !ok {
-			delete(m.seen, name)
-		}
+		m.sleepIdleVM(ctx, vm, now.Sub(lastActive))
 	}
 }
 
@@ -114,6 +83,19 @@ func (m *IdleMonitor) threshold(vm store.VM) time.Duration {
 		seconds = m.manager.cfg.Idle.DefaultSleepAfterSeconds
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func vmLastActivity(vm store.VM) (time.Time, bool) {
+	for _, raw := range []string{vm.LastActivityAt, vm.LastStartedAt} {
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func (m *IdleMonitor) sleepIdleVM(ctx context.Context, vm store.VM, idleFor time.Duration) {
@@ -132,16 +114,4 @@ func (m *IdleMonitor) sleepIdleVM(ctx context.Context, vm store.VM, idleFor time
 	if err := m.reconciler.Reconcile(ctx); err != nil {
 		m.logger.Warn("reconcile proxy after idle sleep", "vm", vm.Name, "error", err)
 	}
-}
-
-func tapTrafficBytes(vmName string) (uint64, bool) {
-	link, err := netlink.LinkByName(tapName(vmName))
-	if err != nil {
-		return 0, false
-	}
-	stats := link.Attrs().Statistics
-	if stats == nil {
-		return 0, false
-	}
-	return stats.RxBytes + stats.TxBytes, true
 }

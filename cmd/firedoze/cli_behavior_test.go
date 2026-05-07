@@ -299,6 +299,8 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
 			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -323,7 +325,7 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 	if waitedIP != "fd00::2" {
 		t.Fatalf("waited IP = %q, want fd00::2", waitedIP)
 	}
-	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start"}) {
+	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start", "POST /vms/demo/activity"}) {
 		t.Fatalf("requests = %#v", requestKeys(requests))
 	}
 	wantSuffix := []string{"ubuntu@fd00::2", "-L", "8080:localhost:8080"}
@@ -341,6 +343,8 @@ func TestSSHProxyStartsSleepingVMWaitsDialsAndPipes(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/vms":
 			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
 			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -409,13 +413,18 @@ func TestSSHProxyStartsSleepingVMWaitsDialsAndPipes(t *testing.T) {
 	if output.String() != "server hello" {
 		t.Fatalf("proxy output = %q, want server hello", output.String())
 	}
-	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start"}) {
+	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start", "POST /vms/demo/activity"}) {
 		t.Fatalf("requests = %#v", requestKeys(requests))
 	}
 }
 
 func TestExecCpAndWithVMIPUseCommandRunner(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -473,6 +482,8 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"stopped","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
 			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/vms":
 			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}]}`)
 		default:
@@ -497,7 +508,7 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := requestKeys(requests)
-	want := []string{"GET /vms", "POST /base-image/warmup", "POST /vms", "POST /vms/demo/start", "GET /vms"}
+	want := []string{"GET /vms", "POST /base-image/warmup", "POST /vms", "POST /vms/demo/start", "GET /vms", "POST /vms/demo/activity"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}

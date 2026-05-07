@@ -84,6 +84,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /vms/{name}/settings", s.handleUpdateVMSettings)
 	s.mux.HandleFunc("DELETE /vms/{name}", s.handleDeleteVM)
 	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
+	s.mux.HandleFunc("POST /vms/{name}/activity", s.handleTouchVMActivity)
 	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
 	s.mux.HandleFunc("POST /vms/{name}/sleep", s.handleSleepVM)
 	s.mux.HandleFunc("POST /vms/{name}/reboot", s.handleRebootVM)
@@ -110,7 +111,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			"config":          {"GET /config"},
 			"base_image":      {"POST /base-image/warmup"},
 			"usage":           {"GET /usage", "GET /vms/{name}/usage"},
-			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
+			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/activity", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore", "GET /snapshots/{name}/export", "POST /snapshots/{name}/import"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
@@ -296,6 +297,37 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
+}
+
+func (s *Server) handleTouchVMActivity(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	vm, err := s.store.GetVM(r.Context(), name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	if vm.State != "running" {
+		writeError(w, http.StatusConflict, firecracker.ErrNotRunning)
+		return
+	}
+	if err := s.store.TouchVMActivity(r.Context(), name); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, err)
+		return
+	}
+	vm, err = s.store.GetVM(r.Context(), name)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

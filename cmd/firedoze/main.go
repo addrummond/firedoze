@@ -1093,7 +1093,7 @@ func (a app) ssh(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.run(cmd)
+	return a.runWithActivity(vm.Name, cmd)
 }
 
 func (a app) sshProxy(args []string) error {
@@ -1112,6 +1112,8 @@ func (a app) sshProxy(args []string) error {
 		return err
 	}
 	defer conn.Close()
+	stopActivity := a.activityHeartbeat(args[0])
+	defer stopActivity()
 
 	input := a.proxyInput
 	if input == nil {
@@ -1148,7 +1150,7 @@ func (a app) exec(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.run(cmd)
+	return a.runWithActivity(vm.Name, cmd)
 }
 
 func (a app) cp(args []string) error {
@@ -1174,7 +1176,7 @@ func (a app) cp(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.run(cmd)
+	return a.runWithActivity(vm.Name, cmd)
 }
 
 func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
@@ -1193,6 +1195,41 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 		return vmInfo{}, err
 	}
 	return vm, nil
+}
+
+func (a app) touchVMActivity(name string) error {
+	if a.client == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out struct {
+		VM vmInfo `json:"vm"`
+	}
+	return a.client.do(ctx, http.MethodPost, "/vms/"+url.PathEscape(name)+"/activity", nil, &out)
+}
+
+func (a app) activityHeartbeat(name string) func() {
+	_ = a.touchVMActivity(name)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = a.touchVMActivity(name)
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func remoteExecCommand(vm vmInfo, commandArgs []string) []string {
@@ -1368,6 +1405,12 @@ func (a app) run(cmd *exec.Cmd) error {
 		return a.runCommand(cmd)
 	}
 	return cmd.Run()
+}
+
+func (a app) runWithActivity(vmName string, cmd *exec.Cmd) error {
+	stopActivity := a.activityHeartbeat(vmName)
+	defer stopActivity()
+	return a.run(cmd)
 }
 
 func (a app) waitForSSH(ip string, timeout time.Duration) error {

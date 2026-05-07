@@ -127,6 +127,9 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "firedoze vm has no private ip", http.StatusServiceUnavailable)
 		return
 	}
+	if err := p.store.TouchVMActivity(r.Context(), vm.Name); err != nil {
+		p.logger.Warn("touch vm activity for http route", "vm", vm.Name, "host", r.Host, "error", err)
+	}
 
 	target := &url.URL{
 		Scheme: "http",

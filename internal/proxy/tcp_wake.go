@@ -144,6 +144,9 @@ func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 		p.logger.Warn("wait for vm ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
 		return
 	}
+	if err := p.store.TouchVMActivity(ctx, vm.Name); err != nil {
+		p.logger.Warn("touch vm activity for ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
+	}
 
 	upstream, err := dialTimeoutFunc("tcp", net.JoinHostPort(vm.PrivateIP, "22"), 10*time.Second)
 	if err != nil {

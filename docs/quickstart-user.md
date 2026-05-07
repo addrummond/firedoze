@@ -322,6 +322,8 @@ firedoze vm settings demo -idle-sleep-after 3600 # 1 hour
 
 The value is in seconds.
 
+Firedoze counts user-facing activity, such as public HTTPS requests and client sessions opened with `firedoze ssh`, `firedoze exec`, `firedoze cp`, or the SSH proxy. Internal VM management traffic, such as guest resource reporting, does not keep a VM awake.
+
 Autowake controls whether passive network activity is allowed to wake a sleeping VM. It is enabled by default for newly created VMs.
 
 When autowake is enabled:

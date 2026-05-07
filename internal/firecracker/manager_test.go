@@ -1205,9 +1205,9 @@ func TestShouldArchiveStoppedVM(t *testing.T) {
 
 func TestIdleMonitorThresholdAndCleanup(t *testing.T) {
 	ctx := context.Background()
-	m, st := newTestManager(t)
+	m, _ := newTestManager(t)
 	monitor := NewIdleMonitor(m, nil, nil)
-	if monitor.manager != m || monitor.seen == nil {
+	if monitor.manager != m {
 		t.Fatal("idle monitor not initialized")
 	}
 	m.cfg.Idle.DefaultSleepAfterSeconds = 30
@@ -1217,13 +1217,17 @@ func TestIdleMonitorThresholdAndCleanup(t *testing.T) {
 	if got := monitor.threshold(store.VM{Name: "override", IdleSleepAfterSeconds: 5}); got != 5*time.Second {
 		t.Fatalf("override threshold = %s", got)
 	}
-
-	createSnapshotTestVM(t, m, st, "stopped", "stopped")
-	monitor.seen["stopped"] = idleObservation{bytes: 1, lastActive: time.Now()}
-	monitor.seen["missing"] = idleObservation{bytes: 1, lastActive: time.Now()}
-	monitor.check(ctx, time.Now())
-	if len(monitor.seen) != 0 {
-		t.Fatalf("seen after cleanup = %#v", monitor.seen)
+	now := time.Now().UTC()
+	recent := now.Add(-29 * time.Second).Format(time.RFC3339Nano)
+	if last, ok := vmLastActivity(store.VM{Name: "recent", LastActivityAt: recent}); !ok || !last.Equal(now.Add(-29*time.Second)) {
+		t.Fatalf("last activity = %s %v, want recent timestamp", last, ok)
+	}
+	fallback := now.Add(-31 * time.Second).Format(time.RFC3339Nano)
+	if last, ok := vmLastActivity(store.VM{Name: "fallback", LastStartedAt: fallback}); !ok || !last.Equal(now.Add(-31*time.Second)) {
+		t.Fatalf("fallback activity = %s %v, want last_started_at", last, ok)
+	}
+	if _, ok := vmLastActivity(store.VM{Name: "missing"}); ok {
+		t.Fatal("vmLastActivity accepted missing timestamps")
 	}
 
 	m.cfg.Idle.DefaultSleepAfterSeconds = 0
