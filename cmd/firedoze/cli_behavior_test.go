@@ -721,6 +721,21 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+func TestActivityHeartbeatIntervalUsesConfiguredIdleTimeout(t *testing.T) {
+	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 21600}}); got != 90*time.Minute {
+		t.Fatalf("default heartbeat interval = %s, want 90m", got)
+	}
+	if got := activityHeartbeatInterval(vmInfo{VM: modelVM("running", "")}); got != 0 {
+		t.Fatalf("disabled heartbeat interval = %s, want 0", got)
+	}
+	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 60}}); got != 15*time.Second {
+		t.Fatalf("override heartbeat interval = %s, want 15s", got)
+	}
+	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 20}}); got != 10*time.Second {
+		t.Fatalf("short timeout heartbeat interval = %s, want 10s floor", got)
+	}
+}
+
 func modelVM(state string, lastStartedAt string) model.VM {
 	return model.VM{
 		Name:          "demo",

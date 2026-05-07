@@ -319,7 +319,7 @@ This requires Firecracker memory snapshot state, disk state, and VM metadata to 
 
 The implementation exposes a manual exact sleep/resume primitive: `POST /vms/{name}/sleep` saves Firecracker memory and VM state into the VM's state directory, stops the Firecracker process, and marks the VM `sleeping`; `POST /vms/{name}/start` loads that state back into Firecracker.
 
-Automatic idle detection is layered on top of that primitive. The daemon tracks a stored last-activity timestamp for each running VM and updates it from meaningful user-facing paths, rather than raw TAP byte counters. If a VM has no recorded activity for its configured idle threshold, the monitor calls the same exact sleep path. `idle.default_sleep_after_seconds` is the global threshold, `idle.check_interval_seconds` controls sample frequency, and `idle_sleep_after_seconds` on a VM can override the global threshold.
+Automatic idle detection is layered on top of that primitive. The daemon tracks a stored last-activity timestamp for each running VM and updates it from meaningful user-facing paths. If a VM has no recorded activity for its configured idle threshold, the monitor calls the same exact sleep path. `idle.default_sleep_after_seconds` is the global threshold, `idle.check_interval_seconds` controls sample frequency, and `idle_sleep_after_seconds` on a VM can override the global threshold.
 
 ## Snapshot Model
 

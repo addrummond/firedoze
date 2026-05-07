@@ -753,6 +753,9 @@ func (s *Server) vmInfos(vms []store.VM) []vmInfo {
 
 func (s *Server) vmInfo(vm store.VM) vmInfo {
 	hostname := s.defaultHostname(vm.Name)
+	if vm.IdleSleepAfterSeconds == 0 {
+		vm.IdleSleepAfterSeconds = s.cfg.Idle.DefaultSleepAfterSeconds
+	}
 	return vmInfo{
 		VM:       vm,
 		Hostname: hostname,

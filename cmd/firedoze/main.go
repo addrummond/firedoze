@@ -1093,7 +1093,7 @@ func (a app) ssh(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.runWithActivity(vm.Name, cmd)
+	return a.runWithActivity(vm, cmd)
 }
 
 func (a app) sshProxy(args []string) error {
@@ -1112,7 +1112,7 @@ func (a app) sshProxy(args []string) error {
 		return err
 	}
 	defer conn.Close()
-	stopActivity := a.activityHeartbeat(args[0])
+	stopActivity := a.activityHeartbeat(vm)
 	defer stopActivity()
 
 	input := a.proxyInput
@@ -1150,7 +1150,7 @@ func (a app) exec(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.runWithActivity(vm.Name, cmd)
+	return a.runWithActivity(vm, cmd)
 }
 
 func (a app) cp(args []string) error {
@@ -1176,7 +1176,7 @@ func (a app) cp(args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return a.runWithActivity(vm.Name, cmd)
+	return a.runWithActivity(vm, cmd)
 }
 
 func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
@@ -1209,20 +1209,24 @@ func (a app) touchVMActivity(name string) error {
 	return a.client.do(ctx, http.MethodPost, "/vms/"+url.PathEscape(name)+"/activity", nil, &out)
 }
 
-func (a app) activityHeartbeat(name string) func() {
-	_ = a.touchVMActivity(name)
+func (a app) activityHeartbeat(vm vmInfo) func() {
+	_ = a.touchVMActivity(vm.Name)
+	interval := activityHeartbeatInterval(vm)
+	if interval <= 0 {
+		return func() {}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(time.Minute)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = a.touchVMActivity(name)
+				_ = a.touchVMActivity(vm.Name)
 			}
 		}
 	}()
@@ -1230,6 +1234,18 @@ func (a app) activityHeartbeat(name string) func() {
 		cancel()
 		<-done
 	}
+}
+
+func activityHeartbeatInterval(vm vmInfo) time.Duration {
+	seconds := vm.IdleSleepAfterSeconds
+	if seconds <= 0 {
+		return 0
+	}
+	interval := time.Duration(seconds) * time.Second / 4
+	if interval < 10*time.Second {
+		return 10 * time.Second
+	}
+	return interval
 }
 
 func remoteExecCommand(vm vmInfo, commandArgs []string) []string {
@@ -1407,8 +1423,8 @@ func (a app) run(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-func (a app) runWithActivity(vmName string, cmd *exec.Cmd) error {
-	stopActivity := a.activityHeartbeat(vmName)
+func (a app) runWithActivity(vm vmInfo, cmd *exec.Cmd) error {
+	stopActivity := a.activityHeartbeat(vm)
 	defer stopActivity()
 	return a.run(cmd)
 }
