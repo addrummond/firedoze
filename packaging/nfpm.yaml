@@ -7,7 +7,6 @@ version_schema: semver
 release: ${FIREDOZE_PACKAGE_RELEASE}
 section: utils
 priority: optional
-maintainer: Firedoze maintainers <noreply@firedoze.dev>
 vendor: Firedoze
 homepage: https://github.com/addrummond/firedoze
 license: MIT
