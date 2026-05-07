@@ -572,12 +572,57 @@ func TestVMListNamesOnlyPrintsOneNamePerLine(t *testing.T) {
 	}
 }
 
+func TestVMListIDsOnlyPrintsOneUUIDPerLine(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vms":[
+			{"uuid":"550e8400-e29b-41d4-a716-446655440000","name":"demo-one","state":"running"},
+			{"uuid":"97d12f33-e573-4d5e-a3b0-2f7dd0f93eb4","name":"test-two","state":"stopped"}
+		]}`)
+	})
+
+	c := testClient(t, handler)
+	var out bytes.Buffer
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: c}).vm([]string{"list", "-ids"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	want := "550e8400-e29b-41d4-a716-446655440000\n97d12f33-e573-4d5e-a3b0-2f7dd0f93eb4\n"
+	if got := out.String(); got != want {
+		t.Fatalf("ids-only output = %q, want %q", got, want)
+	}
+}
+
 func TestVMListNamesOnlyRejectsJSON(t *testing.T) {
 	err := (app{json: true}).vm([]string{"list", "-names"})
 	if err == nil {
 		t.Fatal("vm list -names accepted -json mode")
 	}
 	if !strings.Contains(err.Error(), "cannot be combined with -json") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestVMListRejectsNamesAndIDsOnlyTogether(t *testing.T) {
+	err := (app{}).vm([]string{"list", "-names", "-ids"})
+	if err == nil {
+		t.Fatal("vm list accepted -names and -ids together")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
 		t.Fatalf("error = %q", err)
 	}
 }

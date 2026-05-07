@@ -461,6 +461,15 @@ For shell scripts, print just matching VM names:
 firedoze vm list -names 'demo*'
 ```
 
+Or print just matching VM UUIDs:
+
+```sh
+firedoze vm list -ids 'demo*'
+```
+
+Commands that take `<vm>` accept either the VM name or its UUID. UUIDs are
+useful in scripts when a stable identity matters.
+
 Run a command inside a VM and snapshot it after the command succeeds:
 
 ```sh

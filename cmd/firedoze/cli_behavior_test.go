@@ -132,6 +132,63 @@ func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestVMCommandsAcceptUUIDReferences(t *testing.T) {
+	const vmUUID = "550e8400-e29b-41d4-a716-446655440000"
+	var requests []cliRequest
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, readCLIRequest(t, r))
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/vms/"+vmUUID:
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"`+vmUUID+`","name":"demo","state":"stopped"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/"+vmUUID+"/start":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"`+vmUUID+`","name":"demo","state":"running"}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	if err := (app{client: testClient(t, handler), json: true}).vm([]string{"start", vmUUID}); err != nil {
+		t.Fatal(err)
+	}
+	got := requestKeys(requests)
+	want := []string{"GET /vms/" + vmUUID, "POST /vms/" + vmUUID + "/start"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("requests = %#v, want %#v", got, want)
+	}
+}
+
+func TestVMIDPrintsUUID(t *testing.T) {
+	const vmUUID = "550e8400-e29b-41d4-a716-446655440000"
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms-by-name/demo" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"vm":{"uuid":"`+vmUUID+`","name":"demo","state":"running"}}`)
+	})
+
+	var out bytes.Buffer
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = (app{client: testClient(t, handler)}).vm([]string{"id", "demo"})
+	_ = w.Close()
+	os.Stdout = stdout
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), vmUUID+"\n"; got != want {
+		t.Fatalf("id output = %q, want %q", got, want)
+	}
+}
+
 func TestVMSettingsPatchBody(t *testing.T) {
 	var request cliRequest
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

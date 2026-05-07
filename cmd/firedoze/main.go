@@ -24,6 +24,8 @@ import (
 	"firedoze/internal/clientwg"
 	"firedoze/internal/model"
 	wgconfig "firedoze/internal/wireguard"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -365,18 +367,22 @@ func findClientWireGuardPrivateKey(cfg clientConfig, name string) (string, error
 
 func (a app) vm(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze vm <list|usage|inspect|create|up|start|reboot|sleep|stop|delete|publish|hide|settings>")
+		return errors.New("usage: firedoze vm <list|usage|inspect|id|create|up|start|reboot|sleep|stop|delete|publish|hide|settings>")
 	}
 	switch args[0] {
 	case "list", "ls":
 		listFlags := flag.NewFlagSet("firedoze vm list", flag.ContinueOnError)
 		listFlags.SetOutput(io.Discard)
 		namesOnly := listFlags.Bool("names", false, "print only VM names")
+		idsOnly := listFlags.Bool("ids", false, "print only VM UUIDs")
 		if err := listFlags.Parse(args[1:]); err != nil {
-			return fmt.Errorf("%w\nusage: firedoze vm list [-names] [name-glob...]", err)
+			return fmt.Errorf("%w\nusage: firedoze vm list [-names|-ids] [name-glob...]", err)
 		}
-		if a.json && *namesOnly {
-			return errors.New("firedoze vm list -names cannot be combined with -json")
+		if *namesOnly && *idsOnly {
+			return errors.New("firedoze vm list -names and -ids cannot be combined")
+		}
+		if a.json && (*namesOnly || *idsOnly) {
+			return errors.New("firedoze vm list -names/-ids cannot be combined with -json")
 		}
 		patterns := listFlags.Args()
 		var out struct {
@@ -402,6 +408,12 @@ func (a app) vm(args []string) error {
 			}
 			return nil
 		}
+		if *idsOnly {
+			for _, vm := range out.VMs {
+				fmt.Println(vm.UUID)
+			}
+			return nil
+		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tSTATE\tRUNTIME\tPRIVATE IP\tPUBLIC URL")
 		for _, vm := range out.VMs {
@@ -412,13 +424,26 @@ func (a app) vm(args []string) error {
 		return a.vmUsage(args[1:])
 	case "inspect", "show":
 		if len(args) != 2 {
-			return errors.New("usage: firedoze vm inspect <name>")
+			return errors.New("usage: firedoze vm inspect <vm>")
 		}
 		vm, err := a.lookupVM(args[1])
 		if err != nil {
 			return err
 		}
 		return printJSON(map[string]any{"vm": vm})
+	case "id", "uuid":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze vm id <vm>")
+		}
+		vm, err := a.lookupVM(args[1])
+		if err != nil {
+			return err
+		}
+		if a.json {
+			return printJSON(map[string]any{"uuid": vm.UUID})
+		}
+		fmt.Println(vm.UUID)
+		return nil
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
@@ -427,7 +452,7 @@ func (a app) vm(args []string) error {
 		return a.createVMs(params, names)
 	case "start", "stop":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: firedoze vm %s <name>", args[0])
+			return fmt.Errorf("usage: firedoze vm %s <vm>", args[0])
 		}
 		if args[0] == "start" {
 			vm, err := a.startVM(args[1])
@@ -454,7 +479,7 @@ func (a app) vm(args []string) error {
 		return a.printJSONOrLine(map[string]any{"status": pastTense(args[0])}, fmt.Sprintf("%s %s", args[1], pastTense(args[0])))
 	case "sleep":
 		if len(args) < 2 {
-			return errors.New("usage: firedoze vm sleep <name> [name...]")
+			return errors.New("usage: firedoze vm sleep <vm> [vm...]")
 		}
 		slept := []map[string]string{}
 		for _, name := range args[1:] {
@@ -477,7 +502,7 @@ func (a app) vm(args []string) error {
 		return nil
 	case "reboot":
 		if len(args) < 2 {
-			return errors.New("usage: firedoze vm reboot <name> [name...]")
+			return errors.New("usage: firedoze vm reboot <vm> [vm...]")
 		}
 		rebooted := []vmInfo{}
 		for _, name := range args[1:] {
@@ -496,7 +521,7 @@ func (a app) vm(args []string) error {
 		return nil
 	case "publish", "hide":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: firedoze vm %s <name>", args[0])
+			return fmt.Errorf("usage: firedoze vm %s <vm>", args[0])
 		}
 		public := args[0] == "publish"
 		return a.setPublicHTTP(args[1], public)
@@ -504,7 +529,7 @@ func (a app) vm(args []string) error {
 		return a.up(args[1:])
 	case "delete", "rm":
 		if len(args) < 2 {
-			return errors.New("usage: firedoze vm delete <name> [name...]")
+			return errors.New("usage: firedoze vm delete <vm> [vm...]")
 		}
 		deleted := []map[string]string{}
 		for _, name := range args[1:] {
@@ -717,7 +742,7 @@ func (a app) vmSettings(args []string) error {
 	publicHTTP := optionalBoolFlag(flags, "publish")
 	name, err := parseNameAndFlags(flags, args)
 	if err != nil {
-		return fmt.Errorf("%w\nusage: firedoze vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]", err)
+		return fmt.Errorf("%w\nusage: firedoze vm settings <vm> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]", err)
 	}
 	body := map[string]any{}
 	if *httpPort >= 0 {
@@ -822,7 +847,7 @@ func (a app) snapshot(args []string) error {
 	case "restore":
 		params, snapshotName, vmName, err := parseSnapshotRestoreArgs(args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <vm> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
+			return fmt.Errorf("%w\nusage: firedoze snapshot restore <snapshot> <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]", err)
 		}
 		var out map[string]any
 		body := restoreSnapshotBody(params, vmName)
@@ -986,6 +1011,9 @@ func (a app) up(args []string) error {
 		return err
 	}
 	if !found {
+		if _, ok := parseVMUUIDRef(name); ok {
+			return fmt.Errorf("VM not found: %s", name)
+		}
 		if err := runWithSpinner(os.Stderr, baseImageWarmupLabel, a.warmBaseImageMetadata); err != nil {
 			return err
 		}
@@ -1493,22 +1521,26 @@ func (a app) dialContext() func(context.Context, string, string) (net.Conn, erro
 	return dialer.DialContext
 }
 
-func (a app) lookupVM(name string) (vmInfo, error) {
-	vm, found, err := a.findVM(name)
+func (a app) lookupVM(ref string) (vmInfo, error) {
+	vm, found, err := a.findVM(ref)
 	if err != nil {
 		return vmInfo{}, err
 	}
 	if !found {
-		return vmInfo{}, fmt.Errorf("VM not found: %s", name)
+		return vmInfo{}, fmt.Errorf("VM not found: %s", ref)
 	}
 	return vm, nil
 }
 
-func (a app) findVM(name string) (vmInfo, bool, error) {
+func (a app) findVM(ref string) (vmInfo, bool, error) {
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
-	if err := a.client.do(context.Background(), http.MethodGet, "/vms-by-name/"+url.PathEscape(name), nil, &out); err != nil {
+	path := "/vms-by-name/" + url.PathEscape(ref)
+	if parsed, ok := parseVMUUIDRef(ref); ok {
+		path = "/vms/" + url.PathEscape(parsed)
+	}
+	if err := a.client.do(context.Background(), http.MethodGet, path, nil, &out); err != nil {
 		var apiErr apiError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 			return vmInfo{}, false, nil
@@ -1516,6 +1548,14 @@ func (a app) findVM(name string) (vmInfo, bool, error) {
 		return vmInfo{}, false, err
 	}
 	return out.VM, true, nil
+}
+
+func parseVMUUIDRef(ref string) (string, bool) {
+	parsed, err := uuid.Parse(ref)
+	if err != nil {
+		return "", false
+	}
+	return parsed.String(), true
 }
 
 func sshCommand(vm vmInfo) []string {
@@ -2068,23 +2108,24 @@ Commands:
   server current
   server remove <name> [name...]
   server path
-  vm list [-names] [name-glob...]
+  vm list [-names|-ids] [name-glob...]
   vm usage [name-glob...]
-  vm inspect <name>
+  vm inspect <vm>
+  vm id <vm>
   vm create <name> [name...] [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   vm up <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish=false] [-- ssh args...]
-  vm start <name>
-  vm reboot <name> [name...]
-  vm sleep <name> [name...]
-  vm stop <name>
-  vm delete <name> [name...]
-  vm publish <name>
-  vm hide <name>
-  vm settings <name> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]
+  vm start <vm>
+  vm reboot <vm> [vm...]
+  vm sleep <vm> [vm...]
+  vm stop <vm>
+  vm delete <vm> [vm...]
+  vm publish <vm>
+  vm hide <vm>
+  vm settings <vm> [-http-port N] [-idle-sleep-after N] [-auto-wake true|false] [-publish true|false]
   snapshot list
   snapshot inspect <snapshot>
   snapshot save <snapshot> <vm>
-  snapshot restore <snapshot> <vm> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
+  snapshot restore <snapshot> <name> [-vcpus N] [-memory-min-mib N] [-memory-max-mib N] [-disk-bytes N] [-http-port N] [-idle-sleep-after N] [-no-auto-wake] [-publish]
   snapshot export <snapshot> <file>
   snapshot import <snapshot> <file>
   snapshot delete <snapshot>

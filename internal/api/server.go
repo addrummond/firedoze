@@ -17,6 +17,8 @@ import (
 	"firedoze/internal/model"
 	"firedoze/internal/store"
 	wgconfig "firedoze/internal/wireguard"
+
+	"github.com/google/uuid"
 )
 
 const ShutdownTimeout = 5 * time.Second
@@ -275,7 +277,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validVMName(req.Name) {
-		writeError(w, http.StatusBadRequest, errors.New("name must contain only lowercase letters, numbers, and hyphens"))
+		writeError(w, http.StatusBadRequest, errors.New("name must be DNS-safe and must not be UUID-shaped"))
 		return
 	}
 	vm, err := s.manager.CreateVM(r.Context(), store.CreateVMParams{
@@ -480,7 +482,7 @@ func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !validVMName(req.Name) {
+	if !validDNSLabel(req.Name) {
 		writeError(w, http.StatusBadRequest, errors.New("name must contain only lowercase letters, numbers, and hyphens"))
 		return
 	}
@@ -614,7 +616,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validVMName(req.VMName) {
-		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+		writeError(w, http.StatusBadRequest, errors.New("vm_name must be DNS-safe and must not be UUID-shaped"))
 		return
 	}
 	vm, err := s.manager.RestoreSnapshot(r.Context(), snapshotName, store.CreateVMParams{
@@ -816,6 +818,14 @@ var vmNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 var snapshotNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 func validVMName(name string) bool {
+	if !validDNSLabel(name) {
+		return false
+	}
+	_, err := uuid.Parse(name)
+	return err != nil
+}
+
+func validDNSLabel(name string) bool {
 	return vmNamePattern.MatchString(name)
 }
 

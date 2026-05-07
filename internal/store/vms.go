@@ -42,6 +42,9 @@ type UpdateVMParams struct {
 }
 
 func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error) {
+	if _, err := uuid.Parse(params.Name); err == nil {
+		return VM{}, fmt.Errorf("vm name must not be UUID-shaped: %q", params.Name)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return VM{}, err

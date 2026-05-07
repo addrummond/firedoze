@@ -60,6 +60,32 @@ func TestListVMsMatching(t *testing.T) {
 	}
 }
 
+func TestCreateVMRejectsUUIDShapedNameButAllowsContainingUUID(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "firedoze.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	uuidName := "550e8400-e29b-41d4-a716-446655440000"
+	if _, err := st.CreateVM(ctx, CreateVMParams{Name: uuidName, PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err == nil {
+		t.Fatal("CreateVM accepted UUID-shaped name")
+	}
+
+	containsUUID := "vm-550e8400-e29b-41d4-a716-446655440000-ok"
+	vm, err := st.CreateVM(ctx, CreateVMParams{Name: containsUUID, PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
+		t.Fatalf("CreateVM rejected name containing UUID: %v", err)
+	}
+	if vm.Name != containsUUID {
+		t.Fatalf("vm name = %q, want %q", vm.Name, containsUUID)
+	}
+}
+
 func TestSetVMStateAllowsLost(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(ctx, filepath.Join(t.TempDir(), "firedoze.db"))

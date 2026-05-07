@@ -493,6 +493,9 @@ func TestVMValidationAndLifecycleStatusCodes(t *testing.T) {
 	rec := request(t, handler, http.MethodPost, "/vms", map[string]any{"name": "Bad_Name"})
 	assertStatus(t, rec, http.StatusBadRequest)
 
+	rec = request(t, handler, http.MethodPost, "/vms", map[string]any{"name": "550e8400-e29b-41d4-a716-446655440000"})
+	assertStatus(t, rec, http.StatusBadRequest)
+
 	rec = request(t, handler, http.MethodPost, "/vms", "{")
 	assertStatus(t, rec, http.StatusBadRequest)
 

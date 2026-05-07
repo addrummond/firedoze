@@ -114,11 +114,27 @@ Print just the matching VM names, one per line, for scripts:
 firedoze vm list -names 'demo*'
 ```
 
+Print just matching VM UUIDs:
+
+```sh
+firedoze vm list -ids 'demo*'
+```
+
 Inspect one VM:
 
 ```sh
 firedoze vm inspect demo
 ```
+
+Get one VM's UUID:
+
+```sh
+firedoze vm id demo
+```
+
+Commands that take `<vm>` accept either the VM name or its UUID. Names are
+usually easier for humans; UUIDs are useful for scripts that need a stable
+identity across renames.
 
 Check resource usage across VMs:
 

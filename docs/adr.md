@@ -141,7 +141,7 @@ The API is experimental in early versions and may change freely. Compatibility s
 
 The root endpoint returns a compact JSON resource index. Errors are JSON objects. Operational endpoints return structured resources such as VMs, routes, snapshots, WireGuard peers, and WireGuard peer import configs. The WireGuard peer config endpoint returns the generated Firedoze client import config as a JSON string field, not as `text/plain`.
 
-VMs have immutable UUIDs as their true API identity. User-facing commands usually accept VM names, but the client first resolves the name with `GET /vms-by-name/{name}` and then performs VM-specific operations against `/vms/{uuid}/...`. This avoids a sequence of API calls accidentally operating on different VMs if a VM is renamed between calls.
+VMs have immutable UUIDs as their true API identity. User-facing commands usually accept VM names, but the client first resolves the name with `GET /vms-by-name/{name}` and then performs VM-specific operations against `/vms/{uuid}/...`. If a CLI VM reference is itself UUID-shaped, the client treats it as a UUID and goes directly to `/vms/{uuid}`. VM names that are exactly UUID-shaped are rejected; names that merely contain UUID text are allowed. This avoids a sequence of API calls accidentally operating on different VMs if a VM is renamed between calls.
 
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
@@ -150,8 +150,9 @@ The client stores named server profiles in `~/.config/firedoze/config.toml`. Imp
 The client should provide the friendly operational surface:
 
 - `firedoze server request/import/add/list/use/current/remove`
-- `firedoze vm list [-names] [name-glob...]`
+- `firedoze vm list [-names|-ids] [name-glob...]`
 - `firedoze vm inspect <vm>`
+- `firedoze vm id <vm>`
 - `firedoze vm create/up/start/reboot/sleep/stop/delete/publish/hide/settings`
 - `firedoze ssh <vm>`
 - `firedoze snapshot list/inspect/save/restore/export/import/delete`
@@ -182,6 +183,8 @@ VM UUIDs are immutable and are the primary key in the database and API.
 VM names are globally unique, mutable user-facing handles. They map one-to-one with default virtual hostnames.
 
 VM names must be DNS-safe: lowercase letters, numbers, and hyphens.
+
+VM names must not be exactly UUID-shaped, because CLI commands use UUID-shaped VM references as direct UUID lookups. A name that contains UUID text as only part of the name is still valid if it otherwise follows the DNS-safe name rule.
 
 Every VM always gets its default hostname:
 
