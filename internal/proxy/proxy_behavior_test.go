@@ -72,12 +72,13 @@ func TestDefaultHostAndCaddyFallbackRoute(t *testing.T) {
 
 func TestCaddyReconcileAndStopUseAdapter(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
 		Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 8080}); err != nil {
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMUUID: vm.UUID, Port: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	var loaded []byte
@@ -119,12 +120,13 @@ func TestCaddyReconcileAndStopUseAdapter(t *testing.T) {
 
 func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
 		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, PublicHTTP: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 9000}); err != nil {
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMUUID: vm.UUID, Port: 9000}); err != nil {
 		t.Fatal(err)
 	}
 	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
@@ -169,15 +171,16 @@ func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
 	})
 
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
 		Name: "demo", PrivateIP: "192.0.2.10", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true, PublicHTTP: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "running"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "running"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMName: "demo", Port: 8080}); err != nil {
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMUUID: vm.UUID, Port: 8080}); err != nil {
 		t.Fatal(err)
 	}
 	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
@@ -198,12 +201,13 @@ func TestWakeProxyProxiesRunningDefaultRouteAndAlias(t *testing.T) {
 
 func TestWakeProxySleepingStartFailuresAndPostCaptcha(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
 		Name: "demo", PrivateIP: "127.0.0.1", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 1, AutoWake: true, PublicHTTP: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := testConfig()
@@ -473,12 +477,13 @@ func TestTCPWakeHandleSSHConn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			st := testStore(t)
-			if _, err := st.CreateVM(context.Background(), store.CreateVMParams{
+			vm, err := st.CreateVM(context.Background(), store.CreateVMParams{
 				Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: tt.autoWake, AutoWakeSet: true,
-			}); err != nil {
+			})
+			if err != nil {
 				t.Fatal(err)
 			}
-			if err := st.SetVMState(context.Background(), "demo", tt.state); err != nil {
+			if err := st.SetVMState(context.Background(), vm.UUID, tt.state); err != nil {
 				t.Fatal(err)
 			}
 			starter := &fakeStarter{

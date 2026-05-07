@@ -25,10 +25,11 @@ func (s *recordingStarter) StartVM(context.Context, string) (store.VM, error) {
 
 func TestWakeProxyDoesNotWakeWhenAutoWakeDisabled(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,10 +51,11 @@ func TestWakeProxyDoesNotWakeWhenAutoWakeDisabled(t *testing.T) {
 
 func TestWakeProxyRequiresCaptchaBeforeWaking(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,10 +105,11 @@ func TestWakeProxyReturnsNotFoundForStoppedVM(t *testing.T) {
 
 func TestWakeProxyWakesWithSignedCookie(t *testing.T) {
 	st := testStore(t)
-	if _, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true}); err != nil {
+	vm, err := st.CreateVM(context.Background(), store.CreateVMParams{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080, AutoWake: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
 

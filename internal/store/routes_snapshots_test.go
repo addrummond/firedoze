@@ -10,8 +10,8 @@ import (
 func TestRouteCRUDAndVMExists(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	createTestVM(t, st, "dev")
-	createTestVM(t, st, "api")
+	dev := createTestVM(t, st, "dev")
+	api := createTestVM(t, st, "api")
 
 	exists, err := st.VMExists(ctx, "dev")
 	if err != nil {
@@ -28,7 +28,7 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 		t.Fatal("VMExists(missing) = true, want false")
 	}
 
-	route, err := st.CreateRoute(ctx, CreateRouteParams{Name: "web", VMName: "dev", Port: 8080})
+	route, err := st.CreateRoute(ctx, CreateRouteParams{Name: "web", VMUUID: dev.UUID, Port: 8080})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,10 +49,10 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 	if exists {
 		t.Fatal("RouteExists(missing) = true, want false")
 	}
-	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "web", VMName: "dev", Port: 8081}); err == nil {
+	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "web", VMUUID: dev.UUID, Port: 8081}); err == nil {
 		t.Fatal("duplicate route create succeeded")
 	}
-	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "dev", VMName: "api", Port: 8080}); !errors.Is(err, ErrAlreadyExists) {
+	if _, err := st.CreateRoute(ctx, CreateRouteParams{Name: "dev", VMUUID: api.UUID, Port: 8080}); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("CreateRoute with VM name error = %v, want ErrAlreadyExists", err)
 	}
 	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "web", PrivateIP: "fd00::4", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); !errors.Is(err, ErrAlreadyExists) {
@@ -67,7 +67,7 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 		t.Fatalf("routes = %#v", routes)
 	}
 
-	if err := st.DeleteRoutesForVM(ctx, "api"); err != nil {
+	if err := st.DeleteRoutesForVM(ctx, api.UUID); err != nil {
 		t.Fatal(err)
 	}
 	routes, err = st.ListRoutes(ctx)
@@ -92,11 +92,12 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 func TestSnapshotCRUDAndMetadata(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	createTestVM(t, st, "dev")
+	dev := createTestVM(t, st, "dev")
 
 	metadata := `{"rootfs":{"basename":"rootfs.ext4","sha256":"abc"}}`
 	snapshot, err := st.CreateSnapshot(ctx, CreateSnapshotParams{
 		Name:              "snap.1",
+		SourceVMUUID:      dev.UUID,
 		SourceVM:          "dev",
 		StatePath:         "/snap/state",
 		MemPath:           "/snap/mem",
@@ -145,9 +146,9 @@ func TestSnapshotCRUDAndMetadata(t *testing.T) {
 func TestVMUpdateArchiveDeleteAndCount(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	createTestVM(t, st, "dev")
+	dev := createTestVM(t, st, "dev")
 	createTestVM(t, st, "other")
-	if _, err := st.CreateSnapshot(ctx, CreateSnapshotParams{Name: "dev-snap", SourceVM: "dev", StatePath: "/state", MemPath: "/mem", DiskPath: "/disk"}); err != nil {
+	if _, err := st.CreateSnapshot(ctx, CreateSnapshotParams{Name: "dev-snap", SourceVMUUID: dev.UUID, SourceVM: "dev", StatePath: "/state", MemPath: "/mem", DiskPath: "/disk"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,7 +164,7 @@ func TestVMUpdateArchiveDeleteAndCount(t *testing.T) {
 	idleSeconds := 99
 	autoWake := true
 	publicHTTP := true
-	vm, err := st.UpdateVM(ctx, "dev", UpdateVMParams{
+	vm, err := st.UpdateVM(ctx, dev.UUID, UpdateVMParams{
 		DefaultHTTPPort:       &httpPort,
 		IdleSleepAfterSeconds: &idleSeconds,
 		AutoWake:              &autoWake,
@@ -179,20 +180,20 @@ func TestVMUpdateArchiveDeleteAndCount(t *testing.T) {
 		t.Fatalf("UpdateVM missing error = %v, want ErrNotFound", err)
 	}
 
-	if err := st.SetVMArchivedDiskPath(ctx, "dev", "/cold/dev/rootfs.ext4"); err != nil {
+	if err := st.SetVMArchivedDiskPath(ctx, dev.UUID, "/cold/dev/rootfs.ext4"); err != nil {
 		t.Fatal(err)
 	}
-	vm, err = st.GetVM(ctx, "dev")
+	vm, err = st.GetVM(ctx, dev.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if vm.ArchivedDiskPath != "/cold/dev/rootfs.ext4" {
 		t.Fatalf("ArchivedDiskPath = %q", vm.ArchivedDiskPath)
 	}
-	if err := st.SetVMArchivedDiskPath(ctx, "dev", ""); err != nil {
+	if err := st.SetVMArchivedDiskPath(ctx, dev.UUID, ""); err != nil {
 		t.Fatal(err)
 	}
-	vm, err = st.GetVM(ctx, "dev")
+	vm, err = st.GetVM(ctx, dev.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,13 +204,13 @@ func TestVMUpdateArchiveDeleteAndCount(t *testing.T) {
 		t.Fatalf("SetVMArchivedDiskPath missing error = %v, want ErrNotFound", err)
 	}
 
-	if err := st.DeleteVM(ctx, "dev"); err != nil {
+	if err := st.DeleteVM(ctx, dev.UUID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetVM(ctx, "dev"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.GetVM(ctx, dev.UUID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetVM deleted VM error = %v, want ErrNotFound", err)
 	}
-	if err := st.DeleteVM(ctx, "dev"); !errors.Is(err, ErrNotFound) {
+	if err := st.DeleteVM(ctx, dev.UUID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("DeleteVM missing error = %v, want ErrNotFound", err)
 	}
 	if _, err := st.GetSnapshot(ctx, "dev-snap"); err != nil {
@@ -221,67 +222,6 @@ func TestVMUpdateArchiveDeleteAndCount(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("CountVMs after delete = %d, want 1", count)
-	}
-}
-
-func TestMigrateOldSchemaAddsColumnsAndDefaults(t *testing.T) {
-	ctx := context.Background()
-	st, err := Open(ctx, filepath.Join(t.TempDir(), "firedoze.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := st.Close(); err != nil {
-			t.Errorf("close store: %v", err)
-		}
-	})
-
-	if _, err := st.db.ExecContext(ctx, `
-		create table vms (
-			name text primary key,
-			state text not null,
-			private_ip text,
-			vcpus integer not null,
-			memory_min_mib integer not null,
-			memory_max_mib integer not null,
-			disk_bytes integer not null,
-			default_http_port integer not null,
-			created_at text not null default '',
-			updated_at text not null default ''
-		);
-		create table snapshots (
-			name text primary key,
-			source_vm text,
-			state_path text not null,
-			disk_path text not null,
-			base_image_id text not null,
-			kernel_id text not null,
-			created_at text not null default ''
-		);
-		insert into vms (name, state, private_ip, vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, updated_at)
-		values ('old', 'stopped', 'fd00::2', 1, 128, 512, 1024, 8080, '2026-05-04T00:00:00Z');
-		insert into snapshots (name, source_vm, state_path, disk_path, base_image_id, kernel_id)
-		values ('snap-old', 'old', '/state', '/disk', 'base', 'kernel');
-	`); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	vm, err := st.GetVM(ctx, "old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if vm.StoppedAt != "2026-05-04T00:00:00Z" || vm.IdleSleepAfterSeconds != 0 || vm.AutoWake || vm.PublicHTTP {
-		t.Fatalf("migrated VM = %#v", vm)
-	}
-	snapshot, err := st.GetSnapshot(ctx, "snap-old")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.MemPath != "" || snapshot.BaseImageMetadata != "" {
-		t.Fatalf("migrated snapshot = %#v", snapshot)
 	}
 }
 

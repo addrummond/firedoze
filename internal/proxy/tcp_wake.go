@@ -128,14 +128,14 @@ func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 			p.logger.Info("ignored ssh wake because vm auto_wake is disabled", "vm", vm.Name, "ip", dst.IP)
 			return
 		}
-		started, err := p.manager.StartVM(ctx, vm.Name)
+		started, err := p.manager.StartVM(ctx, vm.UUID)
 		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
 			p.logger.Warn("wake vm for ssh", "vm", vm.Name, "ip", dst.IP, "error", err)
 			return
 		}
 		if err == nil {
 			vm = started
-		} else if refreshed, refreshErr := p.store.GetVM(ctx, vm.Name); refreshErr == nil {
+		} else if refreshed, refreshErr := p.store.GetVM(ctx, vm.UUID); refreshErr == nil {
 			vm = refreshed
 		}
 		p.logger.Info("woke vm for ssh", "vm", vm.Name, "ip", dst.IP)
@@ -144,7 +144,7 @@ func (p *TCPWakeProxy) handleSSHConn(ctx context.Context, client net.Conn) {
 		p.logger.Warn("wait for vm ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
 		return
 	}
-	if err := p.store.TouchVMActivity(ctx, vm.Name); err != nil {
+	if err := p.store.TouchVMActivity(ctx, vm.UUID); err != nil {
 		p.logger.Warn("touch vm activity for ssh", "vm", vm.Name, "ip", vm.PrivateIP, "error", err)
 	}
 

@@ -92,7 +92,7 @@ func (s *Server) answerVM(w miekgdns.ResponseWriter, r *miekgdns.Msg, q miekgdns
 		writeDNS(w, msg)
 		return
 	}
-	vm, err := s.store.GetVM(context.Background(), vmName)
+	vm, err := s.store.GetVMByName(context.Background(), vmName)
 	if err != nil {
 		writeDNS(w, newReply(r, miekgdns.RcodeNameError))
 		return

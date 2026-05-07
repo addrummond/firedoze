@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"firedoze/internal/model"
+
+	"github.com/google/uuid"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -53,17 +55,18 @@ func (s *Store) CreateVM(ctx context.Context, params CreateVMParams) (VM, error)
 	if routeExists {
 		return VM{}, fmt.Errorf("%w: route %q reserves VM name", ErrAlreadyExists, params.Name)
 	}
+	vmUUID := uuid.NewString()
 	_, err = tx.ExecContext(ctx, `
-		insert into vms (name, state, private_ip, vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
-		values (?, 'stopped', ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
-	`, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMinMiB, params.MemoryMaxMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
+		insert into vms (uuid, name, state, private_ip, vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, stopped_at, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http)
+		values (?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?, ?)
+	`, vmUUID, params.Name, params.PrivateIP, params.VCPUs, params.MemoryMinMiB, params.MemoryMaxMiB, params.DiskBytes, params.DefaultHTTPPort, params.IdleSleepAfterSeconds, params.BaseImageID, params.KernelID, params.BaseImageMetadata, boolToInt(params.AutoWake), boolToInt(params.PublicHTTP))
 	if err != nil {
 		return VM{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return VM{}, err
 	}
-	return s.GetVM(ctx, params.Name)
+	return s.GetVM(ctx, vmUUID)
 }
 
 func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
@@ -72,7 +75,7 @@ func (s *Store) ListVMs(ctx context.Context) ([]VM, error) {
 
 func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]VM, error) {
 	query := `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		select uuid, name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 	`
 	args := []any{}
@@ -95,14 +98,10 @@ func (s *Store) ListVMsMatching(ctx context.Context, namePatterns []string) ([]V
 
 	vms := []VM{}
 	for rows.Next() {
-		var vm VM
-		var autoWake int
-		var publicHTTP int
-		if err := rows.Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.LastActivityAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP); err != nil {
+		vm, err := scanVM(rows)
+		if err != nil {
 			return nil, err
 		}
-		vm.AutoWake = autoWake != 0
-		vm.PublicHTTP = publicHTTP != 0
 		vms = append(vms, vm)
 	}
 	if err := rows.Err(); err != nil {
@@ -129,43 +128,48 @@ func GlobToLike(pattern string) string {
 	return b.String()
 }
 
-func (s *Store) GetVM(ctx context.Context, name string) (VM, error) {
-	var vm VM
-	var autoWake int
-	var publicHTTP int
-	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+func (s *Store) GetVM(ctx context.Context, vmUUID string) (VM, error) {
+	vm, err := scanVM(s.db.QueryRowContext(ctx, `
+		select uuid, name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
-		where name = ?
-	`, name).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.LastActivityAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
+		where uuid = ?
+	`, vmUUID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
 	if err != nil {
 		return VM{}, err
 	}
-	vm.AutoWake = autoWake != 0
-	vm.PublicHTTP = publicHTTP != 0
+	return vm, nil
+}
+
+func (s *Store) GetVMByName(ctx context.Context, name string) (VM, error) {
+	vm, err := scanVM(s.db.QueryRowContext(ctx, `
+		select uuid, name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+		from vms
+		where name = ?
+	`, name))
+	if errors.Is(err, sql.ErrNoRows) {
+		return VM{}, ErrNotFound
+	}
+	if err != nil {
+		return VM{}, err
+	}
 	return vm, nil
 }
 
 func (s *Store) GetVMByPrivateIP(ctx context.Context, privateIP string) (VM, error) {
-	var vm VM
-	var autoWake int
-	var publicHTTP int
-	err := s.db.QueryRowContext(ctx, `
-		select name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
+	vm, err := scanVM(s.db.QueryRowContext(ctx, `
+		select uuid, name, state, coalesce(private_ip, ''), vcpus, memory_min_mib, memory_max_mib, disk_bytes, default_http_port, idle_sleep_after_seconds, last_started_at, last_activity_at, stopped_at, archived_disk_path, base_image_id, kernel_id, base_image_metadata, auto_wake, public_http
 		from vms
 		where private_ip = ?
-	`, privateIP).Scan(&vm.Name, &vm.State, &vm.PrivateIP, &vm.VCPUs, &vm.MemoryMinMiB, &vm.MemoryMaxMiB, &vm.DiskBytes, &vm.DefaultHTTPPort, &vm.IdleSleepAfterSeconds, &vm.LastStartedAt, &vm.LastActivityAt, &vm.StoppedAt, &vm.ArchivedDiskPath, &vm.BaseImageID, &vm.KernelID, &vm.BaseImageMetadata, &autoWake, &publicHTTP)
+	`, privateIP))
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
 	if err != nil {
 		return VM{}, err
 	}
-	vm.AutoWake = autoWake != 0
-	vm.PublicHTTP = publicHTTP != 0
 	return vm, nil
 }
 
@@ -177,7 +181,7 @@ func (s *Store) CountVMs(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (s *Store) SetVMState(ctx context.Context, name string, state string) error {
+func (s *Store) SetVMState(ctx context.Context, vmUUID string, state string) error {
 	result, err := s.db.ExecContext(ctx, `
 		update vms
 		set
@@ -195,8 +199,8 @@ func (s *Store) SetVMState(ctx context.Context, name string, state string) error
 				else ''
 			end,
 			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		where name = ?
-	`, state, state, state, state, name)
+		where uuid = ?
+	`, state, state, state, state, vmUUID)
 	if err != nil {
 		return err
 	}
@@ -205,17 +209,17 @@ func (s *Store) SetVMState(ctx context.Context, name string, state string) error
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+		return fmt.Errorf("%w: vm %q", ErrNotFound, vmUUID)
 	}
 	return nil
 }
 
-func (s *Store) TouchVMActivity(ctx context.Context, name string) error {
+func (s *Store) TouchVMActivity(ctx context.Context, vmUUID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		update vms
 		set last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		where name = ?
-	`, name)
+		where uuid = ?
+	`, vmUUID)
 	if err != nil {
 		return err
 	}
@@ -224,13 +228,13 @@ func (s *Store) TouchVMActivity(ctx context.Context, name string) error {
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+		return fmt.Errorf("%w: vm %q", ErrNotFound, vmUUID)
 	}
 	return nil
 }
 
-func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams) (VM, error) {
-	vm, err := s.GetVM(ctx, name)
+func (s *Store) UpdateVM(ctx context.Context, vmUUID string, params UpdateVMParams) (VM, error) {
+	vm, err := s.GetVM(ctx, vmUUID)
 	if err != nil {
 		return VM{}, err
 	}
@@ -249,8 +253,8 @@ func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams
 	result, err := s.db.ExecContext(ctx, `
 		update vms
 		set default_http_port = ?, idle_sleep_after_seconds = ?, auto_wake = ?, public_http = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		where name = ?
-	`, vm.DefaultHTTPPort, vm.IdleSleepAfterSeconds, boolToInt(vm.AutoWake), boolToInt(vm.PublicHTTP), name)
+		where uuid = ?
+	`, vm.DefaultHTTPPort, vm.IdleSleepAfterSeconds, boolToInt(vm.AutoWake), boolToInt(vm.PublicHTTP), vmUUID)
 	if err != nil {
 		return VM{}, err
 	}
@@ -259,17 +263,17 @@ func (s *Store) UpdateVM(ctx context.Context, name string, params UpdateVMParams
 		return VM{}, err
 	}
 	if rows == 0 {
-		return VM{}, fmt.Errorf("%w: vm %q", ErrNotFound, name)
+		return VM{}, fmt.Errorf("%w: vm %q", ErrNotFound, vmUUID)
 	}
-	return s.GetVM(ctx, name)
+	return s.GetVM(ctx, vmUUID)
 }
 
-func (s *Store) SetVMArchivedDiskPath(ctx context.Context, name string, path string) error {
+func (s *Store) SetVMArchivedDiskPath(ctx context.Context, vmUUID string, path string) error {
 	result, err := s.db.ExecContext(ctx, `
 		update vms
 		set archived_disk_path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		where name = ?
-	`, path, name)
+		where uuid = ?
+	`, path, vmUUID)
 	if err != nil {
 		return err
 	}
@@ -278,7 +282,7 @@ func (s *Store) SetVMArchivedDiskPath(ctx context.Context, name string, path str
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+		return fmt.Errorf("%w: vm %q", ErrNotFound, vmUUID)
 	}
 	return nil
 }
@@ -290,8 +294,8 @@ func boolToInt(v bool) int {
 	return 0
 }
 
-func (s *Store) DeleteVM(ctx context.Context, name string) error {
-	result, err := s.db.ExecContext(ctx, `delete from vms where name = ?`, name)
+func (s *Store) DeleteVM(ctx context.Context, vmUUID string) error {
+	result, err := s.db.ExecContext(ctx, `delete from vms where uuid = ?`, vmUUID)
 	if err != nil {
 		return err
 	}
@@ -300,7 +304,43 @@ func (s *Store) DeleteVM(ctx context.Context, name string) error {
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("%w: vm %q", ErrNotFound, name)
+		return fmt.Errorf("%w: vm %q", ErrNotFound, vmUUID)
 	}
 	return nil
+}
+
+type vmScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanVM(row vmScanner) (VM, error) {
+	var vm VM
+	var autoWake int
+	var publicHTTP int
+	if err := row.Scan(
+		&vm.UUID,
+		&vm.Name,
+		&vm.State,
+		&vm.PrivateIP,
+		&vm.VCPUs,
+		&vm.MemoryMinMiB,
+		&vm.MemoryMaxMiB,
+		&vm.DiskBytes,
+		&vm.DefaultHTTPPort,
+		&vm.IdleSleepAfterSeconds,
+		&vm.LastStartedAt,
+		&vm.LastActivityAt,
+		&vm.StoppedAt,
+		&vm.ArchivedDiskPath,
+		&vm.BaseImageID,
+		&vm.KernelID,
+		&vm.BaseImageMetadata,
+		&autoWake,
+		&publicHTTP,
+	); err != nil {
+		return VM{}, err
+	}
+	vm.AutoWake = autoWake != 0
+	vm.PublicHTTP = publicHTTP != 0
+	return vm, nil
 }

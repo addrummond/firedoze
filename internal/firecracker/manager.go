@@ -84,6 +84,7 @@ type coldArchiveOperation struct {
 }
 
 type Process struct {
+	UUID       string
 	Name       string
 	RuntimeDir string
 	SocketPath string
@@ -117,6 +118,7 @@ func (m *Manager) ReconcileStartup(ctx context.Context) error {
 	var errs []error
 	for _, vm := range vms {
 		proc := &Process{
+			UUID:      vm.UUID,
 			Name:      vm.Name,
 			TapName:   tapName(vm.Name),
 			GuestCIDR: vm.PrivateIP + "/127",
@@ -127,7 +129,7 @@ func (m *Manager) ReconcileStartup(ctx context.Context) error {
 		if vm.State != "running" {
 			continue
 		}
-		if err := m.store.SetVMState(ctx, vm.Name, "lost"); err != nil {
+		if err := m.store.SetVMState(ctx, vm.UUID, "lost"); err != nil {
 			errs = append(errs, fmt.Errorf("mark %s lost: %w", vm.Name, err))
 			continue
 		}
@@ -300,8 +302,12 @@ func (m *Manager) ListVMsMatching(ctx context.Context, namePatterns []string) ([
 	return m.store.ListVMsMatching(ctx, namePatterns)
 }
 
-func (m *Manager) GetVM(ctx context.Context, name string) (store.VM, error) {
-	return m.store.GetVM(ctx, name)
+func (m *Manager) GetVM(ctx context.Context, vmUUID string) (store.VM, error) {
+	return m.store.GetVM(ctx, vmUUID)
+}
+
+func (m *Manager) GetVMByName(ctx context.Context, name string) (store.VM, error) {
+	return m.store.GetVMByName(ctx, name)
 }
 
 func (m *Manager) ListSnapshots(ctx context.Context) ([]store.Snapshot, error) {
@@ -332,7 +338,7 @@ func (m *Manager) RecordVMMemoryReportByPrivateIP(ctx context.Context, privateIP
 		report.LastTargetMiB = *targetMiB
 	}
 	m.mu.Lock()
-	m.guestMemoryReports[vm.Name] = report
+	m.guestMemoryReports[vm.UUID] = report
 	m.mu.Unlock()
 	if targetMiB == nil {
 		return model.MemoryHotplugUsage{}, nil
@@ -358,7 +364,7 @@ func (m *Manager) setVMMemoryTarget(ctx context.Context, vm store.VM, targetMiB 
 		requestedMiB = maxRequested
 	}
 	m.mu.Lock()
-	proc, running := m.running[vm.Name]
+	proc, running := m.running[vm.UUID]
 	m.mu.Unlock()
 	if !running || proc == nil {
 		return model.MemoryHotplugUsage{}, ErrNotRunning
@@ -521,21 +527,22 @@ func readImageManifest(p string) (map[string]string, error) {
 	return manifest, nil
 }
 
-func (m *Manager) DeleteVM(ctx context.Context, name string) error {
-	if err := m.beginVMOperationCancelingColdArchive(ctx, name); err != nil {
-		return err
-	}
-	defer m.endVMOperation(name)
-
-	vm, err := m.store.GetVM(ctx, name)
+func (m *Manager) DeleteVM(ctx context.Context, vmUUID string) error {
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return err
 	}
+	name := vm.Name
+	if err := m.beginVMOperationCancelingColdArchive(ctx, vmUUID); err != nil {
+		return err
+	}
+	defer m.endVMOperation(vmUUID)
+
 	m.mu.Lock()
-	_, running := m.running[name]
+	_, running := m.running[vmUUID]
 	m.mu.Unlock()
 	if running {
-		if err := m.StopVM(ctx, name); err != nil {
+		if err := m.StopVM(ctx, vmUUID); err != nil {
 			return err
 		}
 	}
@@ -552,14 +559,14 @@ func (m *Manager) DeleteVM(ctx context.Context, name string) error {
 			return err
 		}
 	}
-	if err := m.store.DeleteRoutesForVM(ctx, name); err != nil {
+	if err := m.store.DeleteRoutesForVM(ctx, vmUUID); err != nil {
 		return err
 	}
-	if err := m.store.DeleteVM(ctx, name); err != nil {
+	if err := m.store.DeleteVM(ctx, vmUUID); err != nil {
 		return err
 	}
 	m.mu.Lock()
-	delete(m.guestMemoryReports, name)
+	delete(m.guestMemoryReports, vmUUID)
 	m.mu.Unlock()
 	return nil
 }
@@ -574,30 +581,30 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, name string) error {
 	return m.store.DeleteSnapshot(ctx, name)
 }
 
-func (m *Manager) beginVMOperation(name string) error {
+func (m *Manager) beginVMOperation(vmUUID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.vmOps[name]; ok {
+	if _, ok := m.vmOps[vmUUID]; ok {
 		return ErrAlreadyRunning
 	}
-	m.vmOps[name] = struct{}{}
+	m.vmOps[vmUUID] = struct{}{}
 	return nil
 }
 
-func (m *Manager) endVMOperation(name string) {
+func (m *Manager) endVMOperation(vmUUID string) {
 	m.mu.Lock()
-	delete(m.vmOps, name)
+	delete(m.vmOps, vmUUID)
 	m.mu.Unlock()
 }
 
-func (m *Manager) beginVMOperationCancelingColdArchive(ctx context.Context, name string) error {
+func (m *Manager) beginVMOperationCancelingColdArchive(ctx context.Context, vmUUID string) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		m.mu.Lock()
-		if archive := m.coldArchives[name]; archive != nil {
+		if archive := m.coldArchives[vmUUID]; archive != nil {
 			archive.cancel()
 			done := archive.done
 			m.mu.Unlock()
@@ -608,28 +615,28 @@ func (m *Manager) beginVMOperationCancelingColdArchive(ctx context.Context, name
 				return ctx.Err()
 			}
 		}
-		if _, ok := m.vmOps[name]; ok {
+		if _, ok := m.vmOps[vmUUID]; ok {
 			m.mu.Unlock()
 			return ErrAlreadyRunning
 		}
-		m.vmOps[name] = struct{}{}
+		m.vmOps[vmUUID] = struct{}{}
 		m.mu.Unlock()
 		return nil
 	}
 }
 
-func (m *Manager) beginStartOperationCancelingColdArchive(ctx context.Context, name string) error {
+func (m *Manager) beginStartOperationCancelingColdArchive(ctx context.Context, vmUUID string) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
 		m.mu.Lock()
-		if _, ok := m.running[name]; ok {
+		if _, ok := m.running[vmUUID]; ok {
 			m.mu.Unlock()
 			return ErrAlreadyRunning
 		}
-		if archive := m.coldArchives[name]; archive != nil {
+		if archive := m.coldArchives[vmUUID]; archive != nil {
 			archive.cancel()
 			done := archive.done
 			m.mu.Unlock()
@@ -640,17 +647,17 @@ func (m *Manager) beginStartOperationCancelingColdArchive(ctx context.Context, n
 				return ctx.Err()
 			}
 		}
-		if _, ok := m.vmOps[name]; ok {
+		if _, ok := m.vmOps[vmUUID]; ok {
 			m.mu.Unlock()
 			return ErrAlreadyRunning
 		}
-		m.vmOps[name] = struct{}{}
+		m.vmOps[vmUUID] = struct{}{}
 		m.mu.Unlock()
 		return nil
 	}
 }
 
-func (m *Manager) beginColdArchiveOperation(ctx context.Context, name string) (context.Context, func(), error) {
+func (m *Manager) beginColdArchiveOperation(ctx context.Context, vmUUID string) (context.Context, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -661,38 +668,39 @@ func (m *Manager) beginColdArchiveOperation(ctx context.Context, name string) (c
 	}
 
 	m.mu.Lock()
-	if _, ok := m.vmOps[name]; ok {
+	if _, ok := m.vmOps[vmUUID]; ok {
 		m.mu.Unlock()
 		cancel()
 		return nil, nil, ErrAlreadyRunning
 	}
-	m.vmOps[name] = struct{}{}
-	m.coldArchives[name] = archive
+	m.vmOps[vmUUID] = struct{}{}
+	m.coldArchives[vmUUID] = archive
 	m.mu.Unlock()
 
 	end := func() {
 		cancel()
 		m.mu.Lock()
-		if current := m.coldArchives[name]; current == archive {
-			delete(m.coldArchives, name)
+		if current := m.coldArchives[vmUUID]; current == archive {
+			delete(m.coldArchives, vmUUID)
 		}
-		delete(m.vmOps, name)
+		delete(m.vmOps, vmUUID)
 		close(archive.done)
 		m.mu.Unlock()
 	}
 	return archiveCtx, end, nil
 }
 
-func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
-	if err := m.beginStartOperationCancelingColdArchive(ctx, name); err != nil {
+func (m *Manager) StartVM(ctx context.Context, vmUUID string) (store.VM, error) {
+	if err := m.beginStartOperationCancelingColdArchive(ctx, vmUUID); err != nil {
 		return store.VM{}, err
 	}
-	defer m.endVMOperation(name)
+	defer m.endVMOperation(vmUUID)
 
-	vm, err := m.store.GetVM(ctx, name)
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return store.VM{}, err
 	}
+	name := vm.Name
 	memoryConfig, err := memoryConfigForHost(vm)
 	if err != nil {
 		return store.VM{}, err
@@ -758,48 +766,49 @@ func (m *Manager) StartVM(ctx context.Context, name string) (store.VM, error) {
 
 	_ = os.Remove(layout.socketPath)
 
-	proc, err := m.launchProcess(name, layout, netdev, "--config-file", layout.configPath)
+	proc, err := m.launchProcess(vm, layout, netdev, "--config-file", layout.configPath)
 	if err != nil {
 		return store.VM{}, err
 	}
 
 	if err := waitForSocket(ctx, layout.socketPath, 5*time.Second); err != nil {
-		_ = m.StopVM(context.Background(), name)
+		_ = m.StopVM(context.Background(), vmUUID)
 		return store.VM{}, err
 	}
-	if err := m.store.SetVMState(ctx, name, "running"); err != nil {
+	if err := m.store.SetVMState(ctx, vmUUID, "running"); err != nil {
 		return store.VM{}, err
 	}
 
 	m.logger.Info("started vm", "vm", name, "pid", proc.Command.Process.Pid)
-	return m.store.GetVM(ctx, name)
+	return m.store.GetVM(ctx, vmUUID)
 }
 
-func (m *Manager) RebootVM(ctx context.Context, name string) (store.VM, error) {
-	vm, err := m.store.GetVM(ctx, name)
+func (m *Manager) RebootVM(ctx context.Context, vmUUID string) (store.VM, error) {
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return store.VM{}, err
 	}
+	name := vm.Name
 
 	m.mu.Lock()
-	_, running := m.running[name]
+	_, running := m.running[vmUUID]
 	m.mu.Unlock()
 	if running {
-		if err := m.StopVM(ctx, name); err != nil {
+		if err := m.StopVM(ctx, vmUUID); err != nil {
 			return store.VM{}, err
 		}
-		return m.StartVM(ctx, name)
+		return m.StartVM(ctx, vmUUID)
 	}
 
 	if vm.State == "sleeping" {
 		if err := os.RemoveAll(m.layout(name).sleepDir); err != nil {
 			return store.VM{}, err
 		}
-		if err := m.store.SetVMState(ctx, name, "stopped"); err != nil {
+		if err := m.store.SetVMState(ctx, vmUUID, "stopped"); err != nil {
 			return store.VM{}, err
 		}
 	}
-	return m.StartVM(ctx, name)
+	return m.StartVM(ctx, vmUUID)
 }
 
 func (m *Manager) bootArgs(netdev preparedNetwork) string {
@@ -830,7 +839,7 @@ func (m *Manager) resumeVM(ctx context.Context, vm store.VM) (store.VM, error) {
 		return store.VM{}, fmt.Errorf("prepare network: %w", err)
 	}
 	_ = os.Remove(layout.socketPath)
-	proc, err := m.launchProcess(vm.Name, layout, netdev)
+	proc, err := m.launchProcess(vm, layout, netdev)
 	if err != nil {
 		_ = m.cleanupNetwork(&Process{TapName: netdev.tapName, GuestCIDR: netdev.guestCIDR})
 		return store.VM{}, err
@@ -843,19 +852,24 @@ func (m *Manager) resumeVM(ctx context.Context, vm store.VM) (store.VM, error) {
 		_ = m.stopProcess(context.Background(), proc, "stopped")
 		return store.VM{}, err
 	}
-	if err := m.store.SetVMState(ctx, vm.Name, "running"); err != nil {
+	if err := m.store.SetVMState(ctx, vm.UUID, "running"); err != nil {
 		return store.VM{}, err
 	}
 	m.logger.Info("resumed vm", "vm", vm.Name, "pid", proc.Command.Process.Pid)
-	return m.store.GetVM(ctx, vm.Name)
+	return m.store.GetVM(ctx, vm.UUID)
 }
 
-func (m *Manager) StopVM(ctx context.Context, name string) error {
+func (m *Manager) StopVM(ctx context.Context, vmUUID string) error {
+	vm, err := m.store.GetVM(ctx, vmUUID)
+	if err != nil {
+		return err
+	}
+	name := vm.Name
 	m.mu.Lock()
-	proc, ok := m.running[name]
+	proc, ok := m.running[vmUUID]
 	m.mu.Unlock()
 	if !ok {
-		return m.store.SetVMState(ctx, name, "stopped")
+		return m.store.SetVMState(ctx, vmUUID, "stopped")
 	}
 
 	if err := firecrackerAction(ctx, proc.SocketPath, "SendCtrlAltDel"); err != nil {
@@ -869,16 +883,17 @@ func (m *Manager) StopVM(ctx context.Context, name string) error {
 		return err
 	}
 	_ = m.cleanupAfterExit(proc)
-	return m.store.SetVMState(ctx, name, "stopped")
+	return m.store.SetVMState(ctx, vmUUID, "stopped")
 }
 
-func (m *Manager) SleepVM(ctx context.Context, name string) (store.VM, error) {
-	vm, err := m.store.GetVM(ctx, name)
+func (m *Manager) SleepVM(ctx context.Context, vmUUID string) (store.VM, error) {
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return store.VM{}, err
 	}
+	name := vm.Name
 	m.mu.Lock()
-	proc, ok := m.running[name]
+	proc, ok := m.running[vmUUID]
 	m.mu.Unlock()
 	if !ok {
 		if vm.State == "sleeping" {
@@ -900,11 +915,11 @@ func (m *Manager) SleepVM(ctx context.Context, name string) (store.VM, error) {
 	if err := m.stopProcess(ctx, proc, "sleeping"); err != nil {
 		return store.VM{}, err
 	}
-	if err := m.store.SetVMState(ctx, name, "sleeping"); err != nil {
+	if err := m.store.SetVMState(ctx, vmUUID, "sleeping"); err != nil {
 		return store.VM{}, err
 	}
 	m.logger.Info("slept vm", "vm", name)
-	return m.store.GetVM(ctx, name)
+	return m.store.GetVM(ctx, vmUUID)
 }
 
 func (m *Manager) SleepRunningVMs(ctx context.Context) error {
@@ -912,7 +927,12 @@ func (m *Manager) SleepRunningVMs(ctx context.Context) error {
 
 	var errs []error
 	for _, name := range names {
-		if _, err := m.SleepVM(ctx, name); err != nil {
+		vm, err := m.store.GetVMByName(ctx, name)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("sleep %s: %w", name, err))
+			continue
+		}
+		if _, err := m.SleepVM(ctx, vm.UUID); err != nil {
 			errs = append(errs, fmt.Errorf("sleep %s: %w", name, err))
 		}
 	}
@@ -923,8 +943,8 @@ func (m *Manager) RunningVMNames() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	names := make([]string, 0, len(m.running))
-	for name := range m.running {
-		names = append(names, name)
+	for _, proc := range m.running {
+		names = append(names, proc.Name)
 	}
 	sort.Strings(names)
 	return names
@@ -933,7 +953,12 @@ func (m *Manager) RunningVMNames() []string {
 func (m *Manager) StartVMs(ctx context.Context, names []string) error {
 	var errs []error
 	for _, name := range names {
-		if _, err := m.StartVM(ctx, name); err != nil {
+		vm, err := m.store.GetVMByName(ctx, name)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("start %s: %w", name, err))
+			continue
+		}
+		if _, err := m.StartVM(ctx, vm.UUID); err != nil {
 			if errors.Is(err, ErrAlreadyRunning) {
 				continue
 			}
@@ -947,7 +972,7 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	if params.Name == "" {
 		return store.Snapshot{}, errors.New("snapshot name is required")
 	}
-	if params.SourceVM == "" {
+	if params.SourceVMUUID == "" {
 		return store.Snapshot{}, errors.New("source VM is required")
 	}
 	exists, err := m.store.SnapshotExists(ctx, params.Name)
@@ -957,18 +982,17 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 	if exists {
 		return store.Snapshot{}, fmt.Errorf("snapshot %q already exists", params.Name)
 	}
-	if err := m.beginVMOperationCancelingColdArchive(ctx, params.SourceVM); err != nil {
-		return store.Snapshot{}, err
-	}
-	defer m.endVMOperation(params.SourceVM)
-
-	vm, err := m.store.GetVM(ctx, params.SourceVM)
+	vm, err := m.store.GetVM(ctx, params.SourceVMUUID)
 	if err != nil {
 		return store.Snapshot{}, err
 	}
+	if err := m.beginVMOperationCancelingColdArchive(ctx, vm.UUID); err != nil {
+		return store.Snapshot{}, err
+	}
+	defer m.endVMOperation(vm.UUID)
 
 	m.mu.Lock()
-	_, running := m.running[vm.Name]
+	_, running := m.running[vm.UUID]
 	m.mu.Unlock()
 	if vm.State == "running" || running {
 		return store.Snapshot{}, fmt.Errorf("%w: cannot snapshot running VM %q; run `firedoze vm stop %s` first", ErrRunning, vm.Name, vm.Name)
@@ -992,6 +1016,7 @@ func (m *Manager) SaveSnapshot(ctx context.Context, params store.CreateSnapshotP
 
 	snapshot, err := m.store.CreateSnapshot(ctx, store.CreateSnapshotParams{
 		Name:              params.Name,
+		SourceVMUUID:      vm.UUID,
 		SourceVM:          vm.Name,
 		StatePath:         "",
 		MemPath:           "",
@@ -1176,7 +1201,7 @@ func run(ctx context.Context, name string, args ...string) error {
 	return nil
 }
 
-func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwork, args ...string) (*Process, error) {
+func (m *Manager) launchProcess(vm store.VM, layout layout, netdev preparedNetwork, args ...string) (*Process, error) {
 	stdout, err := os.OpenFile(layout.stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -1198,7 +1223,8 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 	}
 
 	proc := &Process{
-		Name:       name,
+		UUID:       vm.UUID,
+		Name:       vm.Name,
 		RuntimeDir: layout.runtimeDir,
 		SocketPath: layout.socketPath,
 		TapName:    netdev.tapName,
@@ -1208,7 +1234,7 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 	}
 
 	m.mu.Lock()
-	m.running[name] = proc
+	m.running[vm.UUID] = proc
 	m.mu.Unlock()
 
 	go func() {
@@ -1224,20 +1250,20 @@ func (m *Manager) launchProcess(name string, layout layout, netdev preparedNetwo
 		m.mu.Unlock()
 
 		if err := m.cleanupAfterExit(proc); err != nil {
-			m.logger.Warn("cleanup after firecracker exit", "vm", name, "error", err)
+			m.logger.Warn("cleanup after firecracker exit", "vm", vm.Name, "error", err)
 		}
 
-		if err := m.store.SetVMState(context.Background(), name, finalState); err != nil {
-			m.logger.Warn("set vm state after firecracker exit", "vm", name, "state", finalState, "error", err)
+		if err := m.store.SetVMState(context.Background(), vm.UUID, finalState); err != nil {
+			m.logger.Warn("set vm state after firecracker exit", "vm", vm.Name, "state", finalState, "error", err)
 		}
 		if err != nil {
-			m.logger.Info("firecracker exited", "vm", name, "state", finalState, "error", err)
+			m.logger.Info("firecracker exited", "vm", vm.Name, "state", finalState, "error", err)
 		} else {
-			m.logger.Info("firecracker exited", "vm", name, "state", finalState)
+			m.logger.Info("firecracker exited", "vm", vm.Name, "state", finalState)
 		}
 
 		m.mu.Lock()
-		delete(m.running, name)
+		delete(m.running, vm.UUID)
 		m.mu.Unlock()
 	}()
 
@@ -1263,7 +1289,7 @@ func (m *Manager) waitForProcessExit(ctx context.Context, proc *Process, timeout
 	defer tick.Stop()
 	for {
 		m.mu.Lock()
-		_, stillRunning := m.running[proc.Name]
+		_, stillRunning := m.running[proc.UUID]
 		m.mu.Unlock()
 		if !stillRunning {
 			return nil

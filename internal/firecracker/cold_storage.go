@@ -59,7 +59,7 @@ func (m *ColdStorageMonitor) check(ctx context.Context, now time.Time) {
 		if vm.State != "stopped" {
 			continue
 		}
-		if err := m.manager.ArchiveStoppedVM(ctx, vm.Name, now); err != nil {
+		if err := m.manager.ArchiveStoppedVM(ctx, vm.UUID, now); err != nil {
 			if errors.Is(err, ErrAlreadyRunning) {
 				m.logger.Debug("cold storage skipped busy vm", "vm", vm.Name)
 				continue
@@ -77,26 +77,27 @@ func (m *Manager) coldStorageEnabled() bool {
 	return m.cfg.ColdStorage.Dir != "" && m.cfg.ColdStorage.ArchiveStoppedAfterSeconds > 0
 }
 
-func (m *Manager) ArchiveStoppedVM(ctx context.Context, name string, now time.Time) error {
+func (m *Manager) ArchiveStoppedVM(ctx context.Context, vmUUID string, now time.Time) error {
 	if !m.coldStorageEnabled() {
 		return nil
 	}
-	archiveCtx, endArchive, err := m.beginColdArchiveOperation(ctx, name)
+	archiveCtx, endArchive, err := m.beginColdArchiveOperation(ctx, vmUUID)
 	if err != nil {
 		return err
 	}
 	defer endArchive()
 
-	vm, err := m.store.GetVM(ctx, name)
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return err
 	}
+	name := vm.Name
 	if !m.shouldArchiveStoppedVM(vm, now) {
 		return nil
 	}
 
 	m.mu.Lock()
-	_, running := m.running[name]
+	_, running := m.running[vm.UUID]
 	m.mu.Unlock()
 	if running {
 		return nil
@@ -139,7 +140,7 @@ func (m *Manager) ArchiveStoppedVM(ctx context.Context, name string, now time.Ti
 	if err := os.Rename(tmpPath, coldPath); err != nil {
 		return err
 	}
-	if err := m.store.SetVMArchivedDiskPath(context.Background(), name, coldPath); err != nil {
+	if err := m.store.SetVMArchivedDiskPath(context.Background(), vm.UUID, coldPath); err != nil {
 		return err
 	}
 	if err := os.Remove(layout.diskPath); err != nil {
@@ -170,7 +171,7 @@ func (m *Manager) hydrateColdDisk(ctx context.Context, vm store.VM) error {
 	layout := m.layout(vm.Name)
 	if _, err := os.Stat(layout.diskPath); err == nil {
 		if vm.ArchivedDiskPath != "" {
-			if err := m.store.SetVMArchivedDiskPath(ctx, vm.Name, ""); err != nil {
+			if err := m.store.SetVMArchivedDiskPath(ctx, vm.UUID, ""); err != nil {
 				return err
 			}
 			if err := os.Remove(vm.ArchivedDiskPath); err != nil && !os.IsNotExist(err) {
@@ -221,7 +222,7 @@ func (m *Manager) hydrateColdDisk(ctx context.Context, vm store.VM) error {
 	if err := os.Rename(tmpPath, layout.diskPath); err != nil {
 		return err
 	}
-	if err := m.store.SetVMArchivedDiskPath(ctx, vm.Name, ""); err != nil {
+	if err := m.store.SetVMArchivedDiskPath(ctx, vm.UUID, ""); err != nil {
 		return err
 	}
 	if err := os.Remove(coldPath); err != nil && !os.IsNotExist(err) {

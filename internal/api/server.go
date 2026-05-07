@@ -34,6 +34,7 @@ type Manager interface {
 	ListVMsMatching(context.Context, []string) ([]store.VM, error)
 	ListVMResourceUsage(context.Context, []string) ([]model.VMResourceUsage, error)
 	GetVM(context.Context, string) (store.VM, error)
+	GetVMByName(context.Context, string) (store.VM, error)
 	VMResourceUsage(context.Context, string) (model.VMResourceUsage, error)
 	CreateVM(context.Context, store.CreateVMParams) (store.VM, error)
 	UpdateVM(context.Context, string, store.UpdateVMParams) (store.VM, error)
@@ -79,15 +80,16 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /usage", s.handleListUsage)
 	s.mux.HandleFunc("GET /vms", s.handleListVMs)
 	s.mux.HandleFunc("POST /vms", s.handleCreateVM)
-	s.mux.HandleFunc("GET /vms/{name}/usage", s.handleGetVMUsage)
-	s.mux.HandleFunc("GET /vms/{name}", s.handleGetVM)
-	s.mux.HandleFunc("PATCH /vms/{name}/settings", s.handleUpdateVMSettings)
-	s.mux.HandleFunc("DELETE /vms/{name}", s.handleDeleteVM)
-	s.mux.HandleFunc("POST /vms/{name}/start", s.handleStartVM)
-	s.mux.HandleFunc("POST /vms/{name}/activity", s.handleTouchVMActivity)
-	s.mux.HandleFunc("POST /vms/{name}/stop", s.handleStopVM)
-	s.mux.HandleFunc("POST /vms/{name}/sleep", s.handleSleepVM)
-	s.mux.HandleFunc("POST /vms/{name}/reboot", s.handleRebootVM)
+	s.mux.HandleFunc("GET /vms-by-name/{name}", s.handleGetVMByName)
+	s.mux.HandleFunc("GET /vms/{uuid}/usage", s.handleGetVMUsage)
+	s.mux.HandleFunc("GET /vms/{uuid}", s.handleGetVM)
+	s.mux.HandleFunc("PATCH /vms/{uuid}/settings", s.handleUpdateVMSettings)
+	s.mux.HandleFunc("DELETE /vms/{uuid}", s.handleDeleteVM)
+	s.mux.HandleFunc("POST /vms/{uuid}/start", s.handleStartVM)
+	s.mux.HandleFunc("POST /vms/{uuid}/activity", s.handleTouchVMActivity)
+	s.mux.HandleFunc("POST /vms/{uuid}/stop", s.handleStopVM)
+	s.mux.HandleFunc("POST /vms/{uuid}/sleep", s.handleSleepVM)
+	s.mux.HandleFunc("POST /vms/{uuid}/reboot", s.handleRebootVM)
 	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
 	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
@@ -110,8 +112,8 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			"health":          {"GET /health"},
 			"config":          {"GET /config"},
 			"base_image":      {"POST /base-image/warmup"},
-			"usage":           {"GET /usage", "GET /vms/{name}/usage"},
-			"vms":             {"GET /vms", "POST /vms", "GET /vms/{name}", "PATCH /vms/{name}/settings", "DELETE /vms/{name}", "POST /vms/{name}/start", "POST /vms/{name}/activity", "POST /vms/{name}/stop", "POST /vms/{name}/sleep", "POST /vms/{name}/reboot"},
+			"usage":           {"GET /usage", "GET /vms/{uuid}/usage"},
+			"vms":             {"GET /vms", "POST /vms", "GET /vms-by-name/{name}", "GET /vms/{uuid}", "PATCH /vms/{uuid}/settings", "DELETE /vms/{uuid}", "POST /vms/{uuid}/start", "POST /vms/{uuid}/activity", "POST /vms/{uuid}/stop", "POST /vms/{uuid}/sleep", "POST /vms/{uuid}/reboot"},
 			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore", "GET /snapshots/{name}/export", "POST /snapshots/{name}/import"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
@@ -211,8 +213,8 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetVMUsage(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	usage, err := s.manager.VMResourceUsage(r.Context(), name)
+	vmUUID := r.PathValue("uuid")
+	usage, err := s.manager.VMResourceUsage(r.Context(), vmUUID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -225,8 +227,24 @@ func (s *Server) handleGetVMUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {
+	vmUUID := r.PathValue("uuid")
+	vm, err := s.manager.GetVM(r.Context(), vmUUID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, firecracker.ErrUnsupportedSnapshotExport) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vm": s.vmInfo(vm)})
+}
+
+func (s *Server) handleGetVMByName(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	vm, err := s.manager.GetVM(r.Context(), name)
+	vm, err := s.manager.GetVMByName(r.Context(), name)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -284,8 +302,8 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	vm, err := s.manager.StartVM(r.Context(), name)
+	vmUUID := r.PathValue("uuid")
+	vm, err := s.manager.StartVM(r.Context(), vmUUID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -304,8 +322,8 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTouchVMActivity(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	vm, err := s.store.GetVM(r.Context(), name)
+	vmUUID := r.PathValue("uuid")
+	vm, err := s.store.GetVM(r.Context(), vmUUID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -318,7 +336,7 @@ func (s *Server) handleTouchVMActivity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, firecracker.ErrNotRunning)
 		return
 	}
-	if err := s.store.TouchVMActivity(r.Context(), name); err != nil {
+	if err := s.store.TouchVMActivity(r.Context(), vmUUID); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
@@ -326,7 +344,7 @@ func (s *Server) handleTouchVMActivity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	vm, err = s.store.GetVM(r.Context(), name)
+	vm, err = s.store.GetVM(r.Context(), vmUUID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -335,7 +353,7 @@ func (s *Server) handleTouchVMActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	vmUUID := r.PathValue("uuid")
 	var req struct {
 		DefaultHTTPPort       *int  `json:"default_http_port"`
 		IdleSleepAfterSeconds *int  `json:"idle_sleep_after_seconds"`
@@ -346,7 +364,7 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	vm, err := s.manager.UpdateVM(r.Context(), name, store.UpdateVMParams{
+	vm, err := s.manager.UpdateVM(r.Context(), vmUUID, store.UpdateVMParams{
 		DefaultHTTPPort:       req.DefaultHTTPPort,
 		IdleSleepAfterSeconds: req.IdleSleepAfterSeconds,
 		AutoWake:              req.AutoWake,
@@ -370,8 +388,8 @@ func (s *Server) handleUpdateVMSettings(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := s.manager.DeleteVM(r.Context(), name); err != nil {
+	vmUUID := r.PathValue("uuid")
+	if err := s.manager.DeleteVM(r.Context(), vmUUID); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
@@ -387,8 +405,8 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := s.manager.StopVM(r.Context(), name); err != nil {
+	vmUUID := r.PathValue("uuid")
+	if err := s.manager.StopVM(r.Context(), vmUUID); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
 			status = http.StatusNotFound
@@ -404,8 +422,8 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	vm, err := s.manager.SleepVM(r.Context(), name)
+	vmUUID := r.PathValue("uuid")
+	vm, err := s.manager.SleepVM(r.Context(), vmUUID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -424,8 +442,8 @@ func (s *Server) handleSleepVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRebootVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	vm, err := s.manager.RebootVM(r.Context(), name)
+	vmUUID := r.PathValue("uuid")
+	vm, err := s.manager.RebootVM(r.Context(), vmUUID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, store.ErrNotFound) {
@@ -455,23 +473,19 @@ func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name   string `json:"name"`
-		VMName string `json:"vm_name"`
-		VM     string `json:"vm"`
+		VMUUID string `json:"vm_uuid"`
 		Port   int    `json:"port"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.VMName == "" {
-		req.VMName = req.VM
-	}
 	if !validVMName(req.Name) {
 		writeError(w, http.StatusBadRequest, errors.New("name must contain only lowercase letters, numbers, and hyphens"))
 		return
 	}
-	if !validVMName(req.VMName) {
-		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+	if req.VMUUID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("vm_uuid is required"))
 		return
 	}
 	if req.Port <= 0 || req.Port > 65535 {
@@ -489,7 +503,7 @@ func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	route, err := s.store.CreateRoute(r.Context(), store.CreateRouteParams{
 		Name:   req.Name,
-		VMName: req.VMName,
+		VMUUID: req.VMUUID,
 		Port:   req.Port,
 	})
 	if err != nil {
@@ -545,27 +559,23 @@ func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name   string `json:"name"`
-		VMName string `json:"vm_name"`
-		VM     string `json:"vm"`
+		VMUUID string `json:"vm_uuid"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.VMName == "" {
-		req.VMName = req.VM
-	}
 	if !validSnapshotName(req.Name) {
 		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))
 		return
 	}
-	if !validVMName(req.VMName) {
-		writeError(w, http.StatusBadRequest, errors.New("vm_name must contain only lowercase letters, numbers, and hyphens"))
+	if req.VMUUID == "" {
+		writeError(w, http.StatusBadRequest, errors.New("vm_uuid is required"))
 		return
 	}
 	snapshot, err := s.manager.SaveSnapshot(r.Context(), store.CreateSnapshotParams{
-		Name:     req.Name,
-		SourceVM: req.VMName,
+		Name:         req.Name,
+		SourceVMUUID: req.VMUUID,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -586,7 +596,6 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapshotName := r.PathValue("name")
 	var req struct {
 		VMName                string `json:"vm_name"`
-		VM                    string `json:"vm"`
 		VCPUs                 int    `json:"vcpus"`
 		MemoryMinMiB          int    `json:"memory_min_mib"`
 		MemoryMaxMiB          int    `json:"memory_max_mib"`
@@ -599,9 +608,6 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
-	}
-	if req.VMName == "" {
-		req.VMName = req.VM
 	}
 	if !validSnapshotName(snapshotName) {
 		writeError(w, http.StatusBadRequest, errors.New("snapshot name must contain only letters, numbers, dots, underscores, and hyphens"))

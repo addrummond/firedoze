@@ -27,8 +27,8 @@ func (m *Manager) ListVMResourceUsage(ctx context.Context, namePatterns []string
 	return usages, nil
 }
 
-func (m *Manager) VMResourceUsage(ctx context.Context, name string) (model.VMResourceUsage, error) {
-	vm, err := m.store.GetVM(ctx, name)
+func (m *Manager) VMResourceUsage(ctx context.Context, vmUUID string) (model.VMResourceUsage, error) {
+	vm, err := m.store.GetVM(ctx, vmUUID)
 	if err != nil {
 		return model.VMResourceUsage{}, err
 	}
@@ -51,8 +51,8 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 	}
 
 	m.mu.Lock()
-	proc, running := m.running[vm.Name]
-	if report, ok := m.guestMemoryReports[vm.Name]; ok {
+	proc, running := m.running[vm.UUID]
+	if report, ok := m.guestMemoryReports[vm.UUID]; ok {
 		reportCopy := report
 		usage.GuestMemory = &reportCopy
 	}

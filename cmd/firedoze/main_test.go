@@ -470,11 +470,11 @@ func TestParseCopyEndpointsRequiresExactlyOneRemote(t *testing.T) {
 
 func TestWithVMIPSetsFiredozeVMIP(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms-by-name/demo" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","private_ip":"fd7a:115c:a1e0::3"}]}`)
+		_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","private_ip":"fd7a:115c:a1e0::3"}}`)
 	})
 
 	c := testClient(t, handler)
@@ -649,11 +649,17 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 	var requests []string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
-		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"status":"slept"}`)
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/vms-by-name/") {
+			name := strings.TrimPrefix(r.URL.Path, "/vms-by-name/")
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"`+name+`-uuid","name":"`+name+`","state":"running"}}`)
+			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sleep") {
+			_, _ = io.WriteString(w, `{"status":"slept"}`)
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 	})
 
 	c := testClient(t, handler)
@@ -661,8 +667,10 @@ func TestVMSleepAcceptsMultipleNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"POST /vms/alpha/sleep",
-		"POST /vms/beta/sleep",
+		"GET /vms-by-name/alpha",
+		"POST /vms/alpha-uuid/sleep",
+		"GET /vms-by-name/beta",
+		"POST /vms/beta-uuid/sleep",
 	}
 	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("requests = %#v, want %#v", requests, want)
@@ -673,12 +681,17 @@ func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 	var requests []string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
-		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/vms/"), "/reboot")
-		_, _ = io.WriteString(w, `{"vm":{"name":"`+name+`","state":"running"}}`)
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/vms-by-name/") {
+			name := strings.TrimPrefix(r.URL.Path, "/vms-by-name/")
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"`+name+`-uuid","name":"`+name+`","state":"running"}}`)
+			return
+		}
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/reboot") {
+			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 	})
 
 	c := testClient(t, handler)
@@ -686,8 +699,10 @@ func TestVMRebootAcceptsMultipleNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"POST /vms/alpha/reboot",
-		"POST /vms/beta/reboot",
+		"GET /vms-by-name/alpha",
+		"POST /vms/alpha-uuid/reboot",
+		"GET /vms-by-name/beta",
+		"POST /vms/beta-uuid/reboot",
 	}
 	if strings.Join(requests, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("requests = %#v, want %#v", requests, want)
@@ -699,16 +714,20 @@ func TestVMPublishAndHidePatchSettings(t *testing.T) {
 	var bodies []string
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo" {
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running"}}`)
+			return
+		}
 		data, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatal(err)
 		}
 		bodies = append(bodies, string(data))
-		if r.Method != http.MethodPatch || r.URL.Path != "/vms/demo/settings" {
+		if r.Method != http.MethodPatch || r.URL.Path != "/vms/demo-uuid/settings" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
+		_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running"}}`)
 	})
 
 	c := testClient(t, handler)
@@ -720,8 +739,10 @@ func TestVMPublishAndHidePatchSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantRequests := []string{
-		"PATCH /vms/demo/settings",
-		"PATCH /vms/demo/settings",
+		"GET /vms-by-name/demo",
+		"PATCH /vms/demo-uuid/settings",
+		"GET /vms-by-name/demo",
+		"PATCH /vms/demo-uuid/settings",
 	}
 	if strings.Join(requests, "\x00") != strings.Join(wantRequests, "\x00") {
 		t.Fatalf("requests = %#v, want %#v", requests, wantRequests)
@@ -840,7 +861,7 @@ func TestSnapshotRestoreParsesCreateOptions(t *testing.T) {
 		t.Fatalf("snapshot/vm = %q/%q, want base/demo", snapshotName, vmName)
 	}
 	body := restoreSnapshotBody(params, vmName)
-	if body["vm"] != "demo" ||
+	if body["vm_name"] != "demo" ||
 		body["vcpus"] != 2 ||
 		body["memory_min_mib"] != 256 ||
 		body["memory_max_mib"] != 1024 ||

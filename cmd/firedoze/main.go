@@ -414,13 +414,11 @@ func (a app) vm(args []string) error {
 		if len(args) != 2 {
 			return errors.New("usage: firedoze vm inspect <name>")
 		}
-		var out struct {
-			VM vmInfo `json:"vm"`
-		}
-		if err := a.client.do(context.Background(), http.MethodGet, "/vms/"+url.PathEscape(args[1]), nil, &out); err != nil {
+		vm, err := a.lookupVM(args[1])
+		if err != nil {
 			return err
 		}
-		return printJSON(out)
+		return printJSON(map[string]any{"vm": vm})
 	case "create":
 		params, names, err := parseVMCreateArgs("firedoze vm create", args[1:])
 		if err != nil {
@@ -440,7 +438,11 @@ func (a app) vm(args []string) error {
 				return printJSON(map[string]any{"vm": vm})
 			}
 		} else {
-			methodPath := "/vms/" + url.PathEscape(args[1]) + "/" + args[0]
+			vm, err := a.lookupVM(args[1])
+			if err != nil {
+				return err
+			}
+			methodPath := "/vms/" + url.PathEscape(vm.UUID) + "/" + args[0]
 			var out map[string]any
 			if err := a.client.do(context.Background(), http.MethodPost, methodPath, nil, &out); err != nil {
 				return err
@@ -456,8 +458,12 @@ func (a app) vm(args []string) error {
 		}
 		slept := []map[string]string{}
 		for _, name := range args[1:] {
+			vm, err := a.lookupVM(name)
+			if err != nil {
+				return err
+			}
 			var out map[string]any
-			if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/sleep", nil, &out); err != nil {
+			if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(vm.UUID)+"/sleep", nil, &out); err != nil {
 				return err
 			}
 			slept = append(slept, map[string]string{"name": name, "status": "slept"})
@@ -502,8 +508,12 @@ func (a app) vm(args []string) error {
 		}
 		deleted := []map[string]string{}
 		for _, name := range args[1:] {
+			vm, err := a.lookupVM(name)
+			if err != nil {
+				return err
+			}
 			var out map[string]any
-			if err := a.client.do(context.Background(), http.MethodDelete, "/vms/"+url.PathEscape(name), nil, &out); err != nil {
+			if err := a.client.do(context.Background(), http.MethodDelete, "/vms/"+url.PathEscape(vm.UUID), nil, &out); err != nil {
 				return err
 			}
 			deleted = append(deleted, map[string]string{"name": name, "status": "deleted"})
@@ -667,20 +677,32 @@ func (a app) createVM(params vmCreateParams, name string) (vmInfo, error) {
 }
 
 func (a app) startVM(name string) (vmInfo, error) {
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return vmInfo{}, err
+	}
+	return a.startVMByUUID(vm.UUID)
+}
+
+func (a app) startVMByUUID(vmUUID string) (vmInfo, error) {
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
-	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/start", nil, &out); err != nil {
+	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(vmUUID)+"/start", nil, &out); err != nil {
 		return vmInfo{}, err
 	}
 	return out.VM, nil
 }
 
 func (a app) rebootVM(name string) (vmInfo, error) {
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return vmInfo{}, err
+	}
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
-	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(name)+"/reboot", nil, &out); err != nil {
+	if err := a.client.do(context.Background(), http.MethodPost, "/vms/"+url.PathEscape(vm.UUID)+"/reboot", nil, &out); err != nil {
 		return vmInfo{}, err
 	}
 	return out.VM, nil
@@ -713,8 +735,12 @@ func (a app) vmSettings(args []string) error {
 	if len(body) == 0 {
 		return errors.New("no settings provided")
 	}
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return err
+	}
 	var out map[string]any
-	if err := a.client.do(context.Background(), http.MethodPatch, "/vms/"+url.PathEscape(name)+"/settings", body, &out); err != nil {
+	if err := a.client.do(context.Background(), http.MethodPatch, "/vms/"+url.PathEscape(vm.UUID)+"/settings", body, &out); err != nil {
 		return err
 	}
 	return a.printJSONOrLine(out, fmt.Sprintf("%s settings updated", name))
@@ -733,11 +759,15 @@ func (a app) setPublicHTTP(name string, public bool) error {
 }
 
 func (a app) updatePublicHTTP(name string, public bool) (vmInfo, error) {
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return vmInfo{}, err
+	}
 	body := map[string]any{"public_http": public}
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
-	if err := a.client.do(context.Background(), http.MethodPatch, "/vms/"+url.PathEscape(name)+"/settings", body, &out); err != nil {
+	if err := a.client.do(context.Background(), http.MethodPatch, "/vms/"+url.PathEscape(vm.UUID)+"/settings", body, &out); err != nil {
 		return vmInfo{}, err
 	}
 	return out.VM, nil
@@ -779,8 +809,12 @@ func (a app) snapshot(args []string) error {
 		if len(args) != 3 {
 			return errors.New("usage: firedoze snapshot save <snapshot> <vm>")
 		}
+		vm, err := a.lookupVM(args[2])
+		if err != nil {
+			return err
+		}
 		var out map[string]any
-		body := map[string]any{"name": args[1], "vm": args[2]}
+		body := map[string]any{"name": args[1], "vm_uuid": vm.UUID}
 		if err := a.client.do(context.Background(), http.MethodPost, "/snapshots", body, &out); err != nil {
 			return err
 		}
@@ -900,8 +934,12 @@ func (a app) route(args []string) error {
 		if err != nil {
 			return fmt.Errorf("invalid port %q", args[3])
 		}
+		vm, err := a.lookupVM(args[2])
+		if err != nil {
+			return err
+		}
 		var out map[string]any
-		body := map[string]any{"name": args[1], "vm": args[2], "port": port}
+		body := map[string]any{"name": args[1], "vm_uuid": vm.UUID, "port": port}
 		if err := a.client.do(context.Background(), http.MethodPost, "/routes", body, &out); err != nil {
 			return err
 		}
@@ -972,7 +1010,7 @@ func (a app) up(args []string) error {
 	if vm.State != "running" {
 		if err := runWithSpinner(os.Stderr, "starting VM "+name, func() error {
 			var err error
-			vm, err = a.startVM(name)
+			vm, err = a.startVMByUUID(vm.UUID)
 			return err
 		}); err != nil {
 			return err
@@ -1187,7 +1225,7 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 	if vm.State == "running" {
 		return vm, nil
 	}
-	vm, err = a.startVM(vm.Name)
+	vm, err = a.startVMByUUID(vm.UUID)
 	if err != nil {
 		return vmInfo{}, err
 	}
@@ -1198,6 +1236,14 @@ func (a app) ensureVMReadyForSSH(name string) (vmInfo, error) {
 }
 
 func (a app) touchVMActivity(name string) error {
+	vm, err := a.lookupVM(name)
+	if err != nil {
+		return err
+	}
+	return a.touchVMActivityByUUID(vm.UUID)
+}
+
+func (a app) touchVMActivityByUUID(vmUUID string) error {
 	if a.client == nil {
 		return nil
 	}
@@ -1206,11 +1252,11 @@ func (a app) touchVMActivity(name string) error {
 	var out struct {
 		VM vmInfo `json:"vm"`
 	}
-	return a.client.do(ctx, http.MethodPost, "/vms/"+url.PathEscape(name)+"/activity", nil, &out)
+	return a.client.do(ctx, http.MethodPost, "/vms/"+url.PathEscape(vmUUID)+"/activity", nil, &out)
 }
 
 func (a app) activityHeartbeat(vm vmInfo) func() {
-	_ = a.touchVMActivity(vm.Name)
+	_ = a.touchVMActivityByUUID(vm.UUID)
 	interval := activityHeartbeatInterval(vm)
 	if interval <= 0 {
 		return func() {}
@@ -1226,7 +1272,7 @@ func (a app) activityHeartbeat(vm vmInfo) func() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = a.touchVMActivity(vm.Name)
+				_ = a.touchVMActivityByUUID(vm.UUID)
 			}
 		}
 	}()
@@ -1460,17 +1506,16 @@ func (a app) lookupVM(name string) (vmInfo, error) {
 
 func (a app) findVM(name string) (vmInfo, bool, error) {
 	var out struct {
-		VMs []vmInfo `json:"vms"`
+		VM vmInfo `json:"vm"`
 	}
-	if err := a.client.do(context.Background(), http.MethodGet, "/vms", nil, &out); err != nil {
+	if err := a.client.do(context.Background(), http.MethodGet, "/vms-by-name/"+url.PathEscape(name), nil, &out); err != nil {
+		var apiErr apiError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return vmInfo{}, false, nil
+		}
 		return vmInfo{}, false, err
 	}
-	for _, vm := range out.VMs {
-		if vm.Name == name {
-			return vm, true, nil
-		}
-	}
-	return vmInfo{}, false, nil
+	return out.VM, true, nil
 }
 
 func sshCommand(vm vmInfo) []string {
@@ -1878,7 +1923,7 @@ func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, er
 }
 
 func restoreSnapshotBody(params vmCreateParams, vmName string) map[string]any {
-	body := map[string]any{"vm": vmName}
+	body := map[string]any{"vm_name": vmName}
 	addInt(body, "vcpus", params.VCPUs)
 	addInt(body, "memory_min_mib", params.MemoryMinMiB)
 	addInt(body, "memory_max_mib", params.MemoryMaxMiB)

@@ -141,6 +141,8 @@ The API is experimental in early versions and may change freely. Compatibility s
 
 The root endpoint returns a compact JSON resource index. Errors are JSON objects. Operational endpoints return structured resources such as VMs, routes, snapshots, WireGuard peers, and WireGuard peer import configs. The WireGuard peer config endpoint returns the generated Firedoze client import config as a JSON string field, not as `text/plain`.
 
+VMs have immutable UUIDs as their true API identity. User-facing commands usually accept VM names, but the client first resolves the name with `GET /vms-by-name/{name}` and then performs VM-specific operations against `/vms/{uuid}/...`. This avoids a sequence of API calls accidentally operating on different VMs if a VM is renamed between calls.
+
 The primary human interface is a separate `firedoze` client command that runs on a developer laptop and talks to the WireGuard-only HTTP API. The `firedozed` binary is the privileged host daemon.
 
 The client stores named server profiles in `~/.config/firedoze/config.toml`. Imported profiles can include the client-side WireGuard private key and server routing details. When those details are present, normal `firedoze` commands start or reuse a local per-server userspace WireGuard broker for API calls and SSH proxying, so users do not need to run `wg-quick` for the common workflow. The `FIREDOZE_SERVER` and `-server` overrides select among stored profiles. The `FIREDOZE_API` and `-api` overrides bypass stored profiles and are useful for scripts or server-local debugging when equivalent network routing already exists.
@@ -175,7 +177,9 @@ No external database is used.
 
 ## VM Identity
 
-VM names are globally unique and map one-to-one with default virtual hostnames.
+VM UUIDs are immutable and are the primary key in the database and API.
+
+VM names are globally unique, mutable user-facing handles. They map one-to-one with default virtual hostnames.
 
 VM names must be DNS-safe: lowercase letters, numbers, and hyphens.
 
@@ -317,7 +321,7 @@ Sleeping must preserve exact runtime state. On wake, the VM should resume exactl
 
 This requires Firecracker memory snapshot state, disk state, and VM metadata to remain consistent.
 
-The implementation exposes a manual exact sleep/resume primitive: `POST /vms/{name}/sleep` saves Firecracker memory and VM state into the VM's state directory, stops the Firecracker process, and marks the VM `sleeping`; `POST /vms/{name}/start` loads that state back into Firecracker.
+The implementation exposes a manual exact sleep/resume primitive: `POST /vms/{uuid}/sleep` saves Firecracker memory and VM state into the VM's state directory, stops the Firecracker process, and marks the VM `sleeping`; `POST /vms/{uuid}/start` loads that state back into Firecracker.
 
 Automatic idle detection is layered on top of that primitive. The daemon tracks a stored last-activity timestamp for each running VM and updates it from meaningful user-facing paths. If a VM has no recorded activity for its configured idle threshold, the monitor calls the same exact sleep path. `idle.default_sleep_after_seconds` is the global threshold, `idle.check_interval_seconds` controls sample frequency, and `idle_sleep_after_seconds` on a VM can override the global threshold.
 

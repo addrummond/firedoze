@@ -27,6 +27,7 @@ type fakeManager struct {
 	listVMsMatchingFunc       func(context.Context, []string) ([]store.VM, error)
 	listVMResourceUsageFunc   func(context.Context, []string) ([]model.VMResourceUsage, error)
 	getVMFunc                 func(context.Context, string) (store.VM, error)
+	getVMByNameFunc           func(context.Context, string) (store.VM, error)
 	vmResourceUsageFunc       func(context.Context, string) (model.VMResourceUsage, error)
 	createVMFunc              func(context.Context, store.CreateVMParams) (store.VM, error)
 	updateVMFunc              func(context.Context, string, store.UpdateVMParams) (store.VM, error)
@@ -68,6 +69,13 @@ func (m *fakeManager) ListVMResourceUsage(ctx context.Context, patterns []string
 func (m *fakeManager) GetVM(ctx context.Context, name string) (store.VM, error) {
 	if m.getVMFunc != nil {
 		return m.getVMFunc(ctx, name)
+	}
+	return testVM(name), nil
+}
+
+func (m *fakeManager) GetVMByName(ctx context.Context, name string) (store.VM, error) {
+	if m.getVMByNameFunc != nil {
+		return m.getVMByNameFunc(ctx, name)
 	}
 	return testVM(name), nil
 }
@@ -268,7 +276,7 @@ func TestHelpWarmBaseImageAndGetVM(t *testing.T) {
 
 	rec := request(t, handler, http.MethodGet, "/", nil)
 	assertStatus(t, rec, http.StatusOK)
-	if body := rec.Body.String(); !strings.Contains(body, `"service": "firedoze"`) || !strings.Contains(body, "POST /vms/{name}/reboot") {
+	if body := rec.Body.String(); !strings.Contains(body, `"service": "firedoze"`) || !strings.Contains(body, "POST /vms/{uuid}/reboot") {
 		t.Fatalf("help response missing expected commands: %s", body)
 	}
 
@@ -458,15 +466,15 @@ func TestCreateAndUpdateVMUseManagerParamsAndReconcileProxy(t *testing.T) {
 		t.Fatalf("proxy reconcile calls = %d, want 1", proxy.calls)
 	}
 
-	rec = request(t, handler, http.MethodPatch, "/vms/dev-a/settings", map[string]any{
+	rec = request(t, handler, http.MethodPatch, "/vms/dev-a-uuid/settings", map[string]any{
 		"default_http_port":        8088,
 		"idle_sleep_after_seconds": 60,
 		"auto_wake":                false,
 		"public_http":              false,
 	})
 	assertStatus(t, rec, http.StatusOK)
-	if updateName != "dev-a" {
-		t.Fatalf("update name = %q", updateName)
+	if updateName != "dev-a-uuid" {
+		t.Fatalf("update uuid = %q", updateName)
 	}
 	if updateParams.DefaultHTTPPort == nil || *updateParams.DefaultHTTPPort != 8088 {
 		t.Fatalf("default_http_port params = %#v", updateParams.DefaultHTTPPort)
@@ -601,26 +609,30 @@ func TestRoutesUseStoreValidationAndProxyReconcile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	dev, err := st.GetVMByName(context.Background(), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
 	proxy := &fakeProxy{}
 	handler := NewServer(testConfig(t), &fakeManager{}, st, proxy)
 
 	rec := request(t, handler, http.MethodPost, "/routes", map[string]any{
-		"name": "dev",
-		"vm":   "dev",
-		"port": 8080,
+		"name":    "dev",
+		"vm_uuid": dev.UUID,
+		"port":    8080,
 	})
 	assertStatus(t, rec, http.StatusConflict)
 
 	rec = request(t, handler, http.MethodPost, "/routes", map[string]any{
 		"name":    "api",
-		"vm_name": "dev",
+		"vm_uuid": dev.UUID,
 		"port":    70000,
 	})
 	assertStatus(t, rec, http.StatusBadRequest)
 
 	rec = request(t, handler, http.MethodPost, "/routes", map[string]any{
 		"name":    "api",
-		"vm_name": "dev",
+		"vm_uuid": dev.UUID,
 		"port":    9000,
 	})
 	assertStatus(t, rec, http.StatusCreated)
@@ -674,9 +686,9 @@ func TestSnapshotHandlersValidateMapErrorsAndReconcileRestore(t *testing.T) {
 		t.Fatalf("snapshot list missing snapshot: %s", body)
 	}
 
-	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "snap.1", "vm": "dev"})
+	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "snap.1", "vm_uuid": "dev-uuid"})
 	assertStatus(t, rec, http.StatusCreated)
-	if saveParams.Name != "snap.1" || saveParams.SourceVM != "dev" {
+	if saveParams.Name != "snap.1" || saveParams.SourceVMUUID != "dev-uuid" {
 		t.Fatalf("save params = %#v", saveParams)
 	}
 	if proxy.calls != 0 {
@@ -722,16 +734,13 @@ func TestSnapshotHandlersValidateMapErrorsAndReconcileRestore(t *testing.T) {
 	manager.saveSnapshotFunc = func(context.Context, store.CreateSnapshotParams) (store.Snapshot, error) {
 		return store.Snapshot{}, firecracker.ErrNotStopped
 	}
-	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "snap.2", "vm": "dev"})
+	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "snap.2", "vm_uuid": "dev-uuid"})
 	assertStatus(t, rec, http.StatusConflict)
 
 	rec = request(t, handler, http.MethodPost, "/snapshots", "{")
 	assertStatus(t, rec, http.StatusBadRequest)
 
-	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "bad name", "vm": "dev"})
-	assertStatus(t, rec, http.StatusBadRequest)
-
-	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "snap.3", "vm": "Bad_Name"})
+	rec = request(t, handler, http.MethodPost, "/snapshots", map[string]any{"name": "bad name", "vm_uuid": "dev-uuid"})
 	assertStatus(t, rec, http.StatusBadRequest)
 
 	manager.getSnapshotFunc = func(context.Context, string) (store.Snapshot, error) {
@@ -826,6 +835,7 @@ func testStore(t *testing.T) *store.Store {
 
 func testVM(name string) store.VM {
 	return store.VM{
+		UUID:                  name + "-uuid",
 		Name:                  name,
 		State:                 "stopped",
 		PrivateIP:             "fd01::2",
@@ -854,14 +864,15 @@ func vmFromParams(params store.CreateVMParams) store.VM {
 
 func testSnapshot(name string) store.Snapshot {
 	return store.Snapshot{
-		Name:        name,
-		SourceVM:    "dev",
-		StatePath:   "/state",
-		MemPath:     "/mem",
-		DiskPath:    "/disk",
-		BaseImageID: "base",
-		KernelID:    "kernel",
-		CreatedAt:   "2026-05-04T00:00:00Z",
+		Name:         name,
+		SourceVMUUID: "dev-uuid",
+		SourceVM:     "dev",
+		StatePath:    "/state",
+		MemPath:      "/mem",
+		DiskPath:     "/disk",
+		BaseImageID:  "base",
+		KernelID:     "kernel",
+		CreatedAt:    "2026-05-04T00:00:00Z",
 	}
 }
 

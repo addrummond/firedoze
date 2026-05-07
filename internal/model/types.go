@@ -45,6 +45,7 @@ func (j *JSONText) Scan(value any) error {
 }
 
 type VM struct {
+	UUID                  string   `json:"uuid"`
 	Name                  string   `json:"name"`
 	State                 string   `json:"state"`
 	PrivateIP             string   `json:"private_ip,omitempty"`
@@ -67,6 +68,7 @@ type VM struct {
 
 type Route struct {
 	Name      string `json:"name"`
+	VMUUID    string `json:"vm_uuid"`
 	VMName    string `json:"vm_name"`
 	Port      int    `json:"port"`
 	IsDefault bool   `json:"is_default"`
@@ -74,6 +76,7 @@ type Route struct {
 
 type Snapshot struct {
 	Name              string   `json:"name"`
+	SourceVMUUID      string   `json:"source_vm_uuid,omitempty"`
 	SourceVM          string   `json:"source_vm,omitempty"`
 	StatePath         string   `json:"state_path"`
 	MemPath           string   `json:"mem_path"`

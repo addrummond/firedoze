@@ -70,13 +70,14 @@ func TestSetVMStateAllowsLost(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	created, err := st.CreateVM(ctx, CreateVMParams{Name: "demo", PrivateIP: "10.0.0.2", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(ctx, "demo", "lost"); err != nil {
+	if err := st.SetVMState(ctx, created.UUID, "lost"); err != nil {
 		t.Fatal(err)
 	}
-	vm, err := st.GetVM(ctx, "demo")
+	vm, err := st.GetVM(ctx, created.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,20 +106,20 @@ func TestVMStoppedAtTracksStoppedState(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, vm.StoppedAt); err != nil {
 		t.Fatalf("parse created stopped_at: %v", err)
 	}
-	if err := st.SetVMState(ctx, "demo", "running"); err != nil {
+	if err := st.SetVMState(ctx, vm.UUID, "running"); err != nil {
 		t.Fatal(err)
 	}
-	vm, err = st.GetVM(ctx, "demo")
+	vm, err = st.GetVM(ctx, vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if vm.StoppedAt != "" {
 		t.Fatalf("running VM stopped_at = %q, want empty", vm.StoppedAt)
 	}
-	if err := st.SetVMState(ctx, "demo", "stopped"); err != nil {
+	if err := st.SetVMState(ctx, vm.UUID, "stopped"); err != nil {
 		t.Fatal(err)
 	}
-	vm, err = st.GetVM(ctx, "demo")
+	vm, err = st.GetVM(ctx, vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}

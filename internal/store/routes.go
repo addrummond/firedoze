@@ -13,7 +13,7 @@ type Route = model.Route
 
 type CreateRouteParams struct {
 	Name      string
-	VMName    string
+	VMUUID    string
 	Port      int
 	IsDefault bool
 }
@@ -32,10 +32,16 @@ func (s *Store) CreateRoute(ctx context.Context, params CreateRouteParams) (Rout
 	if vmExists {
 		return Route{}, fmt.Errorf("%w: VM %q reserves route name", ErrAlreadyExists, params.Name)
 	}
+	if err := tx.QueryRowContext(ctx, `select exists(select 1 from vms where uuid = ?)`, params.VMUUID).Scan(&vmExists); err != nil {
+		return Route{}, err
+	}
+	if !vmExists {
+		return Route{}, fmt.Errorf("%w: vm %q", ErrNotFound, params.VMUUID)
+	}
 	_, err = tx.ExecContext(ctx, `
-		insert into routes (name, vm_name, port, is_default)
+		insert into routes (name, vm_uuid, port, is_default)
 		values (?, ?, ?, ?)
-	`, params.Name, params.VMName, params.Port, boolInt(params.IsDefault))
+	`, params.Name, params.VMUUID, params.Port, boolInt(params.IsDefault))
 	if err != nil {
 		return Route{}, err
 	}
@@ -47,9 +53,10 @@ func (s *Store) CreateRoute(ctx context.Context, params CreateRouteParams) (Rout
 
 func (s *Store) ListRoutes(ctx context.Context) ([]Route, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select name, vm_name, port, is_default
+		select routes.name, routes.vm_uuid, vms.name, routes.port, routes.is_default
 		from routes
-		order by name
+		join vms on vms.uuid = routes.vm_uuid
+		order by routes.name
 	`)
 	if err != nil {
 		return nil, err
@@ -72,9 +79,10 @@ func (s *Store) ListRoutes(ctx context.Context) ([]Route, error) {
 
 func (s *Store) GetRoute(ctx context.Context, name string) (Route, error) {
 	route, err := scanRoute(s.db.QueryRowContext(ctx, `
-		select name, vm_name, port, is_default
+		select routes.name, routes.vm_uuid, vms.name, routes.port, routes.is_default
 		from routes
-		where name = ?
+		join vms on vms.uuid = routes.vm_uuid
+		where routes.name = ?
 	`, name))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Route{}, ErrNotFound
@@ -100,8 +108,8 @@ func (s *Store) DeleteRoute(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *Store) DeleteRoutesForVM(ctx context.Context, vmName string) error {
-	_, err := s.db.ExecContext(ctx, `delete from routes where vm_name = ?`, vmName)
+func (s *Store) DeleteRoutesForVM(ctx context.Context, vmUUID string) error {
+	_, err := s.db.ExecContext(ctx, `delete from routes where vm_uuid = ?`, vmUUID)
 	return err
 }
 
@@ -128,7 +136,7 @@ type routeScanner interface {
 func scanRoute(row routeScanner) (Route, error) {
 	var route Route
 	var isDefault int
-	if err := row.Scan(&route.Name, &route.VMName, &route.Port, &isDefault); err != nil {
+	if err := row.Scan(&route.Name, &route.VMUUID, &route.VMName, &route.Port, &isDefault); err != nil {
 		return Route{}, err
 	}
 	route.IsDefault = isDefault != 0

@@ -91,6 +91,9 @@ func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/vms-by-name/"):
+			name := strings.TrimPrefix(r.URL.Path, "/vms-by-name/")
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"`+name+`-uuid","name":"`+name+`","state":"stopped"}}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/start"):
 			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running"}}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/stop"):
@@ -115,10 +118,14 @@ func TestVMLifecycleCommandsUseExpectedEndpoints(t *testing.T) {
 
 	got := requestKeys(requests)
 	want := []string{
-		"POST /vms/demo/start",
-		"POST /vms/demo/stop",
-		"DELETE /vms/alpha",
-		"DELETE /vms/beta",
+		"GET /vms-by-name/demo",
+		"POST /vms/demo-uuid/start",
+		"GET /vms-by-name/demo",
+		"POST /vms/demo-uuid/stop",
+		"GET /vms-by-name/alpha",
+		"DELETE /vms/alpha-uuid",
+		"GET /vms-by-name/beta",
+		"DELETE /vms/beta-uuid",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
@@ -129,7 +136,12 @@ func TestVMSettingsPatchBody(t *testing.T) {
 	var request cliRequest
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request = readCLIRequest(t, r)
-		if request.method != http.MethodPatch || request.path != "/vms/demo/settings" {
+		if request.method == http.MethodGet && request.path == "/vms-by-name/demo" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running"}}`)
+			return
+		}
+		if request.method != http.MethodPatch || request.path != "/vms/demo-uuid/settings" {
 			t.Fatalf("unexpected request: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -173,6 +185,8 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 			_, _ = io.WriteString(w, `{"snapshots":[{"name":"snap","source_vm":"demo"}]}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/snapshots/snap":
 			_, _ = io.WriteString(w, `{"snapshot":{"name":"snap","source_vm":"demo"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"stopped"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/snapshots":
 			_, _ = io.WriteString(w, `{"snapshot":{"name":"snap","source_vm":"demo"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/snapshots/snap/restore":
@@ -208,6 +222,7 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	want := []string{
 		"GET /snapshots",
 		"GET /snapshots/snap",
+		"GET /vms-by-name/demo",
 		"POST /snapshots",
 		"POST /snapshots/snap/restore",
 		"GET /snapshots/snap/export",
@@ -218,17 +233,17 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}
 	var saveBody map[string]any
-	if err := json.Unmarshal([]byte(requests[2].body), &saveBody); err != nil {
+	if err := json.Unmarshal([]byte(requests[3].body), &saveBody); err != nil {
 		t.Fatal(err)
 	}
-	if saveBody["name"] != "snap" || saveBody["vm"] != "demo" {
+	if saveBody["name"] != "snap" || saveBody["vm_uuid"] != "demo-uuid" {
 		t.Fatalf("save body = %#v", saveBody)
 	}
 	var restoreBody map[string]any
-	if err := json.Unmarshal([]byte(requests[3].body), &restoreBody); err != nil {
+	if err := json.Unmarshal([]byte(requests[4].body), &restoreBody); err != nil {
 		t.Fatal(err)
 	}
-	if restoreBody["vm"] != "copy" ||
+	if restoreBody["vm_name"] != "copy" ||
 		restoreBody["vcpus"] != float64(2) ||
 		restoreBody["memory_min_mib"] != float64(128) ||
 		restoreBody["memory_max_mib"] != float64(512) ||
@@ -243,8 +258,8 @@ func TestSnapshotCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	if string(exported) != "bundle" {
 		t.Fatalf("exported file = %q, want bundle", exported)
 	}
-	if requests[5].body != "bundle" {
-		t.Fatalf("import body = %q, want bundle", requests[5].body)
+	if requests[6].body != "bundle" {
+		t.Fatalf("import body = %q, want bundle", requests[6].body)
 	}
 }
 
@@ -256,6 +271,8 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/routes":
 			_, _ = io.WriteString(w, `{"routes":[{"name":"web","vm_name":"demo","port":8080}]}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/routes":
 			_, _ = io.WriteString(w, `{"route":{"name":"web","vm_name":"demo","port":8080}}`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/routes/web":
@@ -276,15 +293,15 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		}
 	}
 	got := requestKeys(requests)
-	want := []string{"GET /routes", "POST /routes", "DELETE /routes/web"}
+	want := []string{"GET /routes", "GET /vms-by-name/demo", "POST /routes", "DELETE /routes/web"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}
 	var body map[string]any
-	if err := json.Unmarshal([]byte(requests[1].body), &body); err != nil {
+	if err := json.Unmarshal([]byte(requests[2].body), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["name"] != "web" || body["vm"] != "demo" || body["port"] != float64(8080) {
+	if body["name"] != "web" || body["vm_uuid"] != "demo-uuid" || body["port"] != float64(8080) {
 		t.Fatalf("route create body = %#v", body)
 	}
 }
@@ -295,12 +312,12 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/vms":
-			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/start":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/activity":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -325,7 +342,7 @@ func TestSSHStartsSleepingVMWaitsAndRunsSSH(t *testing.T) {
 	if waitedIP != "fd00::2" {
 		t.Fatalf("waited IP = %q, want fd00::2", waitedIP)
 	}
-	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start", "POST /vms/demo/activity"}) {
+	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms-by-name/demo", "POST /vms/demo-uuid/start", "POST /vms/demo-uuid/activity"}) {
 		t.Fatalf("requests = %#v", requestKeys(requests))
 	}
 	wantSuffix := []string{"ubuntu@fd00::2", "-L", "8080:localhost:8080"}
@@ -340,12 +357,12 @@ func TestSSHProxyStartsSleepingVMWaitsDialsAndPipes(t *testing.T) {
 		requests = append(requests, readCLIRequest(t, r))
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/vms":
-			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"sleeping","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/start":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/activity":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -413,23 +430,23 @@ func TestSSHProxyStartsSleepingVMWaitsDialsAndPipes(t *testing.T) {
 	if output.String() != "server hello" {
 		t.Fatalf("proxy output = %q, want server hello", output.String())
 	}
-	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms", "POST /vms/demo/start", "POST /vms/demo/activity"}) {
+	if !reflect.DeepEqual(requestKeys(requests), []string{"GET /vms-by-name/demo", "POST /vms/demo-uuid/start", "POST /vms/demo-uuid/activity"}) {
 		t.Fatalf("requests = %#v", requestKeys(requests))
 	}
 }
 
 func TestExecCpAndWithVMIPUseCommandRunner(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity" {
+		if r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/activity" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 			return
 		}
-		if r.Method != http.MethodGet || r.URL.Path != "/vms" {
+		if r.Method != http.MethodGet || r.URL.Path != "/vms-by-name/demo" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}]}`)
+		_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","ssh":"ssh ubuntu@demo.example.test"}}`)
 	})
 
 	var commands [][]string
@@ -474,18 +491,19 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 		requests = append(requests, req)
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/vms" && len(requests) == 1:
-			_, _ = io.WriteString(w, `{"vms":[]}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo" && len(requests) == 1:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"not found"}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/base-image/warmup":
 			_, _ = io.WriteString(w, `{"base_image":{}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/vms":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"stopped","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/start":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
-		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo/activity":
-			_, _ = io.WriteString(w, `{"vm":{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
-		case r.Method == http.MethodGet && r.URL.Path == "/vms":
-			_, _ = io.WriteString(w, `{"vms":[{"name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}]}`)
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"stopped","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/start":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/vms/demo-uuid/activity":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
+			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running","private_ip":"fd00::2","public_http":true,"ssh":"ssh ubuntu@demo.example.test"}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -508,7 +526,7 @@ func TestVMUpCreatesStartsPublishesByDefaultAndRunsSSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := requestKeys(requests)
-	want := []string{"GET /vms", "POST /base-image/warmup", "POST /vms", "POST /vms/demo/start", "GET /vms", "POST /vms/demo/activity"}
+	want := []string{"GET /vms-by-name/demo", "POST /base-image/warmup", "POST /vms", "POST /vms/demo-uuid/start", "GET /vms-by-name/demo", "POST /vms/demo-uuid/activity"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}

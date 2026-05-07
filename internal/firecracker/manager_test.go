@@ -128,10 +128,11 @@ func TestCreateVMValidationAndExplicitAutoWake(t *testing.T) {
 func TestCreateAndRestoreRejectRouteNameConflict(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "owner", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	owner, err := st.CreateVM(ctx, store.CreateVMParams{Name: "owner", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "alias", VMName: "owner", Port: 8080}); err != nil {
+	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "alias", VMUUID: owner.UUID, Port: 8080}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,19 +232,20 @@ func TestNextPrivateIPSkipsUsedAndDetectsExhaustion(t *testing.T) {
 func TestUpdateVMValidation(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080}); err != nil {
+	created, err := st.CreateVM(ctx, store.CreateVMParams{Name: "demo", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
 	badPort := 70000
-	if _, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{DefaultHTTPPort: &badPort}); err == nil {
+	if _, err := m.UpdateVM(ctx, created.UUID, store.UpdateVMParams{DefaultHTTPPort: &badPort}); err == nil {
 		t.Fatal("UpdateVM accepted bad default_http_port")
 	}
 	badIdle := -1
-	if _, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{IdleSleepAfterSeconds: &badIdle}); err == nil {
+	if _, err := m.UpdateVM(ctx, created.UUID, store.UpdateVMParams{IdleSleepAfterSeconds: &badIdle}); err == nil {
 		t.Fatal("UpdateVM accepted negative idle timeout")
 	}
 	goodPort := 3000
-	vm, err := m.UpdateVM(ctx, "demo", store.UpdateVMParams{DefaultHTTPPort: &goodPort})
+	vm, err := m.UpdateVM(ctx, created.UUID, store.UpdateVMParams{DefaultHTTPPort: &goodPort})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +343,11 @@ func TestManagerListAndGetWrappers(t *testing.T) {
 	if len(vms) != 1 || vms[0].Name != "alpha" {
 		t.Fatalf("ListVMsMatching = %#v", vms)
 	}
-	vm, err := m.GetVM(ctx, "beta")
+	beta, err := st.GetVMByName(ctx, "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := m.GetVM(ctx, beta.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,13 +373,15 @@ func TestManagerListAndGetWrappers(t *testing.T) {
 func TestReconcileStartupMarksRunningVMsLostAndIgnoresCleanupErrors(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "stopped", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	stoppedVM, err := st.CreateVM(ctx, store.CreateVMParams{Name: "stopped", PrivateIP: "fd00::3", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "running", PrivateIP: "fd00::5", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	runningVM, err := st.CreateVM(ctx, store.CreateVMParams{Name: "running", PrivateIP: "fd00::5", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(ctx, "running", "running"); err != nil {
+	if err := st.SetVMState(ctx, runningVM.UUID, "running"); err != nil {
 		t.Fatal(err)
 	}
 	var cleaned []string
@@ -386,14 +394,14 @@ func TestReconcileStartupMarksRunningVMsLostAndIgnoresCleanupErrors(t *testing.T
 	if err := m.ReconcileStartup(ctx); err != nil {
 		t.Fatal(err)
 	}
-	running, err := st.GetVM(ctx, "running")
+	running, err := st.GetVM(ctx, runningVM.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if running.State != "lost" {
 		t.Fatalf("running state = %q, want lost", running.State)
 	}
-	stopped, err := st.GetVM(ctx, "stopped")
+	stopped, err := st.GetVM(ctx, stoppedVM.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,12 +415,12 @@ func TestReconcileStartupMarksRunningVMsLostAndIgnoresCleanupErrors(t *testing.T
 
 func TestStopVMWithoutRunningProcessMarksStopped(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "running")
+	vm := createSnapshotTestVM(t, m, st, "demo", "running")
 
-	if err := m.StopVM(context.Background(), "demo"); err != nil {
+	if err := m.StopVM(context.Background(), vm.UUID); err != nil {
 		t.Fatal(err)
 	}
-	vm, err := st.GetVM(context.Background(), "demo")
+	vm, err := st.GetVM(context.Background(), vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +448,7 @@ func TestFirecrackerProcessExitMarksStoppedAndCleansUp(t *testing.T) {
 	defer restore()
 	m.cfg.Firecracker.BinaryPath = "/usr/bin/true"
 
-	proc, err := m.launchProcess(vm.Name, layout, preparedNetwork{
+	proc, err := m.launchProcess(vm, layout, preparedNetwork{
 		tapName:   tapName(vm.Name),
 		guestCIDR: vm.PrivateIP + "/127",
 	})
@@ -451,7 +459,7 @@ func TestFirecrackerProcessExitMarksStoppedAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	updated, err := st.GetVM(ctx, vm.Name)
+	updated, err := st.GetVM(ctx, vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +579,7 @@ func createSnapshotTestVM(t *testing.T, m *Manager, st *store.Store, name string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(context.Background(), name, state); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, state); err != nil {
 		t.Fatal(err)
 	}
 	layout := m.layout(name)
@@ -587,9 +595,9 @@ func createSnapshotTestVM(t *testing.T, m *Manager, st *store.Store, name string
 
 func TestSaveSnapshotRejectsRunningVM(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "running")
+	vm := createSnapshotTestVM(t, m, st, "demo", "running")
 
-	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVMUUID: vm.UUID})
 	if !errors.Is(err, ErrRunning) {
 		t.Fatalf("SaveSnapshot error = %v, want ErrRunning", err)
 	}
@@ -597,10 +605,10 @@ func TestSaveSnapshotRejectsRunningVM(t *testing.T) {
 
 func TestSaveSnapshotRejectsVMOperationInProgress(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "sleeping")
-	m.vmOps["demo"] = struct{}{}
+	vm := createSnapshotTestVM(t, m, st, "demo", "sleeping")
+	m.vmOps[vm.UUID] = struct{}{}
 
-	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVMUUID: vm.UUID})
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("SaveSnapshot error = %v, want ErrAlreadyRunning", err)
 	}
@@ -608,9 +616,9 @@ func TestSaveSnapshotRejectsVMOperationInProgress(t *testing.T) {
 
 func TestSaveSnapshotFromStoppedVMCopiesDiskOnly(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
 
-	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVMUUID: vm.UUID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,9 +700,9 @@ func TestSnapshotImportRejectsInvalidBundleAndCleansDirectory(t *testing.T) {
 
 func TestSaveSnapshotRejectsSleepingVM(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "sleeping")
+	vm := createSnapshotTestVM(t, m, st, "demo", "sleeping")
 
-	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	_, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVMUUID: vm.UUID})
 	if !errors.Is(err, ErrNotStopped) {
 		t.Fatalf("SaveSnapshot error = %v, want ErrNotStopped", err)
 	}
@@ -704,9 +712,9 @@ func TestArchiveStoppedVMMovesDiskToColdStorage(t *testing.T) {
 	m, st := newTestManager(t)
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
 	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
 
-	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+	if err := m.ArchiveStoppedVM(context.Background(), vm.UUID, time.Now().Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -720,7 +728,7 @@ func TestArchiveStoppedVMMovesDiskToColdStorage(t *testing.T) {
 	if string(data) != "disk" {
 		t.Fatalf("cold disk = %q, want disk", data)
 	}
-	vm, err := st.GetVM(context.Background(), "demo")
+	vm, err = st.GetVM(context.Background(), vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,12 +741,12 @@ func TestHydrateColdDiskRestoresArchivedDisk(t *testing.T) {
 	m, st := newTestManager(t)
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
 	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
-	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if err := m.ArchiveStoppedVM(context.Background(), vm.UUID, time.Now().Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
-	vm, err := st.GetVM(context.Background(), "demo")
+	vm, err := st.GetVM(context.Background(), vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -758,7 +766,7 @@ func TestHydrateColdDiskRestoresArchivedDisk(t *testing.T) {
 	if _, err := os.Stat(m.coldDiskPath("demo")); !os.IsNotExist(err) {
 		t.Fatalf("cold disk stat error = %v, want not exist", err)
 	}
-	vm, err = st.GetVM(context.Background(), "demo")
+	vm, err = st.GetVM(context.Background(), vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,12 +779,12 @@ func TestSaveSnapshotFromArchivedStoppedVMCopiesColdDisk(t *testing.T) {
 	m, st := newTestManager(t)
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
 	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
-	if err := m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second)); err != nil {
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if err := m.ArchiveStoppedVM(context.Background(), vm.UUID, time.Now().Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
-	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVM: "demo"})
+	snapshot, err := m.SaveSnapshot(context.Background(), store.CreateSnapshotParams{Name: "snap", SourceVMUUID: vm.UUID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +802,7 @@ func TestHydrateColdDiskFailsWhenRecordedArchiveIsMissing(t *testing.T) {
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
 	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
 	missingPath := filepath.Join(m.cfg.ColdStorage.Dir, "vms", "demo", "rootfs.ext4")
-	if err := st.SetVMArchivedDiskPath(context.Background(), "demo", missingPath); err != nil {
+	if err := st.SetVMArchivedDiskPath(context.Background(), vm.UUID, missingPath); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(m.layout("demo").diskPath); err != nil {
@@ -840,7 +848,7 @@ func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
 	m, st := newTestManager(t)
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
 	m.cfg.ColdStorage.ArchiveStoppedAfterSeconds = 1
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
 
 	copyStarted := make(chan struct{})
 	m.copyColdFile = func(ctx context.Context, dst string, src string) error {
@@ -851,7 +859,7 @@ func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
 
 	archiveDone := make(chan error, 1)
 	go func() {
-		archiveDone <- m.ArchiveStoppedVM(context.Background(), "demo", time.Now().Add(2*time.Second))
+		archiveDone <- m.ArchiveStoppedVM(context.Background(), vm.UUID, time.Now().Add(2*time.Second))
 	}()
 
 	select {
@@ -860,7 +868,7 @@ func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
 		t.Fatal("archive copy did not start")
 	}
 
-	if err := m.DeleteVM(context.Background(), "demo"); err != nil {
+	if err := m.DeleteVM(context.Background(), vm.UUID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -872,7 +880,7 @@ func TestDeleteVMCancelsInProgressColdArchive(t *testing.T) {
 		t.Fatal("delete did not wait for archive cancellation")
 	}
 
-	if _, err := st.GetVM(context.Background(), "demo"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.GetVM(context.Background(), vm.UUID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetVM after delete error = %v, want ErrNotFound", err)
 	}
 	if _, err := os.Stat(m.coldDiskPath("demo")); !os.IsNotExist(err) {
@@ -884,12 +892,12 @@ func TestDeleteStoppedVMRemovesDiskArchivesColdDirAndRoutes(t *testing.T) {
 	ctx := context.Background()
 	m, st := newTestManager(t)
 	m.cfg.ColdStorage.Dir = filepath.Join(t.TempDir(), "cold")
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
 	archivedPath := filepath.Join(t.TempDir(), "archived-rootfs.ext4")
 	if err := os.WriteFile(archivedPath, []byte("archived"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMArchivedDiskPath(ctx, "demo", archivedPath); err != nil {
+	if err := st.SetVMArchivedDiskPath(ctx, vm.UUID, archivedPath); err != nil {
 		t.Fatal(err)
 	}
 	coldDir := m.coldVMDir("demo")
@@ -899,14 +907,14 @@ func TestDeleteStoppedVMRemovesDiskArchivesColdDirAndRoutes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(coldDir, "stale"), []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "web", VMName: "demo", Port: 8080}); err != nil {
+	if _, err := st.CreateRoute(ctx, store.CreateRouteParams{Name: "web", VMUUID: vm.UUID, Port: 8080}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := m.DeleteVM(ctx, "demo"); err != nil {
+	if err := m.DeleteVM(ctx, vm.UUID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetVM(ctx, "demo"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.GetVM(ctx, vm.UUID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetVM after delete error = %v, want ErrNotFound", err)
 	}
 	if _, err := st.GetRoute(ctx, "web"); !errors.Is(err, store.ErrNotFound) {
@@ -953,14 +961,14 @@ func TestDeleteSnapshotRemovesDirectoryAndRow(t *testing.T) {
 
 func TestSleepVMStoppedAndAlreadySleeping(t *testing.T) {
 	m, st := newTestManager(t)
-	createSnapshotTestVM(t, m, st, "demo", "stopped")
-	if _, err := m.SleepVM(context.Background(), "demo"); !errors.Is(err, ErrNotRunning) {
+	vm := createSnapshotTestVM(t, m, st, "demo", "stopped")
+	if _, err := m.SleepVM(context.Background(), vm.UUID); !errors.Is(err, ErrNotRunning) {
 		t.Fatalf("SleepVM stopped error = %v, want ErrNotRunning", err)
 	}
-	if err := st.SetVMState(context.Background(), "demo", "sleeping"); err != nil {
+	if err := st.SetVMState(context.Background(), vm.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
-	vm, err := m.SleepVM(context.Background(), "demo")
+	vm, err := m.SleepVM(context.Background(), vm.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -970,9 +978,11 @@ func TestSleepVMStoppedAndAlreadySleeping(t *testing.T) {
 }
 
 func TestRunningVMNamesSortedAndStartVMsIgnoresAlreadyRunning(t *testing.T) {
-	m, _ := newTestManager(t)
-	m.running["beta"] = &Process{Name: "beta"}
-	m.running["alpha"] = &Process{Name: "alpha"}
+	m, st := newTestManager(t)
+	alpha := createSnapshotTestVM(t, m, st, "alpha", "running")
+	beta := createSnapshotTestVM(t, m, st, "beta", "running")
+	m.running[beta.UUID] = &Process{UUID: beta.UUID, Name: "beta"}
+	m.running[alpha.UUID] = &Process{UUID: alpha.UUID, Name: "alpha"}
 
 	names := m.RunningVMNames()
 	if strings.Join(names, ",") != "alpha,beta" {
@@ -1455,18 +1465,20 @@ func TestStartAndRebootEarlyErrorPaths(t *testing.T) {
 		t.Fatalf("RebootVM missing error = %v, want ErrNotFound", err)
 	}
 
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "badip", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	badIP, err := st.CreateVM(ctx, store.CreateVMParams{Name: "badip", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := m.StartVM(ctx, "badip")
+	_, err = m.StartVM(ctx, badIP.UUID)
 	if err == nil || !strings.Contains(err.Error(), "prepare network") || !strings.Contains(err.Error(), "private_ip must be an IP address") {
 		t.Fatalf("StartVM bad IP error = %v", err)
 	}
 
-	if _, err := st.CreateVM(ctx, store.CreateVMParams{Name: "sleepy", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080}); err != nil {
+	sleepy, err := st.CreateVM(ctx, store.CreateVMParams{Name: "sleepy", PrivateIP: "not-an-ip", VCPUs: 1, MemoryMinMiB: 128, MemoryMaxMiB: 128, DiskBytes: 1024, DefaultHTTPPort: 8080})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetVMState(ctx, "sleepy", "sleeping"); err != nil {
+	if err := st.SetVMState(ctx, sleepy.UUID, "sleeping"); err != nil {
 		t.Fatal(err)
 	}
 	layout := m.layout("sleepy")
@@ -1479,10 +1491,10 @@ func TestStartAndRebootEarlyErrorPaths(t *testing.T) {
 	if err := os.WriteFile(layout.sleepMemPath, []byte("mem"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.RebootVM(ctx, "sleepy"); err == nil {
+	if _, err := m.RebootVM(ctx, sleepy.UUID); err == nil {
 		t.Fatal("RebootVM sleeping VM succeeded despite missing base rootfs setup for start")
 	}
-	updated, err := st.GetVM(ctx, "sleepy")
+	updated, err := st.GetVM(ctx, sleepy.UUID)
 	if err != nil {
 		t.Fatal(err)
 	}

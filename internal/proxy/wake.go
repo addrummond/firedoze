@@ -98,7 +98,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			p.gate.handle(w, r, host)
 			return
 		}
-		started, err := p.manager.StartVM(r.Context(), vm.Name)
+		started, err := p.manager.StartVM(r.Context(), vm.UUID)
 		if err != nil && !errors.Is(err, firecracker.ErrAlreadyRunning) {
 			p.logger.Warn("wake vm for http route", "vm", vm.Name, "host", r.Host, "error", err)
 			http.Error(w, "firedoze wake failed", http.StatusServiceUnavailable)
@@ -106,7 +106,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil {
 			vm = started
-		} else if refreshed, refreshErr := p.store.GetVM(r.Context(), vm.Name); refreshErr == nil {
+		} else if refreshed, refreshErr := p.store.GetVM(r.Context(), vm.UUID); refreshErr == nil {
 			vm = refreshed
 		}
 		p.logger.Info(
@@ -127,7 +127,7 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "firedoze vm has no private ip", http.StatusServiceUnavailable)
 		return
 	}
-	if err := p.store.TouchVMActivity(r.Context(), vm.Name); err != nil {
+	if err := p.store.TouchVMActivity(r.Context(), vm.UUID); err != nil {
 		p.logger.Warn("touch vm activity for http route", "vm", vm.Name, "host", r.Host, "error", err)
 	}
 
@@ -156,7 +156,7 @@ func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM
 		return store.VM{}, 0, false
 	}
 
-	if vm, err := p.store.GetVM(ctx, name); err == nil {
+	if vm, err := p.store.GetVMByName(ctx, name); err == nil {
 		return vm, vm.DefaultHTTPPort, true
 	}
 
@@ -164,7 +164,7 @@ func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM
 	if err != nil {
 		return store.VM{}, 0, false
 	}
-	vm, err := p.store.GetVM(ctx, route.VMName)
+	vm, err := p.store.GetVM(ctx, route.VMUUID)
 	if err != nil {
 		return store.VM{}, 0, false
 	}

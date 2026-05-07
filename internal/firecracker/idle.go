@@ -102,7 +102,7 @@ func (m *IdleMonitor) sleepIdleVM(ctx context.Context, vm store.VM, idleFor time
 	sleepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	if _, err := m.manager.SleepVM(sleepCtx, vm.Name); err != nil {
+	if _, err := m.manager.SleepVM(sleepCtx, vm.UUID); err != nil {
 		m.logger.Warn("idle sleep failed", "vm", vm.Name, "idle_for", idleFor, "error", err)
 		return
 	}
