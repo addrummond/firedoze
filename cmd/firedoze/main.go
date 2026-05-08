@@ -2166,7 +2166,7 @@ Commands:
   health
   config
   server request <name>
-  server import <file|-> [-name NAME] [-default]
+  server import <file> [-name NAME] [-default]
   server add <name> <api-url> [-default]
   server list
   server use <name>

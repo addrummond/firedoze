@@ -309,7 +309,7 @@ func (a app) server(args []string) error {
 	case "import":
 		inputPath, nameOverride, makeDefault, err := parseServerImportArgs(args[1:])
 		if err != nil {
-			return fmt.Errorf("%w\nusage: firedoze server import <file|-> [-name NAME] [-default]", err)
+			return fmt.Errorf("%w\nusage: firedoze server import <file> [-name NAME] [-default]", err)
 		}
 		data, err := readServerImportInput(inputPath)
 		if err != nil {
