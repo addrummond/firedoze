@@ -15,7 +15,7 @@ Firedoze runs persistent Linux VMs on a single Linux host. Each one behaves like
 
 ✨ **Give your VMs public https URLs with one command (certs managed automatically via [Caddy](https://caddyserver.com/)).**
 
-✨ **Hit A sleeping VM's public https URL and it automatically resumes (subject to captcha).**
+✨ **Hit a sleeping VM's public https URL and it automatically resumes after a lightweight human check.**
 
 ✨ **Snapshot and clone VMs to quickly instantiate dev environments.**
 

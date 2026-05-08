@@ -1,82 +1,44 @@
 package proxy
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"errors"
 	"fmt"
 	"html"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"firedoze/internal/config"
+	"firedoze/internal/routeauth"
 
 	"github.com/dchest/captcha"
 )
 
 const (
-	wakeGateCookieName = "firedoze_wake"
+	wakeGateCookieName = routeauth.CookieName
 	wakeGateCookieTTL  = 30 * 24 * time.Hour
-	wakeGateKeySize    = 32
 	captchaWidth       = 240
 	captchaHeight      = 80
 	captchaLength      = 5
 )
 
 type wakeGate struct {
-	keyPath string
-	logger  *slog.Logger
-	once    sync.Once
-	key     []byte
-	err     error
+	auth   *routeauth.Manager
+	logger *slog.Logger
 }
 
-func newWakeGate(cfg config.Config, logger *slog.Logger) *wakeGate {
+func newWakeGate(cfg config.Config, auth *routeauth.Manager, logger *slog.Logger) *wakeGate {
+	if auth == nil {
+		auth = routeauth.NewManager(routeauth.KeyPath(cfg.StateDir), logger)
+	}
 	return &wakeGate{
-		keyPath: filepath.Join(cfg.StateDir, "wake_gate.key"),
-		logger:  logger,
+		auth:   auth,
+		logger: logger,
 	}
 }
 
 func (g *wakeGate) approved(r *http.Request, host string) bool {
-	cookie, err := r.Cookie(wakeGateCookieName)
-	if err != nil {
-		return false
-	}
-	key, err := g.signingKey()
-	if err != nil {
-		g.logger.Warn("load wake gate key", "error", err)
-		return false
-	}
-	parts := strings.Split(cookie.Value, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	cookieHost, err := decodeCookiePart(parts[0])
-	if err != nil || cookieHost != host {
-		return false
-	}
-	expiryText, err := decodeCookiePart(parts[1])
-	if err != nil {
-		return false
-	}
-	expiry, err := strconv.ParseInt(expiryText, 10, 64)
-	if err != nil || time.Now().Unix() > expiry {
-		return false
-	}
-	message := parts[0] + "." + parts[1]
-	if !validSignature(key, message, parts[2]) {
-		return false
-	}
-	return true
+	return g.auth.Approved(r, host)
 }
 
 func (g *wakeGate) handle(w http.ResponseWriter, r *http.Request, host string) bool {
@@ -149,92 +111,15 @@ func (g *wakeGate) verify(w http.ResponseWriter, r *http.Request, host string) {
 		http.Error(w, "captcha failed", http.StatusForbidden)
 		return
 	}
-	key, err := g.signingKey()
-	if err != nil {
+	expires := time.Now().Add(wakeGateCookieTTL)
+	if err := g.auth.SetCookie(w, host, expires); err != nil {
 		g.logger.Warn("load wake gate key", "error", err)
 		http.Error(w, "wake gate unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	expires := time.Now().Add(wakeGateCookieTTL)
-	http.SetCookie(w, &http.Cookie{
-		Name:     wakeGateCookieName,
-		Value:    signedWakeCookie(key, host, expires),
-		Path:     "/",
-		Expires:  expires,
-		MaxAge:   int(wakeGateCookieTTL.Seconds()),
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
 	next := r.Form.Get("next")
 	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
 		next = "/"
 	}
 	http.Redirect(w, r, next, http.StatusSeeOther)
-}
-
-func (g *wakeGate) signingKey() ([]byte, error) {
-	g.once.Do(func() {
-		g.key, g.err = ensureWakeGateKey(g.keyPath)
-	})
-	return g.key, g.err
-}
-
-func ensureWakeGateKey(path string) ([]byte, error) {
-	key, err := os.ReadFile(path)
-	if err == nil {
-		if len(key) != wakeGateKeySize {
-			return nil, fmt.Errorf("%s has %d bytes, want %d", path, len(key), wakeGateKeySize)
-		}
-		return key, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	key = make([]byte, wakeGateKeySize)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, key, 0o600); err != nil {
-		return nil, err
-	}
-	return key, nil
-}
-
-func signedWakeCookie(key []byte, host string, expires time.Time) string {
-	hostPart := encodeCookiePart(host)
-	expiryPart := encodeCookiePart(strconv.FormatInt(expires.Unix(), 10))
-	message := hostPart + "." + expiryPart
-	return message + "." + signCookieValue(key, message)
-}
-
-func signCookieValue(key []byte, message string) string {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(message))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-func validSignature(key []byte, message string, encodedSignature string) bool {
-	got, err := base64.RawURLEncoding.DecodeString(encodedSignature)
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(message))
-	return hmac.Equal(got, mac.Sum(nil))
-}
-
-func encodeCookiePart(value string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(value))
-}
-
-func decodeCookiePart(value string) (string, error) {
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return "", err
-	}
-	return string(decoded), nil
 }

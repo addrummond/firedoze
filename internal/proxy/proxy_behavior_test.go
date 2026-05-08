@@ -9,8 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,6 +16,7 @@ import (
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
+	"firedoze/internal/routeauth"
 	"firedoze/internal/store"
 
 	"github.com/dchest/captcha"
@@ -51,14 +50,14 @@ func TestDefaultHostAndCaddyFallbackRoute(t *testing.T) {
 	raw, routeCount := manager.caddyConfig([]store.VM{
 		{Name: "public", PrivateIP: "fd00::3", PublicHTTP: true},
 		{Name: "empty-ip", PublicHTTP: true},
-	}, nil)
+	}, nil, nil)
 	if routeCount != 1 {
 		t.Fatalf("routeCount = %d, want 1", routeCount)
 	}
 	servers := caddyServers(t, raw)
 	httpsServer := servers["firedoze_https"]
-	if !strings.Contains(string(mustJSON(t, httpsServer.Routes[0])), "firedoze is running") {
-		t.Fatalf("base domain route = %s", mustJSON(t, httpsServer.Routes[0]))
+	if !strings.Contains(string(mustJSON(t, httpsServer.Routes[1])), "firedoze is running") {
+		t.Fatalf("base domain route = %s", mustJSON(t, httpsServer.Routes[1]))
 	}
 	last := httpsServer.Routes[len(httpsServer.Routes)-1]
 	data := mustJSON(t, last)
@@ -211,16 +210,20 @@ func TestWakeProxySleepingStartFailuresAndPostCaptcha(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := testConfig()
-	key, err := ensureWakeGateKey(filepath.Join(cfg.StateDir, "wake_gate.key"))
-	if err != nil {
+	auth := routeauth.NewManager(routeauth.KeyPath(cfg.StateDir), nil)
+	if err := auth.Load(); err != nil {
 		t.Fatal(err)
 	}
 
 	starter := &fakeStarter{err: errors.New("boom")}
-	proxy := NewWakeProxy(cfg, st, starter, nil)
+	proxy := NewWakeProxyWithAuth(cfg, st, starter, auth, nil)
 	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
 	req.Host = "demo.example.test"
-	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "demo.example.test", time.Now().Add(time.Hour))})
+	token, err := auth.Token("demo.example.test", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: token})
 	resp := httptest.NewRecorder()
 	proxy.ServeHTTP(resp, req)
 	if resp.Code != http.StatusServiceUnavailable {
@@ -243,50 +246,31 @@ func TestWakeProxySleepingStartFailuresAndPostCaptcha(t *testing.T) {
 	}
 }
 
-func TestWakeGateKeysCookiesAndHandlers(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "wake_gate.key")
-	key, err := ensureWakeGateKey(keyPath)
-	if err != nil {
+func TestWakeGateCookiesAndHandlers(t *testing.T) {
+	auth := routeauth.NewManager(routeauth.KeyPath(t.TempDir()), nil)
+	if err := auth.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if len(key) != wakeGateKeySize {
-		t.Fatalf("key len = %d, want %d", len(key), wakeGateKeySize)
-	}
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("key mode = %o, want 600", info.Mode().Perm())
-	}
-	keyAgain, err := ensureWakeGateKey(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(key, keyAgain) {
-		t.Fatal("ensureWakeGateKey did not reuse existing key")
-	}
-	badKeyPath := filepath.Join(dir, "bad.key")
-	if err := os.WriteFile(badKeyPath, []byte("short"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ensureWakeGateKey(badKeyPath); err == nil {
-		t.Fatal("ensureWakeGateKey accepted short key")
-	}
-
-	gate := &wakeGate{keyPath: keyPath}
+	gate := &wakeGate{auth: auth}
 	req := httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
 	req.Host = "demo.example.test"
 	if gate.approved(req, "demo.example.test") {
 		t.Fatal("request without cookie was approved")
 	}
-	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "other.example.test", time.Now().Add(time.Hour))})
+	wrongHost, err := auth.Token("other.example.test", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: wrongHost})
 	if gate.approved(req, "demo.example.test") {
 		t.Fatal("wrong-host cookie was approved")
 	}
 	req = httptest.NewRequest(http.MethodGet, "https://demo.example.test/", nil)
-	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: signedWakeCookie(key, "demo.example.test", time.Now().Add(-time.Hour))})
+	expired, err := auth.Token("demo.example.test", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: wakeGateCookieName, Value: expired})
 	if gate.approved(req, "demo.example.test") {
 		t.Fatal("expired cookie was approved")
 	}
@@ -312,16 +296,6 @@ func TestWakeGateKeysCookiesAndHandlers(t *testing.T) {
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("bad captcha verify status = %d, want 403", resp.Code)
 	}
-
-	if decoded, err := decodeCookiePart(encodeCookiePart("demo")); err != nil || decoded != "demo" {
-		t.Fatalf("cookie part round trip = %q/%v", decoded, err)
-	}
-	if _, err := decodeCookiePart("not valid base64"); err == nil {
-		t.Fatal("decodeCookiePart accepted invalid base64")
-	}
-	if validSignature(key, "message", "not valid") {
-		t.Fatal("validSignature accepted invalid signature encoding")
-	}
 }
 
 func TestWakeGateVerifySuccessSetsCookieAndRedirects(t *testing.T) {
@@ -330,8 +304,11 @@ func TestWakeGateVerifySuccessSetsCookieAndRedirects(t *testing.T) {
 	captcha.SetCustomStore(store)
 	defer captcha.SetCustomStore(captcha.NewMemoryStore(captcha.CollectNum, captcha.Expiration))
 
-	keyPath := filepath.Join(t.TempDir(), "wake_gate.key")
-	gate := &wakeGate{keyPath: keyPath}
+	auth := routeauth.NewManager(routeauth.KeyPath(t.TempDir()), nil)
+	if err := auth.Load(); err != nil {
+		t.Fatal(err)
+	}
+	gate := &wakeGate{auth: auth}
 	body := strings.NewReader("id=known&answer=12345&next=/hello")
 	req := httptest.NewRequest(http.MethodPost, "https://demo.example.test/_firedoze/wake", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

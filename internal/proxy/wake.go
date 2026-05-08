@@ -14,6 +14,7 @@ import (
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
+	"firedoze/internal/routeauth"
 	"firedoze/internal/store"
 )
 
@@ -32,6 +33,10 @@ type WakeProxy struct {
 var wakeProxyTransport http.RoundTripper = http.DefaultTransport
 
 func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger *slog.Logger) *WakeProxy {
+	return NewWakeProxyWithAuth(cfg, st, manager, routeauth.NewManager(routeauth.KeyPath(cfg.StateDir), logger), logger)
+}
+
+func NewWakeProxyWithAuth(cfg config.Config, st *store.Store, manager VMStarter, auth *routeauth.Manager, logger *slog.Logger) *WakeProxy {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -40,7 +45,7 @@ func NewWakeProxy(cfg config.Config, st *store.Store, manager VMStarter, logger 
 		store:   st,
 		manager: manager,
 		logger:  logger,
-		gate:    newWakeGate(cfg, logger),
+		gate:    newWakeGate(cfg, auth, logger),
 	}
 }
 
@@ -70,14 +75,32 @@ func (p *WakeProxy) Run(ctx context.Context) error {
 }
 
 func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	host := routeHost(r.Host)
+	if r.Method == http.MethodGet && r.URL.Path == "/_firedoze/auth" {
+		p.handleSignedAuthURL(w, r, host)
+		return
+	}
 	vm, port, ok := p.routeForHost(r.Context(), r.Host)
 	if !ok {
 		http.Error(w, "firedoze route not found", http.StatusNotFound)
 		return
 	}
-	host := routeHost(r.Host)
 	if vm.State != "running" && vm.State != "sleeping" {
 		http.Error(w, "firedoze route not found", http.StatusNotFound)
+		return
+	}
+	if !vm.PublicHTTP {
+		http.Error(w, "firedoze route not found", http.StatusNotFound)
+		return
+	}
+	protected, err := p.store.IsRouteHostnameProtected(r.Context(), host)
+	if err != nil {
+		p.logger.Warn("check route protection", "host", host, "error", err)
+		http.Error(w, "firedoze route auth unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if protected && !p.gate.approved(r, host) {
+		http.Error(w, "firedoze route is protected", http.StatusForbidden)
 		return
 	}
 	if vm.State == "sleeping" {
@@ -142,6 +165,25 @@ func (p *WakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "firedoze proxy failed (is your service running?)", http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func (p *WakeProxy) handleSignedAuthURL(w http.ResponseWriter, r *http.Request, host string) {
+	token := r.URL.Query().Get("token")
+	expires, ok := p.gate.auth.Validate(token, host)
+	if !ok {
+		http.Error(w, "firedoze auth token invalid or expired", http.StatusForbidden)
+		return
+	}
+	if err := p.gate.auth.SetCookie(w, host, expires); err != nil {
+		p.logger.Warn("set route auth cookie", "host", host, "error", err)
+		http.Error(w, "firedoze route auth unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	next := r.URL.Query().Get("next")
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		next = "/"
+	}
+	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM, int, bool) {

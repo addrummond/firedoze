@@ -256,7 +256,17 @@ port 22. It does not terminate SSH or replace OpenSSH; it is just a local
 connection helper. SSH config should use an absolute path to the trusted
 `firedoze` binary.
 
-Public HTTP wake is gated by a self-hosted CAPTCHA when the target VM is sleeping. After a browser completes the challenge, Firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires. The cookie signing key is generated automatically under the Firedoze state directory and is not part of hand-written config.
+Public HTTP wake is gated by a self-hosted "Are you human?" check when the target VM is sleeping. After a browser completes the challenge, Firedoze sets a signed, host-scoped cookie and then allows that browser to wake the VM on future public HTTPS requests until the cookie expires.
+
+Routes can also be protected explicitly, independently of whether the route or VM already exists. Protected routes require a Firedoze signed URL before Caddy's wake proxy will wake or proxy to the VM:
+
+```text
+firedoze route protect app.dev.example.com
+firedoze route unprotect app.dev.example.com
+firedoze route get-signed-url app.dev.example.com
+```
+
+The route-auth signing key is generated automatically. On startup Firedoze reads the saved key from its runtime directory if present, immediately removes it from disk, and keeps it in memory. On SIGHUP and graceful shutdown Firedoze writes it back to the runtime directory. The packaged systemd unit uses `RuntimeDirectoryPreserve=restart`, so the key survives `systemctl restart firedozed` but is removed on `systemctl stop firedozed` and on host reboot. Losing the key only invalidates existing signed URLs and cookies.
 
 ## Public HTTPS
 
@@ -266,9 +276,7 @@ Caddy is embedded as a Go library, not run as an external process.
 
 Auto HTTPS is crucial. v1 should use normal per-host ACME HTTP-01 certificates. Wildcard certificates are not required because wildcard DNS provider automation is out of scope.
 
-Caddy listens publicly on ports 80 and 443. Public HTTPS routes are unauthenticated by default in v1.
-
-Additional auth layers, such as basic auth, forward auth, bearer tokens, or IP allowlists, can be added later without changing the core model.
+Caddy listens publicly on ports 80 and 443. Public HTTPS routes are unprotected by default, but can be toggled with `firedoze route protect` and `firedoze route unprotect`.
 
 ## HTTPS Routes
 

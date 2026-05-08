@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
@@ -213,6 +214,21 @@ type fakeProxy struct {
 func (p *fakeProxy) Reconcile(context.Context) error {
 	p.calls++
 	return p.err
+}
+
+type fakeRouteAuth struct {
+	host string
+	ttl  time.Duration
+	err  error
+}
+
+func (a *fakeRouteAuth) SignedURL(host string, ttl time.Duration) (string, error) {
+	a.host = host
+	a.ttl = ttl
+	if a.err != nil {
+		return "", a.err
+	}
+	return "https://" + host + "/_firedoze/auth?token=test", nil
 }
 
 func TestBasicEndpointsAndConfigHideSecrets(t *testing.T) {
@@ -660,6 +676,66 @@ func TestRoutesUseStoreValidationAndProxyReconcile(t *testing.T) {
 
 	rec = request(t, handler, http.MethodDelete, "/routes/api", nil)
 	assertStatus(t, rec, http.StatusNotFound)
+}
+
+func TestRouteProtectionAndSignedURLHandlers(t *testing.T) {
+	st := testStore(t)
+	proxy := &fakeProxy{}
+	auth := &fakeRouteAuth{}
+	handler := NewServerWithRouteAuth(testConfig(t), &fakeManager{}, st, proxy, auth)
+
+	rec := request(t, handler, http.MethodPost, "/route-protections", map[string]any{
+		"hostname": "Secret.Dev.Test.",
+	})
+	assertStatus(t, rec, http.StatusOK)
+	if proxy.calls != 1 {
+		t.Fatalf("proxy reconcile calls = %d, want 1", proxy.calls)
+	}
+	protected, err := st.IsRouteHostnameProtected(context.Background(), "secret.dev.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !protected {
+		t.Fatal("hostname was not protected")
+	}
+
+	rec = request(t, handler, http.MethodPost, "/route-auth/signed-url", map[string]any{
+		"hostname": "secret.dev.test",
+	})
+	assertStatus(t, rec, http.StatusOK)
+	if auth.host != "secret.dev.test" || auth.ttl != 24*time.Hour {
+		t.Fatalf("signed URL args = %q/%s", auth.host, auth.ttl)
+	}
+	if !strings.Contains(rec.Body.String(), "https://secret.dev.test/_firedoze/auth") {
+		t.Fatalf("signed URL response = %s", rec.Body.String())
+	}
+
+	rec = request(t, handler, http.MethodPost, "/route-auth/signed-url", map[string]any{
+		"hostname":    "secret.dev.test",
+		"ttl_seconds": 60,
+	})
+	assertStatus(t, rec, http.StatusOK)
+	if auth.ttl != time.Minute {
+		t.Fatalf("signed URL ttl = %s, want 1m", auth.ttl)
+	}
+
+	rec = request(t, handler, http.MethodDelete, "/route-protections/secret.dev.test", nil)
+	assertStatus(t, rec, http.StatusOK)
+	if proxy.calls != 2 {
+		t.Fatalf("proxy reconcile calls = %d, want 2", proxy.calls)
+	}
+	protected, err = st.IsRouteHostnameProtected(context.Background(), "secret.dev.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protected {
+		t.Fatal("hostname was still protected")
+	}
+
+	rec = request(t, handler, http.MethodPost, "/route-protections", map[string]any{
+		"hostname": "outside.example.test",
+	})
+	assertStatus(t, rec, http.StatusBadRequest)
 }
 
 func TestSnapshotHandlersValidateMapErrorsAndReconcileRestore(t *testing.T) {

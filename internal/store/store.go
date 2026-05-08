@@ -118,4 +118,9 @@ create table if not exists routes (
 create unique index if not exists routes_one_default_per_vm
 	on routes(vm_uuid)
 	where is_default = 1;
+
+create table if not exists route_protections (
+	hostname text primary key,
+	created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 `

@@ -51,8 +51,12 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	protectedHosts, err := m.store.ListRouteProtections(ctx)
+	if err != nil {
+		return err
+	}
 
-	cfg, routeCount := m.caddyConfig(vms, aliases)
+	cfg, routeCount := m.caddyConfig(vms, aliases, protectedHosts)
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
@@ -70,9 +74,12 @@ func (m *Manager) Stop() error {
 	return caddyStop()
 }
 
-func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string]any, int) {
-	routes := make([]map[string]any, 0, len(vms)+len(aliases)+2)
+func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route, protectedHosts []string) (map[string]any, int) {
+	routes := make([]map[string]any, 0, len(vms)+len(aliases)+3)
 	publicHosts := []string{m.cfg.BaseDomain}
+	publicHostSet := map[string]struct{}{m.cfg.BaseDomain: {}}
+	routeCount := 0
+	routes = append(routes, routeAuthRoute(m.wakeProxyUpstream()))
 	routes = append(routes, baseDomainRoute(m.cfg.BaseDomain))
 	vmsByName := make(map[string]store.VM, len(vms))
 	for _, vm := range vms {
@@ -81,8 +88,12 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := vm.Name + "." + m.cfg.BaseDomain
-		publicHosts = append(publicHosts, host)
+		if _, ok := publicHostSet[host]; !ok {
+			publicHosts = append(publicHosts, host)
+			publicHostSet[host] = struct{}{}
+		}
 		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
+		routeCount++
 	}
 	for _, alias := range aliases {
 		vm, ok := vmsByName[alias.VMName]
@@ -90,8 +101,19 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 			continue
 		}
 		host := alias.Name + "." + m.cfg.BaseDomain
-		publicHosts = append(publicHosts, host)
+		if _, ok := publicHostSet[host]; !ok {
+			publicHosts = append(publicHosts, host)
+			publicHostSet[host] = struct{}{}
+		}
 		routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
+		routeCount++
+	}
+	for _, host := range protectedHosts {
+		if _, ok := publicHostSet[host]; !ok {
+			publicHosts = append(publicHosts, host)
+			publicHostSet[host] = struct{}{}
+			routes = append(routes, reverseProxyRoute(host, m.wakeProxyUpstream()))
+		}
 	}
 	routes = append(routes, routeNotFoundRoute())
 
@@ -129,7 +151,7 @@ func (m *Manager) caddyConfig(vms []store.VM, aliases []store.Route) (map[string
 				"servers":    servers,
 			},
 		},
-	}, len(routes) - 2
+	}, routeCount
 }
 
 func (m *Manager) wakeProxyUpstream() string {
@@ -144,6 +166,20 @@ func reverseProxyRoute(host string, upstream string) map[string]any {
 	return map[string]any{
 		"match": []map[string]any{{
 			"host": []string{host},
+		}},
+		"handle": []map[string]any{{
+			"handler": "reverse_proxy",
+			"upstreams": []map[string]any{{
+				"dial": upstream,
+			}},
+		}},
+	}
+}
+
+func routeAuthRoute(upstream string) map[string]any {
+	return map[string]any{
+		"match": []map[string]any{{
+			"path": []string{"/_firedoze/auth"},
 		}},
 		"handle": []map[string]any{{
 			"handler": "reverse_proxy",

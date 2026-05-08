@@ -326,6 +326,23 @@ Your admin's domain decides the final hostname, for example:
 https://app.dev.example.com -> demo port 3000
 ```
 
+Protect a public hostname when you want only people with a signed access URL to get through:
+
+```sh
+firedoze route protect app.dev.example.com
+firedoze route get-signed-url app.dev.example.com
+```
+
+Signed access URLs last 24 hours by default. Use `-ttl seconds` to choose a shorter or longer lifetime.
+
+Unprotect it later:
+
+```sh
+firedoze route unprotect app.dev.example.com
+```
+
+Protection is independent of route creation. You can protect a hostname before the VM or route exists.
+
 ## 8. Sleep And Autowake
 
 Firedoze VMs are meant to be cheap to forget about. When a VM is inactive for long enough, Firedoze can sleep it automatically. A sleeping VM keeps its disk and suspended runtime state, but it stops using CPU and memory until it wakes again.
@@ -345,7 +362,7 @@ Autowake controls whether passive network activity is allowed to wake a sleeping
 When autowake is enabled:
 
 - `firedoze ssh demo`, `firedoze exec demo -- ...`, and `firedoze cp ... demo:...` will start the VM if needed before connecting.
-- A request to a published HTTPS URL can wake the VM (guarded by a captcha check to stop nuisance traffic from waking sleeping VMs).
+- A request to a published HTTPS URL can wake the VM after the browser passes a small human check. Protected routes require a signed access URL first.
 
 When autowake is disabled:
 

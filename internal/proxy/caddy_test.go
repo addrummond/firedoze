@@ -20,10 +20,30 @@ func TestCaddyConfigOnlyRoutesPublicVMs(t *testing.T) {
 	}, []store.Route{
 		{Name: "hidden-alias", VMName: "hidden", Port: 8080},
 		{Name: "public-alias", VMName: "public", Port: 8080},
-	})
+	}, nil)
 
 	if routeCount != 2 {
 		t.Fatalf("routeCount = %d, want 2", routeCount)
+	}
+}
+
+func TestCaddyConfigIncludesProtectedHostsForAuthURLs(t *testing.T) {
+	cfg := config.Default()
+	cfg.BaseDomain = "example.test"
+	manager := NewManager(cfg, nil, nil)
+
+	raw, routeCount := manager.caddyConfig(nil, nil, []string{"future.example.test"})
+	if routeCount != 0 {
+		t.Fatalf("routeCount = %d, want 0", routeCount)
+	}
+	servers := caddyServers(t, raw)
+	routes := string(mustJSON(t, servers["firedoze_https"].Routes))
+	if !strings.Contains(routes, "/_firedoze/auth") {
+		t.Fatalf("https routes missing auth route: %s", routes)
+	}
+	httpRoutes := string(mustJSON(t, servers["firedoze_http"].Routes))
+	if !strings.Contains(httpRoutes, "future.example.test") {
+		t.Fatalf("http redirect routes missing protected host: %s", httpRoutes)
 	}
 }
 
@@ -34,7 +54,7 @@ func TestCaddyConfigServesTLSOnHTTPSPort(t *testing.T) {
 
 	raw, _ := manager.caddyConfig([]store.VM{
 		{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", PublicHTTP: true},
-	}, nil)
+	}, nil, nil)
 	servers := caddyServers(t, raw)
 
 	httpsServer, ok := servers["firedoze_https"]
@@ -73,7 +93,7 @@ func TestCaddyConfigBehindProxyServesRoutesOnHTTP(t *testing.T) {
 
 	raw, routeCount := manager.caddyConfig([]store.VM{
 		{Name: "demo", PrivateIP: "fd7a:115c:a1e0::3", PublicHTTP: true},
-	}, nil)
+	}, nil, nil)
 	if routeCount != 1 {
 		t.Fatalf("routeCount = %d, want 1", routeCount)
 	}

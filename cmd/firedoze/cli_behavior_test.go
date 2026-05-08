@@ -334,6 +334,12 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 			_, _ = io.WriteString(w, `{"route":{"name":"web","vm_name":"demo","port":8080}}`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/routes/web":
 			_, _ = io.WriteString(w, `{"status":"deleted"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/route-protections":
+			_, _ = io.WriteString(w, `{"hostname":"secret.dev.test","status":"protected"}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/route-protections/secret.dev.test":
+			_, _ = io.WriteString(w, `{"hostname":"secret.dev.test","status":"unprotected"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/route-auth/signed-url":
+			_, _ = io.WriteString(w, `{"hostname":"secret.dev.test","url":"https://secret.dev.test/_firedoze/auth?token=test","ttl_seconds":60}`)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -344,13 +350,16 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		{"list"},
 		{"create", "web", "demo", "8080"},
 		{"delete", "web"},
+		{"protect", "secret.dev.test"},
+		{"unprotect", "secret.dev.test"},
+		{"get-signed-url", "secret.dev.test", "-ttl", "60"},
 	} {
 		if err := a.route(args); err != nil {
 			t.Fatalf("route %#v: %v", args, err)
 		}
 	}
 	got := requestKeys(requests)
-	want := []string{"GET /routes", "GET /vms-by-name/demo", "POST /routes", "DELETE /routes/web"}
+	want := []string{"GET /routes", "GET /vms-by-name/demo", "POST /routes", "DELETE /routes/web", "POST /route-protections", "DELETE /route-protections/secret.dev.test", "POST /route-auth/signed-url"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}

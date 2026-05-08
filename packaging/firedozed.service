@@ -14,6 +14,9 @@ TimeoutStopSec=180s
 KillSignal=SIGTERM
 # Let firedozed snapshot/sleep Firecracker children during shutdown.
 KillMode=process
+RuntimeDirectory=firedoze
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
 
 # firedozed needs ongoing network privileges, but it does not need to run as
 # UID 0. The package creates this system user and grants access to /dev/kvm.
@@ -36,7 +39,7 @@ NoNewPrivileges=true
 # The daemon should only mutate its config/state/log trees. /etc/firedoze is
 # writable because first boot may generate the WireGuard private key there.
 ProtectSystem=strict
-ReadWritePaths=/etc/firedoze /var/lib/firedoze /var/log/firedoze
+ReadWritePaths=/etc/firedoze /var/lib/firedoze /var/log/firedoze /run/firedoze
 PrivateTmp=true
 
 # Conservative process/kernel hardening that does not block netlink, KVM, or

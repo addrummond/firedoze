@@ -22,6 +22,7 @@ import (
 	"firedoze/internal/firecracker"
 	"firedoze/internal/host"
 	"firedoze/internal/proxy"
+	"firedoze/internal/routeauth"
 	"firedoze/internal/store"
 	"firedoze/internal/systemd"
 	wgconfig "firedoze/internal/wireguard"
@@ -202,8 +203,13 @@ func run(args []string) int {
 		if err := wakeRestartVMs(ctx, cfg, manager, logger); err != nil {
 			logger.Warn("wake restart vms", "error", err)
 		}
+		authManager := routeauth.NewManager(routeauth.RuntimeKeyPath(), logger)
+		if err := authManager.Load(); err != nil {
+			logger.Error("load route auth key", "error", err)
+			return 1
+		}
 		proxyManager := proxy.NewManager(cfg, db, logger)
-		wakeProxy := proxy.NewWakeProxy(cfg, db, manager, logger)
+		wakeProxy := proxy.NewWakeProxyWithAuth(cfg, db, manager, authManager, logger)
 		tcpWakeProxy := proxy.NewTCPWakeProxy(cfg, db, manager, logger)
 		wakeCtx, cancelWake := context.WithCancel(ctx)
 		defer cancelWake()
@@ -234,7 +240,7 @@ func run(args []string) int {
 		go firecracker.NewIdleMonitor(manager, proxyManager, logger).Run(idleCtx)
 		go firecracker.NewColdStorageMonitor(manager, logger).Run(idleCtx)
 		go watchWireGuardPeerConfig(idleCtx, configPath, cfg.WireGuard, host.NewLinuxOps(logger), logger)
-		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager); err != nil {
+		if err := serveAPI(ctx, logger, cfg, manager, db, proxyManager, authManager); err != nil {
 			logger.Error("serve api", "error", err)
 			return 1
 		}
@@ -243,7 +249,7 @@ func run(args []string) int {
 	return 0
 }
 
-func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *firecracker.Manager, db *store.Store, proxyManager api.Proxy) error {
+func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manager *firecracker.Manager, db *store.Store, proxyManager api.Proxy, authManager *routeauth.Manager) error {
 	bindIP, err := wireGuardBindIP(cfg.WireGuard.Address)
 	if err != nil {
 		return err
@@ -251,6 +257,20 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	defer saveRouteAuthKey(authManager, logger)
+	hupCh := make(chan os.Signal, 1)
+	signal.Notify(hupCh, syscall.SIGHUP)
+	defer signal.Stop(hupCh)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hupCh:
+				saveRouteAuthKey(authManager, logger)
+			}
+		}
+	}()
 
 	guestServer := &http.Server{
 		Addr:    net.JoinHostPort("::", strconv.Itoa(cfg.GuestControl.MemoryPort)),
@@ -270,7 +290,7 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 
 	server := &http.Server{
 		Addr:    net.JoinHostPort(bindIP.String(), strconv.Itoa(cfg.API.Port)),
-		Handler: api.NewServer(cfg, manager, db, proxyManager),
+		Handler: api.NewServerWithRouteAuth(cfg, manager, db, proxyManager, authManager),
 	}
 
 	errCh := make(chan error, 1)
@@ -307,6 +327,15 @@ func serveAPI(ctx context.Context, logger *slog.Logger, cfg config.Config, manag
 			return nil
 		}
 		return err
+	}
+}
+
+func saveRouteAuthKey(authManager *routeauth.Manager, logger *slog.Logger) {
+	if authManager == nil {
+		return
+	}
+	if err := authManager.Save(); err != nil {
+		logger.Warn("save route auth key", "error", err)
 	}
 }
 

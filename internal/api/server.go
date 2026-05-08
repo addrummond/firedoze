@@ -15,6 +15,7 @@ import (
 	"firedoze/internal/config"
 	"firedoze/internal/firecracker"
 	"firedoze/internal/model"
+	"firedoze/internal/routeauth"
 	"firedoze/internal/store"
 	wgconfig "firedoze/internal/wireguard"
 
@@ -28,6 +29,7 @@ type Server struct {
 	manager Manager
 	store   *store.Store
 	proxy   Proxy
+	auth    RouteAuthSigner
 	mux     *http.ServeMux
 }
 
@@ -58,12 +60,21 @@ type Proxy interface {
 	Reconcile(context.Context) error
 }
 
+type RouteAuthSigner interface {
+	SignedURL(host string, ttl time.Duration) (string, error)
+}
+
 func NewServer(cfg config.Config, manager Manager, st *store.Store, proxy Proxy) http.Handler {
+	return NewServerWithRouteAuth(cfg, manager, st, proxy, routeauth.NewManager(routeauth.KeyPath(cfg.StateDir), nil))
+}
+
+func NewServerWithRouteAuth(cfg config.Config, manager Manager, st *store.Store, proxy Proxy, auth RouteAuthSigner) http.Handler {
 	server := &Server{
 		cfg:     cfg,
 		manager: manager,
 		store:   st,
 		proxy:   proxy,
+		auth:    auth,
 		mux:     http.NewServeMux(),
 	}
 	server.routes()
@@ -95,6 +106,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /routes", s.handleListRoutes)
 	s.mux.HandleFunc("POST /routes", s.handleCreateRoute)
 	s.mux.HandleFunc("DELETE /routes/{name}", s.handleDeleteRoute)
+	s.mux.HandleFunc("POST /route-protections", s.handleProtectRoute)
+	s.mux.HandleFunc("DELETE /route-protections/{hostname}", s.handleUnprotectRoute)
+	s.mux.HandleFunc("POST /route-auth/signed-url", s.handleRouteSignedURL)
 	s.mux.HandleFunc("GET /snapshots", s.handleListSnapshots)
 	s.mux.HandleFunc("POST /snapshots", s.handleCreateSnapshot)
 	s.mux.HandleFunc("GET /snapshots/{name}", s.handleGetSnapshot)
@@ -116,7 +130,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 			"base_image":      {"POST /base-image/warmup"},
 			"usage":           {"GET /usage", "GET /vms/{uuid}/usage"},
 			"vms":             {"GET /vms", "POST /vms", "GET /vms-by-name/{name}", "GET /vms/{uuid}", "PATCH /vms/{uuid}/settings", "DELETE /vms/{uuid}", "POST /vms/{uuid}/start", "POST /vms/{uuid}/activity", "POST /vms/{uuid}/stop", "POST /vms/{uuid}/sleep", "POST /vms/{uuid}/reboot"},
-			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}"},
+			"routes":          {"GET /routes", "POST /routes", "DELETE /routes/{name}", "POST /route-protections", "DELETE /route-protections/{hostname}", "POST /route-auth/signed-url"},
 			"snapshots":       {"GET /snapshots", "POST /snapshots", "GET /snapshots/{name}", "DELETE /snapshots/{name}", "POST /snapshots/{name}/restore", "GET /snapshots/{name}/export", "POST /snapshots/{name}/import"},
 			"wireguard_peers": {"GET /wireguard/peers", "GET /wireguard/peers/{name}/config"},
 		},
@@ -536,6 +550,81 @@ func (s *Server) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (s *Server) handleProtectRoute(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hostname string `json:"hostname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	hostname, err := s.normalizeRouteAuthHostname(req.Hostname)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.store.ProtectRouteHostname(r.Context(), hostname); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "status": "protected"})
+}
+
+func (s *Server) handleUnprotectRoute(w http.ResponseWriter, r *http.Request) {
+	hostname, err := s.normalizeRouteAuthHostname(r.PathValue("hostname"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.store.UnprotectRouteHostname(r.Context(), hostname); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.reconcileProxy(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "status": "unprotected"})
+}
+
+func (s *Server) handleRouteSignedURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hostname   string `json:"hostname"`
+		TTLSeconds int    `json:"ttl_seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	hostname, err := s.normalizeRouteAuthHostname(req.Hostname)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.TTLSeconds == 0 {
+		req.TTLSeconds = 24 * 60 * 60
+	}
+	if req.TTLSeconds < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("ttl_seconds must be positive"))
+		return
+	}
+	ttl := time.Duration(req.TTLSeconds) * time.Second
+	signedURL, err := s.auth.SignedURL(hostname, ttl)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"hostname":    hostname,
+		"url":         signedURL,
+		"ttl_seconds": int(ttl.Seconds()),
+	})
+}
+
 func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	snapshots, err := s.manager.ListSnapshots(r.Context())
 	if err != nil {
@@ -800,6 +889,21 @@ func (s *Server) publicURL(hostname string) string {
 		return "https://" + hostname
 	}
 	return "https://" + net.JoinHostPort(hostname, fmt.Sprint(s.cfg.Caddy.HTTPSPort))
+}
+
+func (s *Server) normalizeRouteAuthHostname(hostname string) (string, error) {
+	hostname = store.NormalizeHostname(hostname)
+	base := store.NormalizeHostname(s.cfg.BaseDomain)
+	if hostname == "" {
+		return "", errors.New("hostname is required")
+	}
+	if strings.ContainsAny(hostname, "/\\: \t\r\n") {
+		return "", errors.New("hostname must be a hostname, not a URL")
+	}
+	if hostname != base && !strings.HasSuffix(hostname, "."+base) {
+		return "", fmt.Errorf("hostname must be %s or a subdomain of %s", base, base)
+	}
+	return hostname, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -89,6 +89,50 @@ func TestRouteCRUDAndVMExists(t *testing.T) {
 	}
 }
 
+func TestRouteProtections(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	protected, err := st.IsRouteHostnameProtected(ctx, "Demo.Example.Test.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protected {
+		t.Fatal("new hostname was protected")
+	}
+
+	if err := st.ProtectRouteHostname(ctx, "Demo.Example.Test."); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ProtectRouteHostname(ctx, "demo.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	protected, err = st.IsRouteHostnameProtected(ctx, "demo.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !protected {
+		t.Fatal("protected hostname was not protected")
+	}
+	hostnames, err := st.ListRouteProtections(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hostnames) != 1 || hostnames[0] != "demo.example.test" {
+		t.Fatalf("hostnames = %#v", hostnames)
+	}
+	if err := st.UnprotectRouteHostname(ctx, "DEMO.EXAMPLE.TEST"); err != nil {
+		t.Fatal(err)
+	}
+	protected, err = st.IsRouteHostnameProtected(ctx, "demo.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protected {
+		t.Fatal("unprotected hostname was still protected")
+	}
+}
+
 func TestSnapshotCRUDAndMetadata(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)

@@ -417,7 +417,25 @@ firedoze vm publish demo
 firedoze vm hide demo
 ```
 
-By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires. The signing key is generated automatically in the Firedoze state directory; if it is lost, visitors just complete the challenge again.
+By default, a sleeping public VM can wake from public HTTPS after the browser completes a small "Are you human?" challenge. The browser gets a signed host-specific cookie, so future requests can wake that VM without repeating the challenge until the cookie expires.
+
+Protect or unprotect a public hostname independently of the VM or route:
+
+```sh
+firedoze route protect demo.example.com
+firedoze route unprotect demo.example.com
+```
+
+Create a signed access URL for a protected hostname:
+
+```sh
+firedoze route get-signed-url demo.example.com
+firedoze route get-signed-url demo.example.com -ttl 3600
+```
+
+The default signed URL lifetime is 24 hours. `-ttl` is in seconds.
+
+The route-auth signing key is generated automatically. Firedoze keeps it in memory while running, saves it to the systemd runtime directory on SIGHUP and graceful shutdown, and reads then removes the saved copy on startup. The packaged service preserves that runtime directory across `systemctl restart firedozed`, but removes it on `systemctl stop firedozed` and host reboot. If the key is lost, visitors just need a new signed URL or a fresh human check.
 
 Prefer `firedoze vm start` when you mean to explicitly wake an existing VM; `firedoze vm up` creates the VM if it does not already exist.
 
@@ -616,6 +634,13 @@ https://app.dev.example.com -> demo VM port 8080
 ```
 
 If `demo` is sleeping when a request reaches `app.dev.example.com`, Firedoze wakes it before proxying the request. If wake takes longer than the client allows, retry the request.
+
+Protect the route before or after creating it:
+
+```sh
+firedoze route protect app.dev.example.com
+firedoze route get-signed-url app.dev.example.com -ttl 86400
+```
 
 Delete the route alias:
 

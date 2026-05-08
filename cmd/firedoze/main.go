@@ -932,7 +932,7 @@ func (a app) importSnapshot(name string, inputPath string) error {
 
 func (a app) route(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: firedoze route <list|create|delete>")
+		return errors.New("usage: firedoze route <list|create|delete|protect|unprotect|get-signed-url>")
 	}
 	switch args[0] {
 	case "list", "ls":
@@ -978,9 +978,74 @@ func (a app) route(args []string) error {
 			return err
 		}
 		return a.printJSONOrLine(out, fmt.Sprintf("%s deleted", args[1]))
+	case "protect":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze route protect <hostname>")
+		}
+		var out map[string]any
+		if err := a.client.do(context.Background(), http.MethodPost, "/route-protections", map[string]string{"hostname": args[1]}, &out); err != nil {
+			return err
+		}
+		return a.printJSONOrLine(out, fmt.Sprintf("%s protected", args[1]))
+	case "unprotect":
+		if len(args) != 2 {
+			return errors.New("usage: firedoze route unprotect <hostname>")
+		}
+		var out map[string]any
+		if err := a.client.do(context.Background(), http.MethodDelete, "/route-protections/"+url.PathEscape(args[1]), nil, &out); err != nil {
+			return err
+		}
+		return a.printJSONOrLine(out, fmt.Sprintf("%s unprotected", args[1]))
+	case "get-signed-url":
+		hostname, ttl, err := parseRouteSignedURLArgs(args[1:])
+		if err != nil {
+			return errors.New("usage: firedoze route get-signed-url <hostname> [-ttl seconds]")
+		}
+		var out struct {
+			Hostname   string `json:"hostname"`
+			URL        string `json:"url"`
+			TTLSeconds int    `json:"ttl_seconds"`
+		}
+		body := map[string]any{"hostname": hostname, "ttl_seconds": ttl}
+		if err := a.client.do(context.Background(), http.MethodPost, "/route-auth/signed-url", body, &out); err != nil {
+			return err
+		}
+		if a.json {
+			return printJSON(out)
+		}
+		fmt.Println(out.URL)
+		return nil
 	default:
 		return fmt.Errorf("unknown route command %q", args[0])
 	}
+}
+
+func parseRouteSignedURLArgs(args []string) (string, int, error) {
+	ttl := 24 * 60 * 60
+	hostname := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-ttl", "--ttl":
+			if i+1 >= len(args) {
+				return "", 0, errors.New("missing ttl")
+			}
+			value, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return "", 0, err
+			}
+			ttl = value
+			i++
+		default:
+			if strings.HasPrefix(args[i], "-") || hostname != "" {
+				return "", 0, errors.New("invalid args")
+			}
+			hostname = args[i]
+		}
+	}
+	if hostname == "" {
+		return "", 0, errors.New("missing hostname")
+	}
+	return hostname, ttl, nil
 }
 
 func (a app) up(args []string) error {
@@ -2132,6 +2197,9 @@ Commands:
   route list
   route create <route> <vm> <port>
   route delete <route>
+  route protect <hostname>
+  route unprotect <hostname>
+  route get-signed-url <hostname> [-ttl seconds]
   wg keygen
   wg pubkey [name]
   ssh <vm> [ssh args...]
