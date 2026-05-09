@@ -98,6 +98,7 @@ type VMResourceUsage struct {
 	MemoryHotplug      *MemoryHotplugUsage   `json:"memory_hotplug,omitempty"`
 	GuestMemory        *GuestMemoryReport    `json:"guest_memory,omitempty"`
 	Process            *ProcessResourceUsage `json:"process,omitempty"`
+	Cgroup             *CgroupResourceUsage  `json:"cgroup,omitempty"`
 }
 
 type MemoryHotplugUsage struct {
@@ -130,4 +131,18 @@ type ProcessResourceUsage struct {
 	VMSizeBytes uint64  `json:"vm_size_bytes,omitempty"`
 	CPUSeconds  float64 `json:"cpu_seconds,omitempty"`
 	Threads     int     `json:"threads,omitempty"`
+}
+
+type CgroupResourceUsage struct {
+	MemoryCurrentBytes  uint64  `json:"memory_current_bytes,omitempty"`
+	MemoryPeakBytes     uint64  `json:"memory_peak_bytes,omitempty"`
+	CPUUsageSeconds     float64 `json:"cpu_usage_seconds,omitempty"`
+	CPUUserSeconds      float64 `json:"cpu_user_seconds,omitempty"`
+	CPUSystemSeconds    float64 `json:"cpu_system_seconds,omitempty"`
+	CPUThrottledSeconds float64 `json:"cpu_throttled_seconds,omitempty"`
+	CPUThrottledEvents  uint64  `json:"cpu_throttled_events,omitempty"`
+	CPUWeight           int     `json:"cpu_weight,omitempty"`
+	IOReadBytes         uint64  `json:"io_read_bytes,omitempty"`
+	IOWriteBytes        uint64  `json:"io_write_bytes,omitempty"`
+	IOWeight            int     `json:"io_weight,omitempty"`
 }

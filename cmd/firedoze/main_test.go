@@ -645,7 +645,8 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 			"disk_bytes":4294967296,
 			"disk_allocated_bytes":1073741824,
 			"guest_memory":{"total_mib":480,"available_mib":320,"swap_total_mib":256,"swap_free_mib":200,"root_disk_total_bytes":4294967296,"root_disk_free_bytes":3221225472,"load1":0.25},
-			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65}
+			"process":{"pid":123,"rss_bytes":67108864,"cpu_seconds":65},
+			"cgroup":{"memory_current_bytes":134217728,"cpu_usage_seconds":125,"io_read_bytes":1048576,"io_write_bytes":2097152,"io_weight":100}
 		}]}`)
 	})
 
@@ -675,8 +676,9 @@ func TestVMUsagePrintsResourceTable(t *testing.T) {
 		"200MiB/256MiB",
 		"3.0GiB/4.0GiB",
 		"0.25",
-		"64MiB",
-		"1m5s",
+		"128MiB",
+		"2m5s",
+		"1.0MiB/2.0MiB",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("usage output missing %q:\n%s", want, got)

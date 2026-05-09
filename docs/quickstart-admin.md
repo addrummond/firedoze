@@ -350,6 +350,10 @@ The daemon runs as the `firedoze` system user. It is not UID 0, but systemd gran
 
 The unit also runs a root-only startup step that enables KSM before `firedozed`
 drops to the `firedoze` user. Hosts without KSM support continue normally.
+The unit delegates a cgroup v2 subtree to Firedoze so each running Firecracker
+process can live in its own VM cgroup. Firedoze uses those cgroups for more
+accurate host CPU, memory, and IO accounting, and assigns every VM the same CPU
+and IO weight. It does not set CPU quotas by default.
 
 Config and key material under `/etc/firedoze` are not world-readable. Use `sudo firedozed ...` for admin helper commands such as `-wg-add-peer`, `-wg-peer-config`, and `-print-api-env`.
 
@@ -772,9 +776,12 @@ firedoze vm usage
 ```
 
 The `MEMORY` column shows the configured min-max range. The `HOTPLUG` column
-shows currently plugged/requested virtio-mem memory for running VMs. `GUEST DISK
-FREE/TOTAL` is reported from inside the VM and reflects usable guest filesystem
-space, not host-side image allocation.
+shows currently plugged/requested virtio-mem memory for running VMs. `HOST MEM`
+uses the best host-side value Firedoze has, usually process RSS when that is
+larger than cgroup memory accounting. `HOST CPU` and `HOST IO` come from the
+VM's host cgroup when available. `HOST IO` is read/write bytes.
+`GUEST DISK FREE/TOTAL` is reported from inside the VM and reflects usable
+guest filesystem space, not host-side image allocation.
 
 ## Cold Storage For Stopped VMs
 

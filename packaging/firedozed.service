@@ -44,11 +44,14 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/etc/firedoze /var/lib/firedoze /var/log/firedoze /run/firedoze
 PrivateTmp=true
+# firedozed creates per-VM cgroup v2 children for Firecracker accounting and
+# equal CPU/IO scheduling weight.
+Delegate=yes
 
 # Conservative process/kernel hardening that does not block netlink, KVM, or
 # Firecracker's normal process model.
 ProtectHome=true
-ProtectControlGroups=true
+ProtectControlGroups=false
 ProtectKernelModules=true
 ProtectClock=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

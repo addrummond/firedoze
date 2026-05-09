@@ -144,9 +144,12 @@ firedoze vm usage 'demo*'
 ```
 
 `MEMORY` is the configured min-max range. `HOTPLUG` shows how much extra
-virtio-mem memory is currently plugged/requested. `GUEST DISK FREE/TOTAL` is
-reported from inside the VM, so it shows the filesystem space the VM user can
-actually use.
+virtio-mem memory is currently plugged/requested. `HOST MEM`, `HOST CPU`, and
+`HOST IO` are host-side metrics. `HOST MEM` uses the best host-side value
+Firedoze has, usually process RSS when that is larger than cgroup memory
+accounting. `HOST IO` is read/write bytes. `GUEST DISK FREE/TOTAL` is reported
+from inside the VM, so it shows the filesystem space the VM user can actually
+use.
 
 ### Resource Allocation
 

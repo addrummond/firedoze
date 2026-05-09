@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"firedoze/internal/cgroup"
 	"firedoze/internal/config"
 	"firedoze/internal/model"
 	"firedoze/internal/store"
@@ -72,6 +73,7 @@ type Manager struct {
 	guestMemoryReports       map[string]model.GuestMemoryReport
 	copyColdFile             func(context.Context, string, string) error
 	rewriteGuestIdentityFunc func(context.Context, string, string) error
+	cgroups                  *cgroup.Manager
 
 	metadataMu    sync.Mutex
 	baseMetadata  BaseImageMetadata
@@ -92,13 +94,14 @@ type Process struct {
 	GuestCIDR  string
 	FinalState string
 	Command    *exec.Cmd
+	CgroupPath string
 }
 
 func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Manager{
+	m := &Manager{
 		cfg:                cfg,
 		store:              st,
 		logger:             logger,
@@ -108,6 +111,17 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		guestMemoryReports: make(map[string]model.GuestMemoryReport),
 		copyColdFile:       copyRegularFile,
 	}
+	cgroups, err := cgroup.New(cgroup.DefaultRoot)
+	if err != nil {
+		logger.Warn("cgroup v2 unavailable; VM resource accounting will use process fallback only", "error", err)
+		return m
+	}
+	if err := cgroups.Setup(context.Background()); err != nil {
+		logger.Warn("setup firedoze cgroups; VM resource accounting will use process fallback only", "error", err)
+		return m
+	}
+	m.cgroups = cgroups
+	return m
 }
 
 func (m *Manager) ReconcileStartup(ctx context.Context) error {
@@ -1213,13 +1227,30 @@ func (m *Manager) launchProcess(vm store.VM, layout layout, netdev preparedNetwo
 	}
 
 	cmdArgs := append([]string{"--api-sock", layout.socketPath, "--enable-pci"}, args...)
-	cmd := exec.Command(m.cfg.Firecracker.BinaryPath, cmdArgs...)
+	cgroupPath := ""
+	if m.cgroups != nil {
+		var err error
+		cgroupPath, err = m.cgroups.PrepareVM(context.Background(), vm.UUID)
+		if err != nil {
+			m.logger.Warn("prepare firecracker cgroup", "vm", vm.Name, "error", err)
+			cgroupPath = ""
+		}
+	}
+	cmd := cgroup.Command(m.cfg.Firecracker.BinaryPath, cmdArgs, cgroupPath)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
+		_ = cgroup.Remove(cgroupPath)
 		_ = stdout.Close()
 		_ = stderr.Close()
 		return nil, err
+	}
+	if cgroupPath == "" && m.cgroups != nil {
+		if path, err := m.cgroups.AttachVM(context.Background(), vm.UUID, cmd.Process.Pid); err != nil {
+			m.logger.Warn("attach firecracker process to cgroup after exec", "vm", vm.Name, "pid", cmd.Process.Pid, "error", err)
+		} else {
+			cgroupPath = path
+		}
 	}
 
 	proc := &Process{
@@ -1231,6 +1262,7 @@ func (m *Manager) launchProcess(vm store.VM, layout layout, netdev preparedNetwo
 		GuestCIDR:  netdev.guestCIDR,
 		FinalState: "stopped",
 		Command:    cmd,
+		CgroupPath: cgroupPath,
 	}
 
 	m.mu.Lock()
@@ -1308,6 +1340,9 @@ func (m *Manager) waitForProcessExit(ctx context.Context, proc *Process, timeout
 
 func (m *Manager) cleanupAfterExit(proc *Process) error {
 	_ = os.Remove(proc.SocketPath)
+	if err := cgroup.Remove(proc.CgroupPath); err != nil {
+		m.logger.Debug("remove vm cgroup", "vm", proc.Name, "path", proc.CgroupPath, "error", err)
+	}
 	return m.cleanupNetwork(proc)
 }
 

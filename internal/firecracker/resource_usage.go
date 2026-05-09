@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"firedoze/internal/cgroup"
 	"firedoze/internal/model"
 	"firedoze/internal/store"
 )
@@ -80,6 +81,26 @@ func (m *Manager) vmResourceUsage(ctx context.Context, vm store.VM) model.VMReso
 		m.logger.Debug("read firecracker process resource usage", "vm", vm.Name, "pid", pid, "error", err)
 	} else {
 		usage.Process = &processUsage
+	}
+	if proc.CgroupPath != "" {
+		cgroupUsage, err := cgroup.ReadUsage(proc.CgroupPath)
+		if err != nil {
+			m.logger.Debug("read firecracker cgroup resource usage", "vm", vm.Name, "path", proc.CgroupPath, "error", err)
+		} else {
+			usage.Cgroup = &model.CgroupResourceUsage{
+				MemoryCurrentBytes:  cgroupUsage.MemoryCurrentBytes,
+				MemoryPeakBytes:     cgroupUsage.MemoryPeakBytes,
+				CPUUsageSeconds:     cgroupUsage.CPUUsageSeconds,
+				CPUUserSeconds:      cgroupUsage.CPUUserSeconds,
+				CPUSystemSeconds:    cgroupUsage.CPUSystemSeconds,
+				CPUThrottledSeconds: cgroupUsage.CPUThrottledSeconds,
+				CPUThrottledEvents:  cgroupUsage.CPUThrottledEvents,
+				CPUWeight:           cgroupUsage.CPUWeight,
+				IOReadBytes:         cgroupUsage.IOReadBytes,
+				IOWriteBytes:        cgroupUsage.IOWriteBytes,
+				IOWeight:            cgroupUsage.IOWeight,
+			}
+		}
 	}
 
 	return usage

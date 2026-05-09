@@ -468,6 +468,13 @@ copy-on-write semantics. It is always on rather than per-VM configurable because
 Firedoze is a shared-trust dev environment and many VMs are expected to boot
 from the same Ubuntu image.
 
+Each running Firecracker process is placed in a per-VM cgroup v2 child when the
+host and systemd unit allow delegation. Firedoze uses cgroups for host-side CPU,
+memory, and IO accounting, and assigns each VM the same CPU and IO weight. CPU
+quotas and dynamic idle-based CPU throttling are intentionally not part of v1;
+Linux's scheduler already gives genuinely idle VMs little CPU, and explicit
+sleep is the primary control for forgotten environments.
+
 ## Caddy and ACME Assumptions
 
 For public HTTPS to work:

@@ -576,9 +576,9 @@ func (a app) vmUsage(args []string) error {
 		return printJSON(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM AVAIL/TOTAL\tGUEST SWAP FREE/TOTAL\tGUEST DISK FREE/TOTAL\tLOAD\tHOTPLUG\tRSS\tCPU")
+	fmt.Fprintln(w, "NAME\tSTATE\tVCPU\tMEMORY\tGUEST MEM AVAIL/TOTAL\tGUEST SWAP FREE/TOTAL\tGUEST DISK FREE/TOTAL\tLOAD\tHOTPLUG\tHOST MEM\tHOST CPU\tHOST IO")
 	for _, vm := range out.VMs {
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			vm.Name,
 			vm.State,
 			vm.VCPUs,
@@ -588,8 +588,9 @@ func (a app) vmUsage(args []string) error {
 			displayGuestDisk(vm),
 			displayGuestLoad(vm),
 			displayMemoryHotplug(vm),
-			displayProcessRSS(vm),
-			displayProcessCPU(vm),
+			displayHostMemory(vm),
+			displayHostCPU(vm),
+			displayHostIO(vm),
 		)
 	}
 	return w.Flush()
@@ -2014,6 +2015,34 @@ func displayGuestLoad(vm model.VMResourceUsage) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.2f", vm.GuestMemory.Load1)
+}
+
+func displayHostMemory(vm model.VMResourceUsage) string {
+	var value uint64
+	if vm.Cgroup != nil {
+		value = vm.Cgroup.MemoryCurrentBytes
+	}
+	if vm.Process != nil && vm.Process.RSSBytes > value {
+		value = vm.Process.RSSBytes
+	}
+	if value == 0 {
+		return "-"
+	}
+	return formatBytes(value)
+}
+
+func displayHostCPU(vm model.VMResourceUsage) string {
+	if vm.Cgroup != nil && vm.Cgroup.CPUUsageSeconds != 0 {
+		return formatDuration(time.Duration(vm.Cgroup.CPUUsageSeconds * float64(time.Second)))
+	}
+	return displayProcessCPU(vm)
+}
+
+func displayHostIO(vm model.VMResourceUsage) string {
+	if vm.Cgroup == nil || (vm.Cgroup.IOReadBytes == 0 && vm.Cgroup.IOWriteBytes == 0) {
+		return "-"
+	}
+	return fmt.Sprintf("%s/%s", formatBytes(vm.Cgroup.IOReadBytes), formatBytes(vm.Cgroup.IOWriteBytes))
 }
 
 func parseSnapshotRestoreArgs(args []string) (vmCreateParams, string, string, error) {
