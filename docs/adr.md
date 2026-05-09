@@ -462,6 +462,12 @@ Elastic memory is implemented with Firecracker virtio-mem plus a constrained
 guest hint path: the guest can report a desired target, but the host clamps that
 target to the VM's configured min/max and applies it through Firecracker.
 
+Firedoze enables Linux Kernel Samepage Merging on the host when available.
+KSM deduplicates identical memory pages across running VM processes with
+copy-on-write semantics. It is always on rather than per-VM configurable because
+Firedoze is a shared-trust dev environment and many VMs are expected to boot
+from the same Ubuntu image.
+
 ## Caddy and ACME Assumptions
 
 For public HTTPS to work:

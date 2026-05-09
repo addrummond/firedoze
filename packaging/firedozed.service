@@ -6,6 +6,9 @@ After=network-online.target
 
 [Service]
 Type=notify
+# Enable Linux Kernel Samepage Merging for identical running VM pages before
+# dropping to the firedoze user. Hosts without KSM support continue normally.
+ExecStartPre=+/bin/sh -c 'if [ -d /sys/kernel/mm/ksm ] && [ -w /sys/kernel/mm/ksm/run ]; then [ ! -w /sys/kernel/mm/ksm/pages_to_scan ] || echo 1000 >/sys/kernel/mm/ksm/pages_to_scan; [ ! -w /sys/kernel/mm/ksm/sleep_millisecs ] || echo 1000 >/sys/kernel/mm/ksm/sleep_millisecs; echo 1 >/sys/kernel/mm/ksm/run || true; fi; exit 0'
 ExecStart=/usr/bin/firedozed -config /etc/firedoze/firedoze.toml -setup-wireguard -serve
 Restart=on-failure
 RestartSec=5s

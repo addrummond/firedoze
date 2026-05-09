@@ -18,6 +18,12 @@ Use an x86_64 Linux box with:
 
 The systemd service runs as a dedicated `firedoze` system user, not as root. It uses Linux capabilities for the privileged network operations it still needs at runtime.
 
+Firedoze also enables Linux Kernel Samepage Merging on startup when the host
+supports it. KSM lets the kernel deduplicate identical memory pages across
+running VMs, which is useful when many Firedoze VMs boot from the same Ubuntu
+image. Sleeping VMs still use no running memory; KSM only helps VMs that are
+currently running.
+
 The current tested host is **Ubuntu 24.04.4 LTS (Noble Numbat)** with kernel
 `6.8.0-111-generic`, `ip6tables v1.8.10 (nf_tables)`, and `nftables v1.0.9`.
 Other modern Linux distributions should work, but this is the baseline we have
@@ -341,6 +347,9 @@ The daemon runs as the `firedoze` system user. It is not UID 0, but systemd gran
 - `CAP_NET_ADMIN` for WireGuard, TAP devices, routes, and related network setup.
 - `CAP_NET_BIND_SERVICE` for ports `80` and `443`.
 - `kvm` group membership for `/dev/kvm`.
+
+The unit also runs a root-only startup step that enables KSM before `firedozed`
+drops to the `firedoze` user. Hosts without KSM support continue normally.
 
 Config and key material under `/etc/firedoze` are not world-readable. Use `sudo firedozed ...` for admin helper commands such as `-wg-add-peer`, `-wg-peer-config`, and `-print-api-env`.
 

@@ -156,9 +156,13 @@ func run(args []string) int {
 	}
 
 	ctx := context.Background()
+	ops := host.NewLinuxOps(logger)
+
+	if err := ops.EnsureKSM(ctx); err != nil {
+		logger.Warn("enable KSM host memory deduplication", "error", err)
+	}
 
 	if setupWireGuard {
-		ops := host.NewLinuxOps(logger)
 		if err := ops.EnsureWireGuard(ctx, cfg.WireGuard); err != nil {
 			logger.Error("setup wireguard", "interface", cfg.WireGuard.Interface, "error", err)
 			return 1
