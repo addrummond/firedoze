@@ -93,6 +93,52 @@ func TestSplitUpArgs(t *testing.T) {
 	}
 }
 
+func TestParseRouteSignedURLTarget(t *testing.T) {
+	tests := []struct {
+		raw     string
+		host    string
+		next    string
+		wantErr bool
+	}{
+		{raw: "app.example.com", host: "app.example.com"},
+		{raw: "app.example.com/foo/bar", host: "app.example.com", next: "/foo/bar"},
+		{raw: "app.example.com/foo?x=1#frag", host: "app.example.com", next: "/foo?x=1#frag"},
+		{raw: "app.example.com?x=1", host: "app.example.com", next: "/?x=1"},
+		{raw: "https://app.example.com/foo/bar?x=1", host: "app.example.com", next: "/foo/bar?x=1"},
+		{raw: "app.example.com//evil", wantErr: true},
+		{raw: "https://app.example.com:8443/foo", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			host, next, err := parseRouteSignedURLTarget(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if host != tt.host || next != tt.next {
+				t.Fatalf("target = %q/%q, want %q/%q", host, next, tt.host, tt.next)
+			}
+		})
+	}
+}
+
+func TestAddSignedURLNext(t *testing.T) {
+	got, err := addSignedURLNext("https://app.example.com/_firedoze/auth?token=test", "/foo/bar?x=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "https://app.example.com/_firedoze/auth?") ||
+		!strings.Contains(got, "token=test") ||
+		!strings.Contains(got, "next=%2Ffoo%2Fbar%3Fx%3D1") {
+		t.Fatalf("signed URL = %s", got)
+	}
+}
+
 func TestNewClientAddsDefaultPort(t *testing.T) {
 	tests := []struct {
 		name string

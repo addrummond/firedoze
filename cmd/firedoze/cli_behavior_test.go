@@ -352,7 +352,7 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		{"delete", "web"},
 		{"protect", "secret.dev.test"},
 		{"unprotect", "secret.dev.test"},
-		{"get-signed-url", "secret.dev.test", "-ttl", "60"},
+		{"get-signed-url", "secret.dev.test/foo/bar", "-ttl", "60"},
 	} {
 		if err := a.route(args); err != nil {
 			t.Fatalf("route %#v: %v", args, err)
@@ -369,6 +369,12 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	}
 	if body["name"] != "web" || body["vm_uuid"] != "demo-uuid" || body["port"] != float64(8080) {
 		t.Fatalf("route create body = %#v", body)
+	}
+	if err := json.Unmarshal([]byte(requests[6].body), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["hostname"] != "secret.dev.test" || body["ttl_seconds"] != float64(60) {
+		t.Fatalf("signed URL body = %#v", body)
 	}
 }
 

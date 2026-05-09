@@ -998,9 +998,13 @@ func (a app) route(args []string) error {
 		}
 		return a.printJSONOrLine(out, fmt.Sprintf("%s unprotected", args[1]))
 	case "get-signed-url":
-		hostname, ttl, err := parseRouteSignedURLArgs(args[1:])
+		target, ttl, err := parseRouteSignedURLArgs(args[1:])
 		if err != nil {
-			return errors.New("usage: firedoze route get-signed-url <hostname> [-ttl seconds]")
+			return errors.New("usage: firedoze route get-signed-url <hostname[/path]> [-ttl seconds]")
+		}
+		hostname, next, err := parseRouteSignedURLTarget(target)
+		if err != nil {
+			return err
 		}
 		var out struct {
 			Hostname   string `json:"hostname"`
@@ -1010,6 +1014,12 @@ func (a app) route(args []string) error {
 		body := map[string]any{"hostname": hostname, "ttl_seconds": ttl}
 		if err := a.client.do(context.Background(), http.MethodPost, "/route-auth/signed-url", body, &out); err != nil {
 			return err
+		}
+		if next != "" {
+			out.URL, err = addSignedURLNext(out.URL, next)
+			if err != nil {
+				return err
+			}
 		}
 		if a.json {
 			return printJSON(out)
@@ -1047,6 +1057,81 @@ func parseRouteSignedURLArgs(args []string) (string, int, error) {
 		return "", 0, errors.New("missing hostname")
 	}
 	return hostname, ttl, nil
+}
+
+func parseRouteSignedURLTarget(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", errors.New("missing hostname")
+	}
+	if strings.Contains(raw, "://") {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return "", "", err
+		}
+		if parsed.Host == "" {
+			return "", "", errors.New("missing hostname")
+		}
+		if parsed.Port() != "" {
+			return "", "", errors.New("hostname must not include a port")
+		}
+		next := parsed.EscapedPath()
+		if next == "" {
+			next = parsed.Path
+		}
+		if next == "" {
+			next = "/"
+		}
+		if parsed.RawQuery != "" {
+			next += "?" + parsed.RawQuery
+		}
+		if parsed.Fragment != "" {
+			next += "#" + parsed.EscapedFragment()
+		}
+		next, err = normalizeSignedURLNext(next)
+		if err != nil {
+			return "", "", err
+		}
+		return parsed.Hostname(), next, nil
+	}
+	index := strings.IndexAny(raw, "/?#")
+	if index < 0 {
+		return raw, "", nil
+	}
+	hostname := raw[:index]
+	if hostname == "" {
+		return "", "", errors.New("missing hostname")
+	}
+	next := raw[index:]
+	if strings.HasPrefix(next, "?") || strings.HasPrefix(next, "#") {
+		next = "/" + next
+	}
+	next, err := normalizeSignedURLNext(next)
+	if err != nil {
+		return "", "", err
+	}
+	return hostname, next, nil
+}
+
+func normalizeSignedURLNext(next string) (string, error) {
+	if next == "" || next == "/" {
+		return "", nil
+	}
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		return "", errors.New("signed URL path must be a relative absolute path")
+	}
+	return next, nil
+}
+
+func addSignedURLNext(rawURL string, next string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	q := parsed.Query()
+	q.Set("next", next)
+	parsed.RawQuery = q.Encode()
+	return parsed.String(), nil
 }
 
 func (a app) up(args []string) error {
@@ -2228,7 +2313,7 @@ Commands:
   route delete <route>
   route protect <hostname>
   route unprotect <hostname>
-  route get-signed-url <hostname> [-ttl seconds]
+  route get-signed-url <hostname[/path]> [-ttl seconds]
   wg keygen
   wg pubkey [name]
   ssh <vm> [ssh args...]

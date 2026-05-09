@@ -264,6 +264,7 @@ Routes can also be protected explicitly, independently of whether the route or V
 firedoze route protect app.dev.example.com
 firedoze route unprotect app.dev.example.com
 firedoze route get-signed-url app.dev.example.com
+firedoze route get-signed-url app.dev.example.com/dashboard
 ```
 
 The route-auth signing key is generated automatically. On startup Firedoze reads the saved key from its runtime directory if present, immediately removes it from disk, and keeps it in memory. On SIGHUP and graceful shutdown Firedoze writes it back to the runtime directory. The packaged systemd unit uses `RuntimeDirectoryPreserve=restart`, so the key survives `systemctl restart firedozed` but is removed on `systemctl stop firedozed` and on host reboot. Losing the key only invalidates existing signed URLs and cookies.

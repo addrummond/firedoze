@@ -334,9 +334,10 @@ Protect a public hostname when you want only people with a signed access URL to 
 ```sh
 firedoze route protect app.dev.example.com
 firedoze route get-signed-url app.dev.example.com
+firedoze route get-signed-url app.dev.example.com/dashboard
 ```
 
-Signed access URLs last 24 hours by default. Use `-ttl seconds` to choose a shorter or longer lifetime.
+Signed access URLs last 24 hours by default. Use `-ttl seconds` to choose a shorter or longer lifetime. If you include a path after the hostname, the signed URL sets the cookie and then redirects the visitor to that path.
 
 Unprotect it later:
 

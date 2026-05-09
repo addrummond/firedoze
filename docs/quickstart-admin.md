@@ -450,10 +450,11 @@ Create a signed access URL for a protected hostname:
 
 ```sh
 firedoze route get-signed-url demo.example.com
+firedoze route get-signed-url demo.example.com/foo/bar
 firedoze route get-signed-url demo.example.com -ttl 3600
 ```
 
-The default signed URL lifetime is 24 hours. `-ttl` is in seconds.
+The default signed URL lifetime is 24 hours. `-ttl` is in seconds. If you include a path after the hostname, the signed URL sets the cookie and then redirects the visitor to that path.
 
 The route-auth signing key is generated automatically. Firedoze keeps it in memory while running, saves it to the systemd runtime directory on SIGHUP and graceful shutdown, and reads then removes the saved copy on startup. The packaged service preserves that runtime directory across `systemctl restart firedozed`, but removes it on `systemctl stop firedozed` and host reboot. If the key is lost, visitors just need a new signed URL or a fresh human check.
 
@@ -659,6 +660,7 @@ Protect the route before or after creating it:
 
 ```sh
 firedoze route protect app.dev.example.com
+firedoze route get-signed-url app.dev.example.com/dashboard
 firedoze route get-signed-url app.dev.example.com -ttl 86400
 ```
 
