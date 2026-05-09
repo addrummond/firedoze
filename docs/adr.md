@@ -371,6 +371,8 @@ Default guest OS is the pinned Ubuntu 26.04 LTS cloud image. The VM should feel 
 
 The base image should be built from pinned Ubuntu cloud image artifacts rather than from the minimal Firecracker quickstart image. Firedoze keeps using a plain ext4 root filesystem as `/dev/vda`, so the image builder turns the root tarball into `rootfs.ext4` and downloads the matching published `vmlinux.bin` and `initrd.img` boot artifacts. Artifact URLs and SHA-256 checksums are version-pinned in source; the builder has no release-selection option.
 
+Those pinned source constants are the v1 base-image lock. `manifest.txt` records the exact URLs, checksums, package versions, and guest helper hash used for each generated image. This is enough to reproduce the same artifact bytes while upstream Ubuntu continues serving that cloud-image serial and package artifacts. Operators that need stronger archival guarantees should mirror the manifest-listed artifacts into their own snapshot-capable storage; Firedoze does not maintain a separate Ubuntu mirror or external lockfile in v1.
+
 The image builder should be host-portable for development. v1 uses a native Go builder so the same script can run on macOS or Linux without Docker, Podman, root, mounting, or host ext4 filesystem support.
 
 Container runtimes are not part of the Firedoze host model or image build

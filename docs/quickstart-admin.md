@@ -174,6 +174,13 @@ Keep `manifest.txt` with any copied or archived base image. It records the
 Ubuntu release, cloud image serial, artifact URLs, SHA-256 checksums, extra
 package versions, and the Firedoze guest helper hash used for the build.
 
+The builder's pinned URLs and SHA-256 checksums are the current base-image
+lock. That gives repeatable rebuilds while Ubuntu continues serving the same
+cloud-image serial and package artifacts. If you need stronger long-term
+rebuild guarantees, archive the artifacts listed in `manifest.txt` in your own
+object store or snapshot-capable mirror before relying on that image for future
+rebuilds.
+
 Rebuild and reinstall the base image periodically to pick up Ubuntu security
 updates for newly created VMs:
 
