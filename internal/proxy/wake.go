@@ -194,7 +194,7 @@ func (p *WakeProxy) routeForHost(ctx context.Context, hostport string) (store.VM
 		return store.VM{}, 0, false
 	}
 	name := strings.TrimSuffix(host, suffix)
-	if name == "" || strings.Contains(name, ".") {
+	if name == "" {
 		return store.VM{}, 0, false
 	}
 

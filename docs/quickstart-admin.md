@@ -320,6 +320,11 @@ Set public wildcard DNS for web routes:
 *.dev.example.com -> your Firedoze host public IP
 ```
 
+Route aliases can be nested, for example `api.preview.dev.example.com`.
+Plain DNS wildcards usually match only one label, so add any extra wildcard
+levels you intend to use, such as `*.preview.dev.example.com`, or use DNS
+provider features that cover nested subdomains.
+
 Caddy obtains certificates automatically for each VM or route hostname. The host must be publicly reachable on ports `80` and `443`, and the wildcard DNS must point at the host.
 
 ### 2.5 Start firedozed
@@ -646,12 +651,14 @@ Create a public web route alias:
 
 ```sh
 firedoze route create app demo 8080
+firedoze route create api.preview demo 8080
 ```
 
 That route maps:
 
 ```text
 https://app.dev.example.com -> demo VM port 8080
+https://api.preview.dev.example.com -> demo VM port 8080
 ```
 
 If `demo` is sleeping when a request reaches `app.dev.example.com`, Firedoze wakes it before proxying the request. If wake takes longer than the client allows, retry the request.

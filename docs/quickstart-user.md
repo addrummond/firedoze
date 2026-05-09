@@ -321,12 +321,14 @@ Create another public route to a specific VM port:
 
 ```sh
 firedoze route create app demo 3000
+firedoze route create api.preview demo 3000
 ```
 
 Your admin's domain decides the final hostname, for example:
 
 ```text
 https://app.dev.example.com -> demo port 3000
+https://api.preview.dev.example.com -> demo port 3000
 ```
 
 Protect a public hostname when you want only people with a signed access URL to get through:

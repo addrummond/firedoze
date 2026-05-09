@@ -650,7 +650,7 @@ func TestRoutesUseStoreValidationAndProxyReconcile(t *testing.T) {
 	assertStatus(t, rec, http.StatusBadRequest)
 
 	rec = request(t, handler, http.MethodPost, "/routes", map[string]any{
-		"name":    "api",
+		"name":    "api.preview",
 		"vm_uuid": dev.UUID,
 		"port":    9000,
 	})
@@ -658,23 +658,23 @@ func TestRoutesUseStoreValidationAndProxyReconcile(t *testing.T) {
 	if proxy.calls != 1 {
 		t.Fatalf("proxy reconcile calls = %d, want 1", proxy.calls)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "https://api.dev.test") {
+	if body := rec.Body.String(); !strings.Contains(body, "https://api.preview.dev.test") {
 		t.Fatalf("route response did not include URL: %s", body)
 	}
 
 	rec = request(t, handler, http.MethodGet, "/routes", nil)
 	assertStatus(t, rec, http.StatusOK)
-	if !strings.Contains(rec.Body.String(), `"name": "api"`) {
+	if !strings.Contains(rec.Body.String(), `"name": "api.preview"`) {
 		t.Fatalf("route list did not include route: %s", rec.Body.String())
 	}
 
-	rec = request(t, handler, http.MethodDelete, "/routes/api", nil)
+	rec = request(t, handler, http.MethodDelete, "/routes/api.preview", nil)
 	assertStatus(t, rec, http.StatusOK)
 	if proxy.calls != 2 {
 		t.Fatalf("proxy reconcile calls = %d, want 2", proxy.calls)
 	}
 
-	rec = request(t, handler, http.MethodDelete, "/routes/api", nil)
+	rec = request(t, handler, http.MethodDelete, "/routes/api.preview", nil)
 	assertStatus(t, rec, http.StatusNotFound)
 }
 

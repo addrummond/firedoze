@@ -299,9 +299,10 @@ Additional public HTTPS aliases are explicit API-managed mappings:
 
 ```text
 {route}.dev.example.com -> vm:port
+api.preview.dev.example.com -> vm:port
 ```
 
-Route names are globally unique DNS-safe labels.
+Route names are globally unique relative hostnames: one or more DNS-safe labels separated by dots. VM names remain single-label, but route aliases can be nested arbitrarily under the configured base domain.
 
 Routes may target any guest TCP port number, but the target service must speak HTTP. WebSockets should work through Caddy. Raw TCP forwarding and TLS passthrough are not v1 features.
 

@@ -496,8 +496,8 @@ func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !validDNSLabel(req.Name) {
-		writeError(w, http.StatusBadRequest, errors.New("name must contain only lowercase letters, numbers, and hyphens"))
+	if !validRouteName(req.Name) {
+		writeError(w, http.StatusBadRequest, errors.New("route name must be one or more lowercase DNS labels separated by dots"))
 		return
 	}
 	if req.VMUUID == "" {
@@ -931,6 +931,16 @@ func validVMName(name string) bool {
 
 func validDNSLabel(name string) bool {
 	return vmNamePattern.MatchString(name)
+}
+
+func validRouteName(name string) bool {
+	parts := strings.Split(name, ".")
+	for _, part := range parts {
+		if !validDNSLabel(part) {
+			return false
+		}
+	}
+	return true
 }
 
 func validSnapshotName(name string) bool {

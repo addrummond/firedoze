@@ -125,7 +125,7 @@ func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api", VMUUID: vm.UUID, Port: 9000}); err != nil {
+	if _, err := st.CreateRoute(context.Background(), store.CreateRouteParams{Name: "api.v1", VMUUID: vm.UUID, Port: 9000}); err != nil {
 		t.Fatal(err)
 	}
 	proxy := NewWakeProxy(testConfig(), st, &fakeStarter{}, nil)
@@ -134,11 +134,11 @@ func TestWakeProxyRouteForHostDefaultAliasAndHostNormalization(t *testing.T) {
 	if !ok || vm.Name != "demo" || port != 8080 {
 		t.Fatalf("default route = %#v/%d/%v", vm, port, ok)
 	}
-	vm, port, ok = proxy.routeForHost(context.Background(), "api.example.test.")
+	vm, port, ok = proxy.routeForHost(context.Background(), "api.v1.example.test.")
 	if !ok || vm.Name != "demo" || port != 9000 {
 		t.Fatalf("alias route = %#v/%d/%v", vm, port, ok)
 	}
-	for _, host := range []string{"demo.other.test", "nested.demo.example.test", "example.test"} {
+	for _, host := range []string{"demo.other.test", "missing.nested.example.test", "example.test"} {
 		if _, _, ok := proxy.routeForHost(context.Background(), host); ok {
 			t.Fatalf("routeForHost(%q) matched unexpectedly", host)
 		}

@@ -327,12 +327,12 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/routes":
-			_, _ = io.WriteString(w, `{"routes":[{"name":"web","vm_name":"demo","port":8080}]}`)
+			_, _ = io.WriteString(w, `{"routes":[{"name":"web.api","vm_name":"demo","port":8080}]}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/vms-by-name/demo":
 			_, _ = io.WriteString(w, `{"vm":{"uuid":"demo-uuid","name":"demo","state":"running"}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/routes":
-			_, _ = io.WriteString(w, `{"route":{"name":"web","vm_name":"demo","port":8080}}`)
-		case r.Method == http.MethodDelete && r.URL.Path == "/routes/web":
+			_, _ = io.WriteString(w, `{"route":{"name":"web.api","vm_name":"demo","port":8080}}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/routes/web.api":
 			_, _ = io.WriteString(w, `{"status":"deleted"}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/route-protections":
 			_, _ = io.WriteString(w, `{"hostname":"secret.dev.test","status":"protected"}`)
@@ -348,8 +348,8 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	a := app{client: testClient(t, handler), json: true}
 	for _, args := range [][]string{
 		{"list"},
-		{"create", "web", "demo", "8080"},
-		{"delete", "web"},
+		{"create", "web.api", "demo", "8080"},
+		{"delete", "web.api"},
 		{"protect", "secret.dev.test"},
 		{"unprotect", "secret.dev.test"},
 		{"get-signed-url", "secret.dev.test/foo/bar", "-ttl", "60"},
@@ -359,7 +359,7 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 		}
 	}
 	got := requestKeys(requests)
-	want := []string{"GET /routes", "GET /vms-by-name/demo", "POST /routes", "DELETE /routes/web", "POST /route-protections", "DELETE /route-protections/secret.dev.test", "POST /route-auth/signed-url"}
+	want := []string{"GET /routes", "GET /vms-by-name/demo", "POST /routes", "DELETE /routes/web.api", "POST /route-protections", "DELETE /route-protections/secret.dev.test", "POST /route-auth/signed-url"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %#v, want %#v", got, want)
 	}
@@ -367,7 +367,7 @@ func TestRouteCommandsUseExpectedEndpointsAndBodies(t *testing.T) {
 	if err := json.Unmarshal([]byte(requests[2].body), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["name"] != "web" || body["vm_uuid"] != "demo-uuid" || body["port"] != float64(8080) {
+	if body["name"] != "web.api" || body["vm_uuid"] != "demo-uuid" || body["port"] != float64(8080) {
 		t.Fatalf("route create body = %#v", body)
 	}
 	if err := json.Unmarshal([]byte(requests[6].body), &body); err != nil {
