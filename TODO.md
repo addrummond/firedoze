@@ -8,3 +8,5 @@
 - Make sure that all API 404 responses are explicit about WHAT doesn't exist.
 - Explore adopting running Firecracker processes across daemon restarts if less disruptive upgrades become important.
 - Show some kind of progress bar for snapshot import/export.
+- Can I map arbitrarily nested subdomains to endpoints?
+- What if I try to create a VM but the default subdomain is already mapped to another VM? I think we took care of that, but make sure.
