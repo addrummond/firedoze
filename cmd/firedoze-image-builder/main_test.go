@@ -378,7 +378,10 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-guest-network", "accept_dad=0")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "modprobe zram")
 	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-zram", "swapon -p 100")
+	assertExt4FileContains(t, efs, "usr/local/sbin/firedoze-grow-root", "resize2fs /dev/vda")
 	assertExt4Missing(t, efs, "usr/local/sbin/firedoze-slim")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-grow-root.service", "ExecStart=/usr/local/sbin/firedoze-grow-root")
+	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-grow-root.service", "Before=firedoze-network.service firedoze-sshd.service")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "ExecStart=/usr/local/sbin/firedoze-guest-network")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-network.service", "After=local-fs.target sys-subsystem-net-devices-eth0.device")
 	assertExt4FileContains(t, efs, "etc/systemd/system/firedoze-zram.service", "ExecStart=/usr/local/sbin/firedoze-zram")
@@ -408,6 +411,9 @@ func TestCustomizeGuestWritesGuestContract(t *testing.T) {
 	}
 	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-sshd.service"); target != "/etc/systemd/system/firedoze-sshd.service" {
 		t.Fatalf("firedoze-sshd enable symlink -> %q", target)
+	}
+	if target := readExt4Link(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-grow-root.service"); target != "/etc/systemd/system/firedoze-grow-root.service" {
+		t.Fatalf("firedoze-grow-root enable symlink -> %q", target)
 	}
 	assertExt4Missing(t, efs, "etc/systemd/system/sysinit.target.wants/firedoze-zram.service")
 	if target := readExt4Link(t, efs, "etc/systemd/system/multi-user.target.wants/firedoze-zram.service"); target != "/etc/systemd/system/firedoze-zram.service" {

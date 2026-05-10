@@ -1198,85 +1198,86 @@ func newGuestOverlay() *guestOverlay {
 			},
 		},
 		symlinks: map[string]string{
-			"etc/systemd/system/apparmor.service":                              "/dev/null",
-			"etc/systemd/system/snapd.apparmor.service":                        "/dev/null",
-			"etc/systemd/system/ssh.socket":                                    "/dev/null",
-			"etc/systemd/system/cloud-init.service":                            "/dev/null",
-			"etc/systemd/system/cloud-init-local.service":                      "/dev/null",
-			"etc/systemd/system/cloud-config.service":                          "/dev/null",
-			"etc/systemd/system/cloud-final.service":                           "/dev/null",
-			"etc/systemd/system/cloud-init-main.service":                       "/dev/null",
-			"etc/systemd/system/cloud-init-network.service":                    "/dev/null",
-			"etc/systemd/system/cloud-init.target":                             "/dev/null",
-			"etc/systemd/system/systemd-networkd-wait-online.service":          "/dev/null",
-			"etc/systemd/system/systemd-binfmt.service":                        "/dev/null",
-			"etc/systemd/system/proc-sys-fs-binfmt_misc.mount":                 "/dev/null",
-			"etc/systemd/system/multipathd.service":                            "/dev/null",
-			"etc/systemd/system/multipathd.socket":                             "/dev/null",
-			"etc/systemd/system/open-iscsi.service":                            "/dev/null",
-			"etc/systemd/system/iscsid.socket":                                 "/dev/null",
-			"etc/systemd/system/lvm2-monitor.service":                          "/dev/null",
-			"etc/systemd/system/dm-event.socket":                               "/dev/null",
-			"etc/systemd/system/lvm2-lvmpolld.socket":                          "/dev/null",
-			"etc/systemd/system/snapd.service":                                 "/dev/null",
-			"etc/systemd/system/snapd.socket":                                  "/dev/null",
-			"etc/systemd/system/snapd.seeded.service":                          "/dev/null",
-			"etc/systemd/system/snapd.autoimport.service":                      "/dev/null",
-			"etc/systemd/system/snapd.core-fixup.service":                      "/dev/null",
-			"etc/systemd/system/snapd.recovery-chooser-trigger.service":        "/dev/null",
-			"etc/systemd/system/snapd.snap-repair.timer":                       "/dev/null",
-			"etc/systemd/system/snapd.system-shutdown.service":                 "/dev/null",
-			"etc/systemd/system/unattended-upgrades.service":                   "/dev/null",
-			"etc/systemd/system/apt-daily.service":                             "/dev/null",
-			"etc/systemd/system/apt-daily.timer":                               "/dev/null",
-			"etc/systemd/system/apt-daily-upgrade.service":                     "/dev/null",
-			"etc/systemd/system/apt-daily-upgrade.timer":                       "/dev/null",
-			"etc/systemd/system/man-db.service":                                "/dev/null",
-			"etc/systemd/system/man-db.timer":                                  "/dev/null",
-			"etc/systemd/system/motd-news.timer":                               "/dev/null",
-			"etc/systemd/system/update-notifier-download.timer":                "/dev/null",
-			"etc/systemd/system/update-notifier-motd.timer":                    "/dev/null",
-			"etc/systemd/system/sysstat-collect.timer":                         "/dev/null",
-			"etc/systemd/system/sysstat-rotate.timer":                          "/dev/null",
-			"etc/systemd/system/sysstat-summary.timer":                         "/dev/null",
-			"etc/systemd/system/sysstat.service":                               "/dev/null",
-			"etc/systemd/system/pollinate.service":                             "/dev/null",
-			"etc/systemd/system/networkd-dispatcher.service":                   "/dev/null",
-			"etc/systemd/system/ModemManager.service":                          "/dev/null",
-			"etc/systemd/system/udisks2.service":                               "/dev/null",
-			"etc/systemd/system/polkit.service":                                "/dev/null",
-			"etc/systemd/system/e2scrub_reap.service":                          "/dev/null",
-			"etc/systemd/system/e2scrub_all.timer":                             "/dev/null",
-			"etc/systemd/system/xfs_scrub_all.timer":                           "/dev/null",
-			"etc/systemd/system/fstrim.timer":                                  "/dev/null",
-			"etc/systemd/system/fwupd-refresh.timer":                           "/dev/null",
-			"etc/systemd/system/dpkg-db-backup.timer":                          "/dev/null",
-			"etc/systemd/system/logrotate.timer":                               "/dev/null",
-			"etc/systemd/system/mdcheck_continue.timer":                        "/dev/null",
-			"etc/systemd/system/mdcheck_start.timer":                           "/dev/null",
-			"etc/systemd/system/mdmonitor-oneshot.timer":                       "/dev/null",
-			"etc/systemd/system/lxd-installer.socket":                          "/dev/null",
-			"etc/systemd/system/open-vm-tools.service":                         "/dev/null",
-			"etc/systemd/system/vgauth.service":                                "/dev/null",
-			"etc/systemd/system/secureboot-db.service":                         "/dev/null",
-			"etc/systemd/system/ua-reboot-cmds.service":                        "/dev/null",
-			"etc/systemd/system/ubuntu-advantage.service":                      "/dev/null",
-			"etc/systemd/system/ua-timer.timer":                                "/dev/null",
-			"etc/systemd/system/systemd-pstore.service":                        "/dev/null",
-			"etc/systemd/system/apport-autoreport.path":                        "/dev/null",
-			"etc/systemd/system/apport-autoreport.timer":                       "/dev/null",
-			"etc/systemd/system/apport-forward.socket":                         "/dev/null",
-			"etc/systemd/system/tpm-udev.path":                                 "/dev/null",
-			"etc/systemd/system/rsyslog.service":                               "/dev/null",
-			"etc/systemd/system/qemu-guest-agent.service":                      "/dev/null",
-			"etc/systemd/system/ufw.service":                                   "/dev/null",
-			"etc/systemd/system/apport.service":                                "/dev/null",
-			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                  "",
-			"etc/systemd/system/sockets.target.wants/ssh.socket":               "",
-			"etc/systemd/system/sysinit.target.wants/firedoze-network.service": "/etc/systemd/system/firedoze-network.service",
-			"etc/systemd/system/sysinit.target.wants/firedoze-sshd.service":    "/etc/systemd/system/firedoze-sshd.service",
-			"etc/systemd/system/multi-user.target.wants/firedoze-memd.service": "/etc/systemd/system/firedoze-memd.service",
-			"etc/systemd/system/multi-user.target.wants/firedoze-zram.service": "/etc/systemd/system/firedoze-zram.service",
+			"etc/systemd/system/apparmor.service":                                "/dev/null",
+			"etc/systemd/system/snapd.apparmor.service":                          "/dev/null",
+			"etc/systemd/system/ssh.socket":                                      "/dev/null",
+			"etc/systemd/system/cloud-init.service":                              "/dev/null",
+			"etc/systemd/system/cloud-init-local.service":                        "/dev/null",
+			"etc/systemd/system/cloud-config.service":                            "/dev/null",
+			"etc/systemd/system/cloud-final.service":                             "/dev/null",
+			"etc/systemd/system/cloud-init-main.service":                         "/dev/null",
+			"etc/systemd/system/cloud-init-network.service":                      "/dev/null",
+			"etc/systemd/system/cloud-init.target":                               "/dev/null",
+			"etc/systemd/system/systemd-networkd-wait-online.service":            "/dev/null",
+			"etc/systemd/system/systemd-binfmt.service":                          "/dev/null",
+			"etc/systemd/system/proc-sys-fs-binfmt_misc.mount":                   "/dev/null",
+			"etc/systemd/system/multipathd.service":                              "/dev/null",
+			"etc/systemd/system/multipathd.socket":                               "/dev/null",
+			"etc/systemd/system/open-iscsi.service":                              "/dev/null",
+			"etc/systemd/system/iscsid.socket":                                   "/dev/null",
+			"etc/systemd/system/lvm2-monitor.service":                            "/dev/null",
+			"etc/systemd/system/dm-event.socket":                                 "/dev/null",
+			"etc/systemd/system/lvm2-lvmpolld.socket":                            "/dev/null",
+			"etc/systemd/system/snapd.service":                                   "/dev/null",
+			"etc/systemd/system/snapd.socket":                                    "/dev/null",
+			"etc/systemd/system/snapd.seeded.service":                            "/dev/null",
+			"etc/systemd/system/snapd.autoimport.service":                        "/dev/null",
+			"etc/systemd/system/snapd.core-fixup.service":                        "/dev/null",
+			"etc/systemd/system/snapd.recovery-chooser-trigger.service":          "/dev/null",
+			"etc/systemd/system/snapd.snap-repair.timer":                         "/dev/null",
+			"etc/systemd/system/snapd.system-shutdown.service":                   "/dev/null",
+			"etc/systemd/system/unattended-upgrades.service":                     "/dev/null",
+			"etc/systemd/system/apt-daily.service":                               "/dev/null",
+			"etc/systemd/system/apt-daily.timer":                                 "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.service":                       "/dev/null",
+			"etc/systemd/system/apt-daily-upgrade.timer":                         "/dev/null",
+			"etc/systemd/system/man-db.service":                                  "/dev/null",
+			"etc/systemd/system/man-db.timer":                                    "/dev/null",
+			"etc/systemd/system/motd-news.timer":                                 "/dev/null",
+			"etc/systemd/system/update-notifier-download.timer":                  "/dev/null",
+			"etc/systemd/system/update-notifier-motd.timer":                      "/dev/null",
+			"etc/systemd/system/sysstat-collect.timer":                           "/dev/null",
+			"etc/systemd/system/sysstat-rotate.timer":                            "/dev/null",
+			"etc/systemd/system/sysstat-summary.timer":                           "/dev/null",
+			"etc/systemd/system/sysstat.service":                                 "/dev/null",
+			"etc/systemd/system/pollinate.service":                               "/dev/null",
+			"etc/systemd/system/networkd-dispatcher.service":                     "/dev/null",
+			"etc/systemd/system/ModemManager.service":                            "/dev/null",
+			"etc/systemd/system/udisks2.service":                                 "/dev/null",
+			"etc/systemd/system/polkit.service":                                  "/dev/null",
+			"etc/systemd/system/e2scrub_reap.service":                            "/dev/null",
+			"etc/systemd/system/e2scrub_all.timer":                               "/dev/null",
+			"etc/systemd/system/xfs_scrub_all.timer":                             "/dev/null",
+			"etc/systemd/system/fstrim.timer":                                    "/dev/null",
+			"etc/systemd/system/fwupd-refresh.timer":                             "/dev/null",
+			"etc/systemd/system/dpkg-db-backup.timer":                            "/dev/null",
+			"etc/systemd/system/logrotate.timer":                                 "/dev/null",
+			"etc/systemd/system/mdcheck_continue.timer":                          "/dev/null",
+			"etc/systemd/system/mdcheck_start.timer":                             "/dev/null",
+			"etc/systemd/system/mdmonitor-oneshot.timer":                         "/dev/null",
+			"etc/systemd/system/lxd-installer.socket":                            "/dev/null",
+			"etc/systemd/system/open-vm-tools.service":                           "/dev/null",
+			"etc/systemd/system/vgauth.service":                                  "/dev/null",
+			"etc/systemd/system/secureboot-db.service":                           "/dev/null",
+			"etc/systemd/system/ua-reboot-cmds.service":                          "/dev/null",
+			"etc/systemd/system/ubuntu-advantage.service":                        "/dev/null",
+			"etc/systemd/system/ua-timer.timer":                                  "/dev/null",
+			"etc/systemd/system/systemd-pstore.service":                          "/dev/null",
+			"etc/systemd/system/apport-autoreport.path":                          "/dev/null",
+			"etc/systemd/system/apport-autoreport.timer":                         "/dev/null",
+			"etc/systemd/system/apport-forward.socket":                           "/dev/null",
+			"etc/systemd/system/tpm-udev.path":                                   "/dev/null",
+			"etc/systemd/system/rsyslog.service":                                 "/dev/null",
+			"etc/systemd/system/qemu-guest-agent.service":                        "/dev/null",
+			"etc/systemd/system/ufw.service":                                     "/dev/null",
+			"etc/systemd/system/apport.service":                                  "/dev/null",
+			"etc/ssh/sshd_config.d/60-cloudimg-settings.conf":                    "",
+			"etc/systemd/system/sockets.target.wants/ssh.socket":                 "",
+			"etc/systemd/system/sysinit.target.wants/firedoze-grow-root.service": "/etc/systemd/system/firedoze-grow-root.service",
+			"etc/systemd/system/sysinit.target.wants/firedoze-network.service":   "/etc/systemd/system/firedoze-network.service",
+			"etc/systemd/system/sysinit.target.wants/firedoze-sshd.service":      "/etc/systemd/system/firedoze-sshd.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-memd.service":   "/etc/systemd/system/firedoze-memd.service",
+			"etc/systemd/system/multi-user.target.wants/firedoze-zram.service":   "/etc/systemd/system/firedoze-zram.service",
 		},
 		skipPrefixes: []string{
 			"usr/share/doc/",
@@ -1767,6 +1768,29 @@ echo "firedoze-zram: enabled $dev size=${size_mib}MiB" >&2
 `,
 		},
 		{
+			path: "usr/local/sbin/firedoze-grow-root",
+			mode: 0o755,
+			data: `#!/bin/sh
+set -eu
+
+root_dev="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+case "$root_dev" in
+  /dev/vda) ;;
+  *)
+    echo "firedoze-grow-root: root device is $root_dev, expected /dev/vda; skipping" >&2
+    exit 0
+    ;;
+esac
+
+if ! command -v resize2fs >/dev/null 2>&1; then
+  echo "firedoze-grow-root: resize2fs not found; skipping" >&2
+  exit 0
+fi
+
+resize2fs /dev/vda
+`,
+		},
+		{
 			path: "usr/local/bin/firedoze-hello",
 			mode: 0o755,
 			data: `#!/bin/sh
@@ -2022,6 +2046,26 @@ StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
+`,
+		},
+		{
+			path: "etc/systemd/system/firedoze-grow-root.service",
+			mode: 0o644,
+			data: `[Unit]
+Description=Grow firedoze root filesystem to the virtual disk size
+DefaultDependencies=no
+After=local-fs.target
+Before=firedoze-network.service firedoze-sshd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/firedoze-grow-root
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=sysinit.target
 `,
 		},
 		{

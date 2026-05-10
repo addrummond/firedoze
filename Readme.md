@@ -48,7 +48,7 @@ Firedoze is heavily inspired by [Sprites](https://sprites.dev/). It borrows the 
 - **Named snapshots and clones** — script a golden environment, clone it for everyone on the team.
 - **Ordinary SSH** — use `ssh`, `scp`, `rsync`, and VS Code Remote SSH against VMs like normal Linux boxes.
 - **One CLI** covering the full lifecycle: create, ssh, copy files, manage routes, snapshot, restore.
-- **Dynamic resourcing**: VM RAM allocation grows and shrinks with demand; disk space grows with demand.
+- **Dynamic resourcing**: VM RAM allocation grows and shrinks with demand; host disk space is consumed as VM disks are written.
 
 ## Quick example
 

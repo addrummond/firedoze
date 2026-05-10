@@ -159,11 +159,12 @@ to under pressure. When pressure goes away, Firedoze gradually asks the VM to
 give hotplugged memory back, down to the configured minimum.
 
 VM disk size is different. The configured disk size is the capacity the guest
-sees, not necessarily the amount of host disk consumed immediately. On a server
-using XFS or another reflink/sparse-file capable filesystem, new VM disks should
-be cheap to create and mostly consume host space as the VM writes new data. If
-the guest deletes files, guest free space increases, but host disk allocation may
-not shrink automatically.
+filesystem sees after the VM first boots, not necessarily the amount of host disk
+consumed immediately. On a server using XFS or another reflink/sparse-file
+capable filesystem, new VM disks should be cheap to create and mostly consume
+host space as the VM writes new data. If the guest deletes files, guest free
+space increases, but host disk allocation may not shrink automatically.
+
 Create one or more VMs (hidden from public web by default, not started):
 
 ```sh
