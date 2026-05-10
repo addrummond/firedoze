@@ -218,7 +218,7 @@ func Default() Config {
 			BaseKernelPath:      "/var/lib/firedoze/images/vmlinux.bin",
 			BaseRootfsPath:      "/var/lib/firedoze/images/rootfs.ext4",
 			DefaultVCPUs:        1,
-			DefaultMemoryMinMiB: 512,
+			DefaultMemoryMinMiB: 384,
 			DefaultMemoryMaxMiB: 1024,
 			DefaultDiskBytes:    512 * 1024 * 1024,
 		},

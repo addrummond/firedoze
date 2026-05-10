@@ -885,7 +885,7 @@ base_kernel_path = "/var/lib/firedoze/images/vmlinux.bin"
 base_initrd_path = "/var/lib/firedoze/images/initrd.img"
 base_rootfs_path = "/var/lib/firedoze/images/rootfs.ext4"
 default_vcpus = 1
-default_memory_min_mib = 512
+default_memory_min_mib = 384
 default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
 ```

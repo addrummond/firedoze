@@ -105,7 +105,7 @@ Low-cost options include small dedicated servers from providers like [Hetzner](h
 
 Nested virtualization tends not to be cost effective. It is useful for testing small Firedoze deployments without the commitment of a dedicated server, but is not recommended for sustained use.
 
-Each VM requires around 512MB RAM to boot reliably.
+Each VM boots with a 384MB default minimum RAM allocation, then grows when the host supports Firecracker memory hotplug.
 
 ## Documentation
 
