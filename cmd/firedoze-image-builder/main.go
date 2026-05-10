@@ -1665,12 +1665,22 @@ while true; do
   target=""
 
   if [ "$total" -gt 0 ] && [ "$available" -gt 0 ]; then
-    if [ "$available" -lt $((total / 5)) ]; then
-      target=$((total + 128))
+    grow_threshold=$((total / 3))
+    if [ "$grow_threshold" -lt 256 ]; then
+      grow_threshold=256
+    fi
+    shrink_threshold=$((total * 2 / 3))
+    swap_used=0
+    if [ "$swap_total" -gt 0 ] && [ "$swap_free" -lt $((swap_total * 9 / 10)) ]; then
+      swap_used=1
+    fi
+
+    if [ "$available" -lt "$grow_threshold" ] || [ "$swap_used" -eq 1 ]; then
+      target=$((total + 256))
       spare_count=0
-    elif [ "$available" -gt $((total / 2)) ]; then
+    elif [ "$available" -gt "$shrink_threshold" ]; then
       spare_count=$((spare_count + 1))
-      if [ "$spare_count" -ge 12 ]; then
+      if [ "$spare_count" -ge 60 ]; then
         target=$((total - 128))
         spare_count=0
       fi
@@ -1685,7 +1695,7 @@ while true; do
     last_target="$target"
   fi
   post_report "$report_target"
-  sleep 5
+  sleep 1
 done
 `,
 		},
