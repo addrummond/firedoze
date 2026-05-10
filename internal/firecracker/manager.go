@@ -72,6 +72,7 @@ type Manager struct {
 	coldArchives             map[string]*coldArchiveOperation
 	guestMemoryReports       map[string]model.GuestMemoryReport
 	copyColdFile             func(context.Context, string, string) error
+	resizeDiskImage          func(context.Context, string) error
 	rewriteGuestIdentityFunc func(context.Context, string, string) error
 	cgroups                  *cgroup.Manager
 
@@ -110,6 +111,7 @@ func NewManager(cfg config.Config, st *store.Store, logger *slog.Logger) *Manage
 		coldArchives:       make(map[string]*coldArchiveOperation),
 		guestMemoryReports: make(map[string]model.GuestMemoryReport),
 		copyColdFile:       copyRegularFile,
+		resizeDiskImage:    resizeExt4Image,
 	}
 	cgroups, err := cgroup.New(cgroup.DefaultRoot)
 	if err != nil {
@@ -293,6 +295,9 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, snapshotName string, para
 		if err := os.Truncate(layout.diskPath, params.DiskBytes); err != nil {
 			return store.VM{}, err
 		}
+	}
+	if err := m.resizeDiskImage(ctx, layout.diskPath); err != nil {
+		return store.VM{}, fmt.Errorf("resize snapshot disk filesystem: %w", err)
 	}
 	if err := m.rewriteGuestIdentity(ctx, layout.diskPath, params.Name); err != nil {
 		return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
@@ -742,6 +747,9 @@ func (m *Manager) StartVM(ctx context.Context, vmUUID string) (store.VM, error) 
 		return store.VM{}, fmt.Errorf("prepare disk: %w", err)
 	}
 	if diskCreated {
+		if err := m.resizeDiskImage(ctx, layout.diskPath); err != nil {
+			return store.VM{}, fmt.Errorf("resize disk filesystem: %w", err)
+		}
 		if err := m.rewriteGuestIdentity(ctx, layout.diskPath, vm.Name); err != nil {
 			return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
 		}
@@ -1491,6 +1499,10 @@ func copyFile(dst string, src string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func resizeExt4Image(ctx context.Context, path string) error {
+	return run(ctx, "resize2fs", path)
 }
 
 func copyRegularFile(ctx context.Context, dst string, src string) error {

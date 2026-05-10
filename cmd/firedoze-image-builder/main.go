@@ -1787,7 +1787,8 @@ if ! command -v resize2fs >/dev/null 2>&1; then
   exit 0
 fi
 
-resize2fs /dev/vda
+resize2fs /dev/vda || echo "firedoze-grow-root: resize2fs failed; continuing" >&2
+exit 0
 `,
 		},
 		{

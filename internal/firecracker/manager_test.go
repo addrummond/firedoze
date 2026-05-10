@@ -64,6 +64,7 @@ func configureTestBaseImage(t *testing.T, m *Manager) {
 	m.cfg.Firecracker.BaseRootfsPath = rootfs
 	m.cfg.Firecracker.BaseKernelPath = kernel
 	m.cfg.Firecracker.BaseInitrdPath = initrd
+	m.resizeDiskImage = func(context.Context, string) error { return nil }
 }
 
 func TestCreateVMDefaultsAndBaseImageMetadata(t *testing.T) {
@@ -276,6 +277,11 @@ func TestRestoreSnapshotCopiesDiskAndMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rewrittenDisk, rewrittenName string
+	var resizedDisk string
+	m.resizeDiskImage = func(_ context.Context, diskPath string) error {
+		resizedDisk = diskPath
+		return nil
+	}
 	m.rewriteGuestIdentityFunc = func(_ context.Context, diskPath string, vmName string) error {
 		rewrittenDisk = diskPath
 		rewrittenName = vmName
@@ -298,6 +304,9 @@ func TestRestoreSnapshotCopiesDiskAndMetadata(t *testing.T) {
 	}
 	if rewrittenDisk != m.layout("copy").diskPath || rewrittenName != "copy" {
 		t.Fatalf("rewrite called with %q/%q", rewrittenDisk, rewrittenName)
+	}
+	if resizedDisk != m.layout("copy").diskPath {
+		t.Fatalf("resize called with %q, want %q", resizedDisk, m.layout("copy").diskPath)
 	}
 
 	_, err = m.RestoreSnapshot(ctx, "snap", store.CreateVMParams{Name: "copy"})
