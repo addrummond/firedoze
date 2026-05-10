@@ -176,18 +176,26 @@ func proxyConn(a net.Conn, b net.Conn) {
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(a, b)
-		_ = a.Close()
+		closeConnWrite(a)
 		done <- struct{}{}
 	}()
 	go func() {
 		_, _ = io.Copy(b, a)
-		_ = b.Close()
+		closeConnWrite(b)
 		done <- struct{}{}
 	}()
 	<-done
+	<-done
 	_ = a.Close()
 	_ = b.Close()
-	<-done
+}
+
+func closeConnWrite(conn net.Conn) {
+	if closeWriter, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = closeWriter.CloseWrite()
+		return
+	}
+	_ = conn.Close()
 }
 
 func readBrokerLine(conn net.Conn) (string, error) {

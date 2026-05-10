@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/tabwriter"
 	"time"
 
@@ -1329,8 +1330,8 @@ func (a app) sshProxy(args []string) error {
 		return err
 	}
 	defer conn.Close()
-	stopActivity := a.activityHeartbeat(vm)
-	defer stopActivity()
+	activity := a.activitySession(vm)
+	defer activity.Stop()
 
 	input := a.proxyInput
 	if input == nil {
@@ -1340,7 +1341,7 @@ func (a app) sshProxy(args []string) error {
 	if output == nil {
 		output = os.Stdout
 	}
-	return proxyConnection(conn, input, output)
+	return proxyConnection(conn, input, output, activity.Touch)
 }
 
 func (a app) exec(args []string) error {
@@ -1434,11 +1435,42 @@ func (a app) touchVMActivityByUUID(vmUUID string) error {
 	return a.client.do(ctx, http.MethodPost, "/vms/"+url.PathEscape(vmUUID)+"/activity", nil, &out)
 }
 
-func (a app) activityHeartbeat(vm vmInfo) func() {
+type activitySession struct {
+	stop  func()
+	touch func()
+}
+
+func (s activitySession) Stop() {
+	if s.stop != nil {
+		s.stop()
+	}
+}
+
+func (s activitySession) Touch() {
+	if s.touch != nil {
+		s.touch()
+	}
+}
+
+func (a app) activitySession(vm vmInfo) activitySession {
 	_ = a.touchVMActivityByUUID(vm.UUID)
 	interval := activityHeartbeatInterval(vm)
 	if interval <= 0 {
-		return func() {}
+		return activitySession{}
+	}
+	var lastTouch atomic.Int64
+	lastTouch.Store(time.Now().UnixNano())
+	touchInterval := activityTrafficTouchInterval(vm)
+	touch := func() {
+		now := time.Now()
+		last := time.Unix(0, lastTouch.Load())
+		if now.Sub(last) < touchInterval {
+			return
+		}
+		if !lastTouch.CompareAndSwap(last.UnixNano(), now.UnixNano()) {
+			return
+		}
+		_ = a.touchVMActivityByUUID(vm.UUID)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -1452,12 +1484,16 @@ func (a app) activityHeartbeat(vm vmInfo) func() {
 				return
 			case <-ticker.C:
 				_ = a.touchVMActivityByUUID(vm.UUID)
+				lastTouch.Store(time.Now().UnixNano())
 			}
 		}
 	}()
-	return func() {
-		cancel()
-		<-done
+	return activitySession{
+		stop: func() {
+			cancel()
+			<-done
+		},
+		touch: touch,
 	}
 }
 
@@ -1467,8 +1503,19 @@ func activityHeartbeatInterval(vm vmInfo) time.Duration {
 		return 0
 	}
 	interval := time.Duration(seconds) * time.Second / 4
-	if interval < 10*time.Second {
-		return 10 * time.Second
+	if interval < time.Second {
+		return time.Second
+	}
+	return interval
+}
+
+func activityTrafficTouchInterval(vm vmInfo) time.Duration {
+	interval := activityHeartbeatInterval(vm)
+	if interval <= 0 {
+		return 0
+	}
+	if interval > time.Minute {
+		return time.Minute
 	}
 	return interval
 }
@@ -1562,10 +1609,10 @@ func rsyncRemote(user string, host string, path string) string {
 	return fmt.Sprintf("%s@%s:%s", user, host, path)
 }
 
-func proxyConnection(conn net.Conn, input io.Reader, output io.Writer) error {
+func proxyConnection(conn net.Conn, input io.Reader, output io.Writer, onActivity func()) error {
 	errs := make(chan error, 2)
 	go func() {
-		_, err := io.Copy(conn, input)
+		_, err := io.Copy(conn, activityReader{reader: input, onActivity: onActivity})
 		if closeWriter, ok := conn.(interface{ CloseWrite() error }); ok {
 			if closeErr := closeWriter.CloseWrite(); err == nil {
 				err = closeErr
@@ -1576,7 +1623,7 @@ func proxyConnection(conn net.Conn, input io.Reader, output io.Writer) error {
 		errs <- err
 	}()
 	go func() {
-		_, err := io.Copy(output, conn)
+		_, err := io.Copy(output, activityReader{reader: conn, onActivity: onActivity})
 		_ = conn.Close()
 		errs <- err
 	}()
@@ -1590,6 +1637,19 @@ func proxyConnection(conn net.Conn, input io.Reader, output io.Writer) error {
 		joined = errors.Join(joined, err)
 	}
 	return joined
+}
+
+type activityReader struct {
+	reader     io.Reader
+	onActivity func()
+}
+
+func (r activityReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 && r.onActivity != nil {
+		r.onActivity()
+	}
+	return n, err
 }
 
 func ignoreProxyCopyError(err error) bool {
@@ -1649,8 +1709,8 @@ func (a app) run(cmd *exec.Cmd) error {
 }
 
 func (a app) runWithActivity(vm vmInfo, cmd *exec.Cmd) error {
-	stopActivity := a.activityHeartbeat(vm)
-	defer stopActivity()
+	activity := a.activitySession(vm)
+	defer activity.Stop()
 	return a.run(cmd)
 }
 

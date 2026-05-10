@@ -821,8 +821,50 @@ func TestActivityHeartbeatIntervalUsesConfiguredIdleTimeout(t *testing.T) {
 	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 60}}); got != 15*time.Second {
 		t.Fatalf("override heartbeat interval = %s, want 15s", got)
 	}
-	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 20}}); got != 10*time.Second {
-		t.Fatalf("short timeout heartbeat interval = %s, want 10s floor", got)
+	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 20}}); got != 5*time.Second {
+		t.Fatalf("short timeout heartbeat interval = %s, want 5s", got)
+	}
+	if got := activityHeartbeatInterval(vmInfo{VM: model.VM{IdleSleepAfterSeconds: 2}}); got != time.Second {
+		t.Fatalf("very short timeout heartbeat interval = %s, want 1s floor", got)
+	}
+}
+
+func TestProxyConnectionReportsTrafficActivity(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+
+	inputReader, inputWriter := io.Pipe()
+	var output bytes.Buffer
+	activity := make(chan struct{}, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- proxyConnection(client, inputReader, &output, func() {
+			activity <- struct{}{}
+		})
+	}()
+
+	if _, err := io.WriteString(inputWriter, "client hello"); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, len("client hello"))
+	if _, err := io.ReadFull(server, buf); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(server, "server hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := inputWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = server.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "server hello" {
+		t.Fatalf("proxy output = %q, want server hello", output.String())
+	}
+	if got := len(activity); got < 2 {
+		t.Fatalf("activity callbacks = %d, want at least 2", got)
 	}
 }
 
