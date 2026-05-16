@@ -149,8 +149,22 @@ func TestEnsureFirewallConfiguresIP6Tables(t *testing.T) {
 		"/usr/sbin/ip6tables -I INPUT 1 -j FIREDOZE-VM",
 		"/usr/sbin/ip6tables -C FORWARD -j FIREDOZE-VM",
 		"/usr/sbin/ip6tables -I FORWARD 1 -j FIREDOZE-VM",
+		"/usr/sbin/iptables -N FIREDOZE-VM",
+		"/usr/sbin/iptables -F FIREDOZE-VM",
+		"/usr/sbin/iptables -A FIREDOZE-VM -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+		"/usr/sbin/iptables -A FIREDOZE-VM -i fdtap+ -d 10.88.0.0/16 -j ACCEPT",
+		"/usr/sbin/iptables -A FIREDOZE-VM -i fdtap+ -s 10.88.0.0/16 -j ACCEPT",
+		"/usr/sbin/iptables -A FIREDOZE-VM -i lo -d 10.88.0.0/16 -j ACCEPT",
+		"/usr/sbin/iptables -A FIREDOZE-VM -d 10.88.0.0/16 -j DROP",
+		"/usr/sbin/iptables -A FIREDOZE-VM -j RETURN",
+		"/usr/sbin/iptables -C INPUT -j FIREDOZE-VM",
+		"/usr/sbin/iptables -I INPUT 1 -j FIREDOZE-VM",
+		"/usr/sbin/iptables -C FORWARD -j FIREDOZE-VM",
+		"/usr/sbin/iptables -I FORWARD 1 -j FIREDOZE-VM",
 		"/usr/sbin/ip6tables -t nat -C POSTROUTING -s fd7a:115c:a1e0::/64 ! -d fd7a:115c:a1e0::/64 -j MASQUERADE",
 		"/usr/sbin/ip6tables -t nat -A POSTROUTING -s fd7a:115c:a1e0::/64 ! -d fd7a:115c:a1e0::/64 -j MASQUERADE",
+		"/usr/sbin/iptables -t nat -C POSTROUTING -s 10.88.0.0/16 ! -d 10.88.0.0/16 -j MASQUERADE",
+		"/usr/sbin/iptables -t nat -A POSTROUTING -s 10.88.0.0/16 ! -d 10.88.0.0/16 -j MASQUERADE",
 	}
 	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("commands:\n%s\n\nwant:\n%s", strings.Join(commands, "\n"), strings.Join(want, "\n"))
@@ -245,6 +259,20 @@ func TestEnsureFirewallErrors(t *testing.T) {
 			want: "vm_network.subnet must be IPv6",
 		},
 		{
+			name: "bad guest ipv4 subnet",
+			mutate: func(cfg *config.Config) {
+				cfg.VMNetwork.IPv4Subnet = "bad"
+			},
+			want: "vm_network.ipv4_subnet",
+		},
+		{
+			name: "guest ipv4 subnet is ipv6",
+			mutate: func(cfg *config.Config) {
+				cfg.VMNetwork.IPv4Subnet = "fd00::/64"
+			},
+			want: "vm_network.ipv4_subnet must be IPv4",
+		},
+		{
 			name: "missing wireguard interface",
 			mutate: func(cfg *config.Config) {
 				cfg.WireGuard.Interface = ""
@@ -258,7 +286,7 @@ func TestEnsureFirewallErrors(t *testing.T) {
 					return []byte("permission denied"), errors.New("exit 1")
 				}
 			},
-			want: "create firewall chain",
+			want: "create IPv6 firewall chain",
 		},
 	}
 	for _, tt := range tests {

@@ -17,6 +17,7 @@ func TestInitTOMLSSLIPHostUsesSSLIPAndRandomNetworks(t *testing.T) {
 		`endpoint = "203.0.113.10:51820"`,
 		`address = "fd`,
 		`subnet = "fd`,
+		`ipv4_subnet = "10.88.0.0/16"`,
 		`[dns]`,
 		`domain = "firedoze"`,
 		"firedozed -wg-add-peer alice-laptop <ALICE_PUBLIC_KEY>",

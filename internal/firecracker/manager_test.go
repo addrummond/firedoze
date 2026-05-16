@@ -37,7 +37,9 @@ func newTestManager(t *testing.T) (*Manager, *store.Store) {
 	cfg := config.Default()
 	cfg.StateDir = filepath.Join(dir, "state")
 	cfg.Metadata.Path = filepath.Join(dir, "firedoze.db")
-	return NewManager(cfg, st, slog.New(slog.NewTextHandler(os.Stderr, nil))), st
+	m := NewManager(cfg, st, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	m.rewriteGuestNetworkFunc = func(context.Context, string) error { return nil }
+	return m, st
 }
 
 func configureTestBaseImage(t *testing.T, m *Manager) {
@@ -1005,14 +1007,16 @@ func TestRunningVMNamesSortedAndStartVMsIgnoresAlreadyRunning(t *testing.T) {
 func TestBootArgsDNSAndHelpers(t *testing.T) {
 	m, _ := newTestManager(t)
 	netdev := preparedNetwork{
-		hostIP:  net.ParseIP("fd00::2"),
-		guestIP: net.ParseIP("fd00::3"),
+		hostIP:    net.ParseIP("fd00::2"),
+		guestIP:   net.ParseIP("fd00::3"),
+		hostIPv4:  net.ParseIP("10.88.0.2"),
+		guestIPv4: net.ParseIP("10.88.0.3"),
 	}
 	m.cfg.DNS.Enabled = true
 	m.cfg.DNS.ListenIP = "fd00::1"
 	m.cfg.DNS.Domain = "firedoze"
 	args := m.bootArgs(netdev)
-	for _, want := range []string{"quiet", "loglevel=3", "systemd.show_status=false", "rd.systemd.show_status=false", "firedoze.guest_ip=fd00::3", "firedoze.host_ip=fd00::2", "firedoze.dns_ip=fd00::1", "firedoze.dns_domain=firedoze"} {
+	for _, want := range []string{"quiet", "loglevel=3", "systemd.show_status=false", "rd.systemd.show_status=false", "firedoze.guest_ip=fd00::3", "firedoze.host_ip=fd00::2", "firedoze.guest_ipv4=10.88.0.3", "firedoze.host_ipv4=10.88.0.2", "firedoze.dns_ip=fd00::1", "firedoze.dns_domain=firedoze"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("boot args %q missing %q", args, want)
 		}
@@ -1029,6 +1033,28 @@ func TestBootArgsDNSAndHelpers(t *testing.T) {
 	}
 	if mac := macForVMName("demo"); !strings.HasPrefix(mac, "06:00:") || mac != macForVMName("demo") {
 		t.Fatalf("macForVMName = %q", mac)
+	}
+}
+
+func TestPrivateIPv4PairFollowsIPv6GuestOffset(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.cfg.VMNetwork.Subnet = "fd00::/64"
+	m.cfg.VMNetwork.IPv4Subnet = "10.88.0.0/16"
+
+	host, guest, err := m.privateIPv4Pair(net.ParseIP("fd00::3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.String() != "10.88.0.2" || guest.String() != "10.88.0.3" {
+		t.Fatalf("IPv4 pair = %s/%s, want 10.88.0.2/10.88.0.3", host, guest)
+	}
+
+	host, guest, err = m.privateIPv4Pair(net.ParseIP("fd00::205"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host.String() != "10.88.2.4" || guest.String() != "10.88.2.5" {
+		t.Fatalf("IPv4 pair = %s/%s, want 10.88.2.4/10.88.2.5", host, guest)
 	}
 }
 

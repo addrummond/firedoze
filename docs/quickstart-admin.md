@@ -296,7 +296,7 @@ Open these inbound ports to the host:
 - UDP `51820` for WireGuard.
 - TCP `80` and `443` for public web routes.
 
-Firedoze can install host firewall rules for its private IPv6 VM subnet when
+Firedoze can install host firewall rules for its private VM subnets when
 `firedozed` starts with `-setup-wireguard`. The generated config enables this
 with:
 
@@ -306,13 +306,14 @@ enabled = true
 backend = "ip6tables"
 ```
 
-When enabled, `backend` is required. Only `ip6tables` is implemented for now.
-The rules allow WireGuard clients, VM-to-VM traffic, VM outbound internet
-traffic, local host proxying, and established replies, while blocking new
-traffic from ordinary LAN/public interfaces into the VM private subnet. Because
-Firedoze VMs use private IPv6 addresses, this also installs IPv6 masquerading
-for outbound VM traffic. Set `enabled = false` only if you are managing
-equivalent firewall and outbound NAT policy yourself.
+When enabled, `backend` is required. The `ip6tables` backend currently manages
+both `ip6tables` and `iptables`. The rules allow WireGuard clients to reach the
+IPv6 VM subnet, VM-to-VM traffic, VM outbound internet traffic, local host
+proxying, and established replies, while blocking new traffic from ordinary
+LAN/public interfaces into the VM private subnets. Because Firedoze VMs use
+private addresses, this also installs IPv6 and IPv4 masquerading for outbound VM
+traffic. Set `enabled = false` only if you are managing equivalent firewall and
+outbound NAT policy yourself.
 
 Set public wildcard DNS for web routes:
 
@@ -857,6 +858,7 @@ allowed_ips = ["fd7a:115c:a1e1::2/128"]
 
 [vm_network]
 subnet = "fd7a:115c:a1e0::/64"
+ipv4_subnet = "10.88.0.0/16"
 
 [caddy]
 http_port = 80

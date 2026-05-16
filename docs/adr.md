@@ -109,12 +109,12 @@ Firedoze should make WireGuard easy without asking admins to generate or see dev
 
 ## Host Firewall
 
-The daemon can manage a small host firewall boundary for the private IPv6 VM
-subnet. It allows WireGuard clients, VM-to-VM traffic, VM outbound internet
-traffic, host-local proxy traffic, and established replies. It drops new traffic
-from ordinary LAN/public interfaces into the VM subnet. Because VM addresses are
-private IPv6 ULA addresses, it also installs IPv6 masquerading for outbound VM
-traffic.
+The daemon can manage a small host firewall boundary for the private VM
+subnets. It allows WireGuard clients to reach the IPv6 VM subnet, VM-to-VM
+traffic, VM outbound internet traffic, host-local proxy traffic, and established
+replies. It drops new traffic from ordinary LAN/public interfaces into the VM
+subnets. Because VM addresses are private, it installs masquerading for outbound
+VM IPv6 and IPv4 traffic.
 
 Host firewalling is configured explicitly:
 
@@ -125,8 +125,9 @@ backend = "ip6tables"
 ```
 
 When `enabled = true`, `backend` is required. There are no `auto` or `none`
-backend values. Only `ip6tables` is implemented initially; future versions may
-add an `nftables` backend for RHEL/CentOS-style hosts.
+backend values. The `ip6tables` backend currently manages both `ip6tables` and
+`iptables`; future versions may add an `nftables` backend for RHEL/CentOS-style
+hosts.
 
 Cloud firewall/security-group setup remains outside Firedoze. Operators still
 need to expose only the intended public ports to the host.
@@ -227,9 +228,9 @@ There is no SSH jump service and no public SSH.
 
 VM private IPs do not need to be stable across sleep/resume or clone operations, but API responses should expose them for debugging.
 
-The Firecracker implementation uses one TAP device per VM, created and configured through Linux netlink rather than shelling out to `ip`. Each VM gets a `/127` host/guest point-to-point pair inside `vm_network.subnet`: the even address is assigned to the host TAP and the odd address is passed to the guest as a kernel argument.
+The Firecracker implementation uses one TAP device per VM, created and configured through Linux netlink rather than shelling out to `ip`. Each VM gets a `/127` host/guest IPv6 point-to-point pair inside `vm_network.subnet`: the even address is assigned to the host TAP and the odd address is passed to the guest as a kernel argument. It also gets a private IPv4 `/31` pair derived from the same address offset inside `vm_network.ipv4_subnet`; IPv4 is NAT-only egress by default and is not routed to WireGuard clients.
 
-The guest default route points at the host-side address for its `/127`. WireGuard clients receive IPv6 routes for both the management address and the VM subnet.
+The guest default routes point at the host-side addresses for its IPv6 `/127` and IPv4 `/31`. WireGuard clients receive IPv6 routes for both the management address and the VM subnet.
 
 ## SSH
 
@@ -383,7 +384,7 @@ Container runtimes are not part of the Firedoze host model or image build
 pipeline. Users can still install daemonless tools such as Podman, Buildah, and
 crun inside a VM when a particular project benefits from containers.
 
-The guest image carries a tiny Firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, and optional DNS kernel arguments, then configures `eth0` with the guest `/127` IPv6 address and default route through the host-side address.
+The guest image carries a tiny Firedoze network service. At boot, it reads `firedoze.guest_ip`, `firedoze.host_ip`, optional `firedoze.guest_ipv4` and `firedoze.host_ipv4`, and optional DNS kernel arguments, then configures `eth0` with the guest private addresses and default routes through the host-side addresses.
 
 The guest image includes `firedoze-stop`, which stops a VM from inside its own
 shell. On x86_64 Firecracker this wraps `reboot`, because `reboot` exits the

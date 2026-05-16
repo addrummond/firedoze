@@ -47,14 +47,17 @@ private_key_file = "/etc/firedoze/wg.key"
 
 [host_firewall]
 enabled = true
-# Required when host firewalling is enabled. Only "ip6tables" is implemented
-# for now; future versions may add an nftables backend.
+# Required when host firewalling is enabled. The "ip6tables" backend manages
+# both ip6tables and iptables rules; future versions may add nftables.
 backend = "ip6tables"
 
 [vm_network]
 # Private IPv6 ULA range used for VM addresses. Change it if it overlaps with
 # another routed IPv6 range on your network.
 subnet = "fd7a:115c:a1e0::/64"
+# Private IPv4 range used only for VM outbound NAT. New inbound IPv4 forwarding
+# to this subnet is blocked by the Firedoze firewall.
+ipv4_subnet = "10.88.0.0/16"
 
 [dns]
 enabled = true

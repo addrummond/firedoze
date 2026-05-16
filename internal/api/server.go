@@ -173,7 +173,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"peers":       len(s.cfg.WireGuard.Peers),
 		},
 		"vm_network": map[string]any{
-			"subnet": s.cfg.VMNetwork.Subnet,
+			"subnet":      s.cfg.VMNetwork.Subnet,
+			"ipv4_subnet": s.cfg.VMNetwork.IPv4Subnet,
 		},
 		"guest_control": map[string]any{
 			"memory_port": s.cfg.GuestControl.MemoryPort,

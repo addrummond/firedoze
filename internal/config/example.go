@@ -6,10 +6,11 @@ import (
 )
 
 type ConfigTemplate struct {
-	BaseDomain string
-	Endpoint   string
-	WGAddress  string
-	VMSubnet   string
+	BaseDomain   string
+	Endpoint     string
+	WGAddress    string
+	VMSubnet     string
+	VMIPv4Subnet string
 }
 
 func RenderExample(t ConfigTemplate) string {
@@ -24,6 +25,9 @@ func RenderExample(t ConfigTemplate) string {
 	}
 	if t.VMSubnet == "" {
 		t.VMSubnet = "fd7a:115c:a1e0::/64"
+	}
+	if t.VMIPv4Subnet == "" {
+		t.VMIPv4Subnet = "10.88.0.0/16"
 	}
 	baseDomainComment := ""
 	if t.BaseDomain == "dev.example.com" {
@@ -76,8 +80,8 @@ private_key_file = "/etc/firedoze/wg.key"
 
 [host_firewall]
 enabled = true
-# Required when host firewalling is enabled. Only "ip6tables" is implemented
-# for now; future versions may add an nftables backend.
+# Required when host firewalling is enabled. The "ip6tables" backend manages
+# both ip6tables and iptables rules; future versions may add nftables.
 backend = "ip6tables"
 
 [guest_control]
@@ -88,6 +92,9 @@ memory_port = 18084
 # Private IPv6 ULA range used for VM addresses. Change it if it overlaps with
 # another routed IPv6 range on your network.
 subnet = %q
+# Private IPv4 range used only for VM outbound NAT. New inbound IPv4 forwarding
+# to this subnet is blocked by the Firedoze firewall.
+ipv4_subnet = %q
 
 [dns]
 enabled = true
@@ -124,5 +131,5 @@ default_vcpus = 1
 default_memory_min_mib = 384
 default_memory_max_mib = 1024
 default_disk_bytes = 4294967296
-`, baseDomainComment, t.BaseDomain, t.WGAddress, endpointComment, t.Endpoint, t.VMSubnet)
+`, baseDomainComment, t.BaseDomain, t.WGAddress, endpointComment, t.Endpoint, t.VMSubnet, t.VMIPv4Subnet)
 }

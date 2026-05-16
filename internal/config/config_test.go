@@ -157,6 +157,8 @@ func TestConfigValidateErrors(t *testing.T) {
 		{name: "host firewall backend invalid", mutate: func(c *Config) { c.HostFirewall.Backend = "nftables" }, want: "host_firewall.backend must be ip6tables"},
 		{name: "vm subnet cidr", mutate: func(c *Config) { c.VMNetwork.Subnet = "bad" }, want: "vm_network.subnet must be CIDR"},
 		{name: "vm subnet ipv4", mutate: func(c *Config) { c.VMNetwork.Subnet = "10.88.0.0/16" }, want: "vm_network.subnet must be IPv6"},
+		{name: "vm ipv4 subnet cidr", mutate: func(c *Config) { c.VMNetwork.IPv4Subnet = "bad" }, want: "vm_network.ipv4_subnet must be CIDR"},
+		{name: "vm ipv4 subnet ipv6", mutate: func(c *Config) { c.VMNetwork.IPv4Subnet = "fd7a:115c:a1e0::/64" }, want: "vm_network.ipv4_subnet must be IPv4"},
 		{name: "dns domain empty", mutate: func(c *Config) { c.DNS.Domain = "" }, want: "dns.domain is required"},
 		{name: "dns domain url", mutate: func(c *Config) { c.DNS.Domain = "https://firedoze" }, want: "dns.domain must be a DNS name"},
 		{name: "dns listen ip", mutate: func(c *Config) { c.DNS.ListenIP = "bad" }, want: "dns.listen_ip must be an IP address"},

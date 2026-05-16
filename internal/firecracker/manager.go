@@ -26,6 +26,7 @@ import (
 
 	"firedoze/internal/cgroup"
 	"firedoze/internal/config"
+	"firedoze/internal/guestfiles"
 	"firedoze/internal/model"
 	"firedoze/internal/store"
 
@@ -74,6 +75,7 @@ type Manager struct {
 	copyColdFile             func(context.Context, string, string) error
 	resizeDiskImage          func(context.Context, string) error
 	rewriteGuestIdentityFunc func(context.Context, string, string) error
+	rewriteGuestNetworkFunc  func(context.Context, string) error
 	cgroups                  *cgroup.Manager
 
 	metadataMu    sync.Mutex
@@ -754,6 +756,9 @@ func (m *Manager) StartVM(ctx context.Context, vmUUID string) (store.VM, error) 
 			return store.VM{}, fmt.Errorf("rewrite guest identity: %w", err)
 		}
 	}
+	if err := m.rewriteGuestNetworkHelper(ctx, layout.diskPath); err != nil {
+		return store.VM{}, fmt.Errorf("rewrite guest network helper: %w", err)
+	}
 	netdev, err := m.prepareNetwork(ctx, vm)
 	if err != nil {
 		return store.VM{}, fmt.Errorf("prepare network: %w", err)
@@ -837,6 +842,10 @@ func (m *Manager) bootArgs(netdev preparedNetwork) string {
 	args := "console=ttyS0 reboot=k panic=1 net.ifnames=0 root=/dev/vda rw memhp_default_state=online_movable quiet loglevel=3 systemd.show_status=false rd.systemd.show_status=false"
 	args += " firedoze.guest_ip=" + netdev.guestIP.String()
 	args += " firedoze.host_ip=" + netdev.hostIP.String()
+	if netdev.guestIPv4 != nil && netdev.hostIPv4 != nil {
+		args += " firedoze.guest_ipv4=" + netdev.guestIPv4.String()
+		args += " firedoze.host_ipv4=" + netdev.hostIPv4.String()
+	}
 	args += fmt.Sprintf(" firedoze.memory_port=%d", m.cfg.GuestControl.MemoryPort)
 	if m.cfg.DNS.Enabled {
 		args += " firedoze.dns_ip=" + m.cfg.DNS.ListenIP
@@ -1060,6 +1069,8 @@ type preparedNetwork struct {
 	guestCIDR string
 	hostIP    net.IP
 	guestIP   net.IP
+	hostIPv4  net.IP
+	guestIPv4 net.IP
 }
 
 func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetwork, error) {
@@ -1078,6 +1089,10 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 	hostIP, err := decrementIP(guestIP)
 	if err != nil {
 		return preparedNetwork{}, fmt.Errorf("private_ip %s has invalid /127 host peer: %w", vm.PrivateIP, err)
+	}
+	hostIPv4, guestIPv4, err := m.privateIPv4Pair(guestIP)
+	if err != nil {
+		return preparedNetwork{}, err
 	}
 
 	tapName := tapName(vm.Name)
@@ -1105,11 +1120,23 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
+	ipv4Addr, err := netlink.ParseAddr(hostIPv4.String() + "/31")
+	if err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
+	if err := netlink.AddrReplace(link, ipv4Addr); err != nil {
+		_ = deleteTap(tapName)
+		return preparedNetwork{}, err
+	}
 	if err := netlink.LinkSetUp(link); err != nil {
 		_ = deleteTap(tapName)
 		return preparedNetwork{}, err
 	}
 	if err := enableIPv6Forwarding(); err != nil {
+		return preparedNetwork{}, err
+	}
+	if err := enableIPv4Forwarding(); err != nil {
 		return preparedNetwork{}, err
 	}
 	guestCIDR := guestIP.String() + "/127"
@@ -1120,6 +1147,8 @@ func (m *Manager) prepareNetwork(ctx context.Context, vm store.VM) (preparedNetw
 		guestCIDR: guestCIDR,
 		hostIP:    hostIP,
 		guestIP:   guestIP,
+		hostIPv4:  hostIPv4,
+		guestIPv4: guestIPv4,
 	}, nil
 }
 
@@ -1180,6 +1209,56 @@ func enableIPv6Forwarding() error {
 	return os.WriteFile("/proc/sys/net/ipv6/conf/all/forwarding", []byte("1\n"), 0o644)
 }
 
+func enableIPv4Forwarding() error {
+	return os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1\n"), 0o644)
+}
+
+func (m *Manager) privateIPv4Pair(guestIPv6 net.IP) (net.IP, net.IP, error) {
+	guestIPv6 = guestIPv6.To16()
+	if guestIPv6 == nil || guestIPv6.To4() != nil {
+		return nil, nil, fmt.Errorf("private_ip must be IPv6")
+	}
+	_, ipv6Subnet, err := net.ParseCIDR(m.cfg.VMNetwork.Subnet)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
+	}
+	ipv6Base := ipv6Subnet.IP.To16()
+	if ipv6Base == nil || ipv6Base.To4() != nil {
+		return nil, nil, errors.New("vm_network.subnet must be IPv6")
+	}
+	if !ipv6Subnet.Contains(guestIPv6) {
+		return nil, nil, fmt.Errorf("private_ip %s is outside vm_network.subnet %s", guestIPv6, ipv6Subnet)
+	}
+	offset := new(big.Int).Sub(new(big.Int).SetBytes(guestIPv6.To16()), new(big.Int).SetBytes(ipv6Base))
+	if offset.Sign() <= 0 || offset.Bit(0) == 0 {
+		return nil, nil, fmt.Errorf("private_ip %s must be an odd guest address in a /127 pair", guestIPv6)
+	}
+	if !offset.IsInt64() {
+		return nil, nil, fmt.Errorf("private_ip %s offset does not fit IPv4 subnet", guestIPv6)
+	}
+
+	ipv4Base, ipv4Subnet, err := net.ParseCIDR(m.cfg.VMNetwork.IPv4Subnet)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vm_network.ipv4_subnet must be CIDR: %w", err)
+	}
+	ipv4Base = ipv4Base.To4()
+	if ipv4Base == nil {
+		return nil, nil, errors.New("vm_network.ipv4_subnet must be IPv4")
+	}
+	guestIPv4, err := addToIPv4(ipv4Base, offset.Int64())
+	if err != nil {
+		return nil, nil, err
+	}
+	hostIPv4, err := addToIPv4(ipv4Base, offset.Int64()-1)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ipv4Subnet.Contains(hostIPv4) || !ipv4Subnet.Contains(guestIPv4) {
+		return nil, nil, fmt.Errorf("vm IPv4 subnet exhausted: %s", ipv4Subnet)
+	}
+	return hostIPv4, guestIPv4, nil
+}
+
 func addToIP(ip net.IP, offset int64) (net.IP, error) {
 	value := new(big.Int).SetBytes(ip.To16())
 	value.Add(value, big.NewInt(offset))
@@ -1193,6 +1272,19 @@ func addToIP(ip net.IP, offset int64) (net.IP, error) {
 	out := make(net.IP, net.IPv6len)
 	copy(out[net.IPv6len-len(bytes):], bytes)
 	return out, nil
+}
+
+func addToIPv4(ip net.IP, offset int64) (net.IP, error) {
+	base := ip.To4()
+	if base == nil {
+		return nil, fmt.Errorf("IP is not IPv4: %s", ip)
+	}
+	value := int64(uint32(base[0])<<24 | uint32(base[1])<<16 | uint32(base[2])<<8 | uint32(base[3]))
+	value += offset
+	if value < 0 || value > 0xffffffff {
+		return nil, fmt.Errorf("IPv4 overflow")
+	}
+	return net.IPv4(byte(value>>24), byte(value>>16), byte(value>>8), byte(value)), nil
 }
 
 func decrementIP(ip net.IP) (net.IP, error) {
@@ -1631,6 +1723,13 @@ func (m *Manager) rewriteGuestIdentity(ctx context.Context, diskPath string, vmN
 	}
 
 	return rewriteSSHHostKeys(ctx, diskPath)
+}
+
+func (m *Manager) rewriteGuestNetworkHelper(ctx context.Context, diskPath string) error {
+	if m.rewriteGuestNetworkFunc != nil {
+		return m.rewriteGuestNetworkFunc(ctx, diskPath)
+	}
+	return writeGuestFileMode(ctx, diskPath, "/usr/local/sbin/firedoze-guest-network", []byte(guestfiles.NetworkScript), "0100755")
 }
 
 func writeGuestFile(ctx context.Context, diskPath string, guestPath string, data []byte) error {

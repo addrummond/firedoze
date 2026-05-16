@@ -124,7 +124,8 @@ type GuestControlConfig struct {
 }
 
 type VMNetworkConfig struct {
-	Subnet string `toml:"subnet"`
+	Subnet     string `toml:"subnet"`
+	IPv4Subnet string `toml:"ipv4_subnet"`
 }
 
 type DNSConfig struct {
@@ -193,7 +194,8 @@ func Default() Config {
 			MemoryPort: 18084,
 		},
 		VMNetwork: VMNetworkConfig{
-			Subnet: "fd7a:115c:a1e0::/64",
+			Subnet:     "fd7a:115c:a1e0::/64",
+			IPv4Subnet: "10.88.0.0/16",
 		},
 		DNS: DNSConfig{
 			Enabled:         true,
@@ -274,6 +276,9 @@ func (c *Config) applyDerivedDefaults() error {
 	if c.ColdStorage.ArchiveStoppedAfterSeconds == 0 {
 		c.ColdStorage.ArchiveStoppedAfterSeconds = 30 * 24 * 60 * 60
 	}
+	if c.VMNetwork.IPv4Subnet == "" {
+		c.VMNetwork.IPv4Subnet = "10.88.0.0/16"
+	}
 	if c.DNS.Enabled {
 		if c.DNS.Domain == "" {
 			c.DNS.Domain = "firedoze"
@@ -345,6 +350,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("vm_network.subnet must be CIDR: %w", err)
 	} else if ip.To4() != nil {
 		return fmt.Errorf("vm_network.subnet must be IPv6")
+	}
+	if ip, _, err := net.ParseCIDR(c.VMNetwork.IPv4Subnet); err != nil {
+		return fmt.Errorf("vm_network.ipv4_subnet must be CIDR: %w", err)
+	} else if ip.To4() == nil {
+		return fmt.Errorf("vm_network.ipv4_subnet must be IPv4")
 	}
 	if c.DNS.Enabled {
 		if c.DNS.Domain == "" {
