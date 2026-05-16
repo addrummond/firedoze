@@ -505,6 +505,29 @@ func TestRsyncCopyCommandUsesPrivateIPAndPasswordlessGuestAuth(t *testing.T) {
 	}
 }
 
+func TestRsyncCopyCommandQuotesProxyCommandForRsyncShell(t *testing.T) {
+	src, dst, err := parseCopyEndpoints("./id_ed25519", "whatsoverbow:/home/ubuntu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := rsyncCopyCommandWithProxy(vmInfo{
+		VM: model.VM{
+			Name:      "whatsoverbow",
+			PrivateIP: "fd7a:115c:a1e0::3",
+		},
+		SSH: "ssh ubuntu@whatsoverbow.example.com",
+	}, src, dst, "/usr/local/bin/firedoze -server nuc ssh-proxy whatsoverbow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got[3], "-o 'ProxyCommand=/usr/local/bin/firedoze -server nuc ssh-proxy whatsoverbow'") {
+		t.Fatalf("rsync ssh transport = %q", got[3])
+	}
+	if got[4] != "./id_ed25519" || got[5] != "ubuntu@whatsoverbow:/home/ubuntu" {
+		t.Fatalf("rsync endpoints = %#v", got[4:])
+	}
+}
+
 func TestParseCopyEndpointsRequiresExactlyOneRemote(t *testing.T) {
 	if _, _, err := parseCopyEndpoints("./a", "./b"); err == nil {
 		t.Fatal("parseCopyEndpoints accepted two local endpoints")

@@ -1593,7 +1593,7 @@ func rsyncCopyCommandWithProxy(vm vmInfo, src copyEndpoint, dst copyEndpoint, pr
 	if proxyCommand != "" {
 		remoteHost = vm.Name
 	}
-	args := []string{"rsync", "-a", "-e", strings.Join(sshTransportCommand(proxyCommand), " ")}
+	args := []string{"rsync", "-a", "-e", shellJoin(sshTransportCommand(proxyCommand))}
 	if src.remote() {
 		args = append(args, rsyncRemote(remoteUser, remoteHost, src.path), dst.path)
 	} else {
