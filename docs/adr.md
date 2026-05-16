@@ -176,6 +176,8 @@ This keeps the metadata database local without requiring cgo or a C compiler for
 
 No external database is used.
 
+Schema changes are managed with embedded SQL migrations under `internal/store/migrations`, using `github.com/golang-migrate/migrate/v4` with the pure-Go SQLite driver. The initial migration is intentionally idempotent so databases created before the migration system can self-baseline on startup.
+
 ## VM Identity
 
 VM UUIDs are immutable and are the primary key in the database and API.
